@@ -3,7 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: lexgen_postgres
+    container_name: central_jvo_postgres
     restart: always
     environment:
       POSTGRES_USER: lexgen
@@ -16,7 +16,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: lexgen_redis
+    container_name: central_jvo_redis
     restart: always
     ports:
       - "6379:6379"
@@ -25,7 +25,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
-    container_name: lexgen_pgadmin
+    container_name: central_jvo_pgadmin
     restart: always
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com

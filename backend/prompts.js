@@ -1,5 +1,5 @@
 /**
- * Sistema LexGen - Prompts de Inteligência Artificial
+ * Sistema Central JVO - Prompts de Inteligência Artificial
  * Este arquivo centraliza as instruções enviadas ao Gemini para garantir
  * consistência e facilitar a manutenção da lógica jurídica.
  */

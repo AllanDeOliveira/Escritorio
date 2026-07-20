@@ -148,7 +148,7 @@ function App() {
   const [systemStatus, setSystemStatus] = useState<{ online: boolean, gemini: string, storage: string }>({ online: true, gemini: 'checking', storage: 'ok' });
   const [lastCheck, setLastCheck] = useState<Date>(new Date());
 
-  const [systemName, setSystemName] = useState("LexGen Dashboard");
+  const [systemName, setSystemName] = useState("Central JVO");
   const [config, setConfig] = useState<any>(null);
 
   useEffect(() => {

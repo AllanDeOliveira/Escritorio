@@ -55,7 +55,7 @@ const runDailyNotifications = async () => {
         }
 
         if (updates.length > 0) {
-            const prompt = `Você é um robô do LexGen Monitoramento Jurídico.
+            const prompt = `Você é um robô do Central JVO Monitoramento Jurídico.
 Abaixo estão as movimentações processuais detectadas HOJE pelo Datajud (CNJ).
 Crie uma mensagem muito bem humorada e dinâmica em português para o grupo do WhatsApp de advogados.
 Obrigatório começar estruturalmente com: @todos 🚨 ATUALIZAÇÃO DATAJUD
@@ -116,7 +116,7 @@ const notifyPetitionGenerated = async (titulo, processo, cliente) => {
 
         const prompt = `Escreva uma mensagem curta (máximo 2 linhas) de notificação para o grupo de advogados no WhatsApp. 
 Comece sempre a mensagem com a marcação "@todos ".
-A mensagem deve informar em tom comemorativo e muito profissional (usando emojis adequados como ⚖️, 📄 ou 🚀) que a petição "${nomeDoTitulo}" para o cliente "${nomeDoCliente}" (Processo: ${nomeDoProcesso}) acabou de ser totalmente redigida com sucesso pela Inteligência Artificial LexGen e já está disponível no sistema para revisão e download.
+A mensagem deve informar em tom comemorativo e muito profissional (usando emojis adequados como ⚖️, 📄 ou 🚀) que a petição "${nomeDoTitulo}" para o cliente "${nomeDoCliente}" (Processo: ${nomeDoProcesso}) acabou de ser totalmente redigida com sucesso pela Inteligência Artificial do Central JVO e já está disponível no sistema para revisão e download.
 Nunca invente informações, use apenas o que te passei.`;
 
         const response = await ai.models.generateContent({

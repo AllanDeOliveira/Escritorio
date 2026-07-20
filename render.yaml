@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: lexgen-backend
+    name: central-jvo-backend
     runtime: node
     plan: free
     rootDir: backend
@@ -10,7 +10,7 @@ services:
       - key: DATABASE_URL
         fromService:
           type: database
-          name: lexgen-db
+          name: central-jvo-db
           property: connectionString
       - key: GEMINI_API_KEY
         sync: false
@@ -20,5 +20,5 @@ services:
         value: 20.0.0
 
 databases:
-  - name: lexgen-db
+  - name: central-jvo-db
     plan: free

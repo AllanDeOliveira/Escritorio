@@ -1210,7 +1210,7 @@ app.use('/api/mni', requireUser, mniRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    logger.info(`Backend LexGen rodando na porta ${PORT}`);
+    logger.info(`Backend Central JVO rodando na porta ${PORT}`);
     logger.info(`Modelos do escritório: ${MODELOS_DIR}`);
 
     // Iniciar o robô do WhatsApp ao levantar o servidor
@@ -1238,7 +1238,7 @@ app.listen(PORT, () => {
 
 // ── Tratamento de Fechamento (Evitar EPERM no Prisma) ───────────────────────
 const gracefulShutdown = async (signal) => {
-    logger.info(`\nRecebido ${signal}. Encerrando LexGen de forma limpa...`);
+    logger.info(`\nRecebido ${signal}. Encerrando Central JVO de forma limpa...`);
     try {
         const { client: wsClient } = require('./src/services/whatsappService');
         if (wsClient) {

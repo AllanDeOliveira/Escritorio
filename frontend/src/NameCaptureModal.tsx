@@ -35,7 +35,7 @@ export default function NameCaptureModal({ onSubmit }: { onSubmit: (name: string
           <ShieldAlert size={36} />
         </div>
 
-        <h2 style={{ marginBottom: '0.75rem', color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Bem-vindo ao LexGen</h2>
+        <h2 style={{ marginBottom: '0.75rem', color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Bem-vindo ao Central JVO</h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '0.95rem', lineHeight: 1.5 }}>
           Para personalizar sua experiência, como gostaria de ser chamado na plataforma?
         </p>

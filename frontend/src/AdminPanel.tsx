@@ -67,7 +67,7 @@ export default function AdminPanel({ currentUser }: { currentUser: any }) {
           <ShieldAlert size={32} color="#d0aa64" />
           <div>
             <h2 className="admin-title">Painel de Controle</h2>
-            <p className="admin-subtitle">Gerenciamento avançado do LexGen Workspace</p>
+            <p className="admin-subtitle">Gerenciamento avançado do Central JVO</p>
           </div>
         </div>
 

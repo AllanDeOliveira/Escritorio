@@ -109,7 +109,7 @@ export default function ProductivityPanel({ currentUser, dbUser, isAdmin }: Prop
             {data.stats.name?.charAt(0).toUpperCase() || '?'}
           </div>
           <div style={{ flex: 1 }}>
-            <h2 style={{ fontSize: '2rem', color: 'var(--text-primary)', margin: 0 }}>{data.stats.name || 'Advogado LexGen'}</h2>
+            <h2 style={{ fontSize: '2rem', color: 'var(--text-primary)', margin: 0 }}>{data.stats.name || 'Advogado Central JVO'}</h2>
             <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Calendar size={14} /> Membro desde {new Date(data.stats.memberSince).toLocaleDateString('pt-BR')}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Award size={14} color="var(--gold)" /> Plano Professional</span>
@@ -162,7 +162,7 @@ export default function ProductivityPanel({ currentUser, dbUser, isAdmin }: Prop
             <div style={{ background: 'linear-gradient(45deg, var(--primary), #1a1a1a)', borderRadius: '20px', padding: '1.5rem', color: '#fff' }}>
               <TrendingUp size={24} color="var(--gold)" style={{ marginBottom: '1rem' }} />
               <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem' }}>Eficiência IA</h3>
-              <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', margin: 0 }}>Você economizou aproximadamente <b>{data.stats.totalDocs * 2} horas</b> de redação este mês usando o LexGen.</p>
+              <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', margin: 0 }}>Você economizou aproximadamente <b>{data.stats.totalDocs * 2} horas</b> de redação este mês usando o Central JVO.</p>
             </div>
           </div>
 

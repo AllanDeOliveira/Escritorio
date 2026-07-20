@@ -4,5 +4,5 @@ import './queues/discovery.worker';
 import './queues/analysis.worker';
 import './queues/outcome.worker';
 
-console.log('Worker LexGen rodando e aguardando jobs...');
+console.log('Worker Central JVO rodando e aguardando jobs...');
 

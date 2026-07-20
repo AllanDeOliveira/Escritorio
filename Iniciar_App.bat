@@ -1,8 +1,8 @@
 @echo off
 cd /d "%~dp0"
-title LexGen AI - Inicializador Centralizado
+title Central JVO - Inicializador Centralizado
 echo =======================================
-echo     Iniciando o LexGen AI...
+echo     Iniciando o Central JVO...
 echo =======================================
 echo.
 echo Iniciando todos os servicos em UMA UNICA JANELA...
