@@ -1,0 +1,17 @@
+node_modules
+# Chaves API
+.env
+
+/generated/prisma
+
+# Sessões do Robô do WhatsApp (MUITO IMPORTANTE!)
+# Ignorar isso evita subir as chaves da sua sessão web logada do celular
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+**/dist/
+**/build/
+
+# Logs e arquivos de sistema
+npm-debug.log
+yarn-error.log
+.DS_Store

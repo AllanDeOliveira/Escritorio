@@ -1,0 +1,174 @@
+const fs = require('fs');
+const path = require('path');
+const logger = require('../infra/logger');
+const prisma = require('../infra/prismaClient');
+
+const API_BASE = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
+const CONFIG_PATH = path.join(__dirname, '../../config/djen.json');
+const DEFAULT_CONFIG = { oabs: [{ numero: '9309', uf: 'MT' }], diasBackfill: 14 };
+
+function lerConfig() {
+    try {
+        if (fs.existsSync(CONFIG_PATH)) {
+            return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
+        }
+    } catch (e) {
+        logger.warn('[DJEN] config/djen.json inválido, usando padrão:', e.message);
+    }
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2)); } catch (e) { /* opcional */ }
+    return { ...DEFAULT_CONFIG };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Busca uma página da API Comunica com retry + backoff. A API do DJEN devolve
+ * HTTP 500 "sistema muito ocupado" com frequência — não é erro nosso, é fila;
+ * insistir com espera crescente resolve na prática.
+ */
+async function fetchPagina(params, tentativas = 5) {
+    const url = `${API_BASE}?${new URLSearchParams(params)}`;
+    for (let i = 1; i <= tentativas; i++) {
+        try {
+            const r = await fetch(url, { headers: { Accept: 'application/json' } });
+            const body = await r.json().catch(() => null);
+            if (r.ok && body && body.status === 'success') return body;
+            logger.warn(`[DJEN] tentativa ${i}/${tentativas} (HTTP ${r.status}): ${body?.message || 'sem corpo'}`);
+        } catch (e) {
+            logger.warn(`[DJEN] tentativa ${i}/${tentativas} erro de rede: ${e.message}`);
+        }
+        await sleep(2000 * i);
+    }
+    return null;
+}
+
+/**
+ * Melhor esforço para extrair o nome da parte (cliente) da comunicação.
+ * O campo destinatarios às vezes vem mascarado ("USUÁRIO DO SISTEMA"); nesse
+ * caso tentamos o teor, que costuma trazer "REQUERENTE: FULANO ...".
+ * A revisão é humana (manual assistido), então imperfeição aqui é aceitável.
+ */
+function extrairCliente(item) {
+    try {
+        const dest = Array.isArray(item.destinatarios) ? item.destinatarios : [];
+        const ativo = dest.find((d) => d.polo === 'A') || dest[0];
+        if (ativo?.nome && !/USU[AÁ]RIO DO SISTEMA/i.test(ativo.nome)) return String(ativo.nome).trim();
+    } catch (e) { /* segue para o teor */ }
+
+    const texto = String(item.texto || '');
+    const m = texto.match(
+        /(?:REQUERENTE|RECORRENTE|AUTORA?|EXEQUENTE|APELANTE|IMPETRANTE|RECLAMANTE|EMBARGANTE|AGRAVANTE)\s*[:\-]\s*(.{3,80}?)(?=\s+(?:REPRESENTANTE|ADVOGADOS?|RECORRIDOS?A?|REQUERIDOS?A?|R[ÉE]US?|EXECUTADOS?A?|APELADOS?A?|CPF|CNPJ|OAB)\b|[.;\n]|$)/i
+    );
+    return m ? m[1].trim() : null;
+}
+
+function extrairAdvogado(item) {
+    try {
+        const advs = Array.isArray(item.destinatarioadvogados) ? item.destinatarioadvogados : [];
+        const a = advs[0]?.advogado;
+        if (a?.nome) return String(a.nome).trim();
+    } catch (e) { /* sem advogado estruturado */ }
+    return null;
+}
+
+/**
+ * Sincroniza comunicações do DJEN para a tabela Intimacao.
+ * Janela de busca: `dias` explícito, ou incremental (última data gravada - 2
+ * dias de sobreposição; a dedupe por djenId torna a sobreposição inócua), ou
+ * o backfill configurado quando a tabela está vazia.
+ */
+async function syncIntimacoes({ dias } = {}) {
+    const cfg = lerConfig();
+    const hoje = new Date();
+    let inicio;
+
+    if (dias && Number(dias) > 0) {
+        inicio = new Date(hoje);
+        inicio.setDate(inicio.getDate() - Number(dias));
+    } else {
+        const ultima = await prisma.intimacao.aggregate({ _max: { dataDisponibilizacao: true } });
+        if (ultima._max.dataDisponibilizacao) {
+            inicio = new Date(ultima._max.dataDisponibilizacao);
+            inicio.setDate(inicio.getDate() - 2);
+        } else {
+            inicio = new Date(hoje);
+            inicio.setDate(inicio.getDate() - (cfg.diasBackfill || 14));
+        }
+    }
+
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    const resultado = { criadas: 0, jaExistiam: 0, total: 0, janela: `${fmt(inicio)} a ${fmt(hoje)}`, oabs: [], erros: [] };
+
+    for (const oab of cfg.oabs || []) {
+        let pagina = 1;
+        let coletadas = 0;
+        let count = Infinity;
+
+        while (coletadas < count && pagina <= 30) {
+            const body = await fetchPagina({
+                numeroOab: String(oab.numero),
+                ufOab: String(oab.uf),
+                dataDisponibilizacaoInicio: fmt(inicio),
+                dataDisponibilizacaoFim: fmt(hoje),
+                pagina: String(pagina),
+                itensPorPagina: '100',
+            });
+
+            if (!body) {
+                resultado.erros.push(`OAB ${oab.numero}/${oab.uf}: API indisponível (página ${pagina})`);
+                break;
+            }
+
+            count = body.count ?? 0;
+            const items = body.items || [];
+            if (items.length === 0) break;
+
+            for (const item of items) {
+                resultado.total++;
+                const djenId = String(item.id);
+                const existe = await prisma.intimacao.findUnique({ where: { djenId } });
+                if (existe) {
+                    resultado.jaExistiam++;
+                    // Backfill: registros criados antes de guardarmos o hash da certidão
+                    if (!existe.hash && item.hash) {
+                        await prisma.intimacao.update({ where: { djenId }, data: { hash: String(item.hash) } });
+                    }
+                    continue;
+                }
+
+                await prisma.intimacao.create({
+                    data: {
+                        djenId,
+                        numeroProcesso: item.numeroprocessocommascara || item.numero_processo || null,
+                        tribunal: item.siglaTribunal || null,
+                        orgao: item.nomeOrgao || null,
+                        tipoComunicacao: item.tipoComunicacao || null,
+                        tipoDocumento: item.tipoDocumento || null,
+                        nomeClasse: item.nomeClasse || null,
+                        texto: item.texto || null,
+                        link: item.link || null,
+                        hash: item.hash ? String(item.hash) : null,
+                        meio: item.meiocompleto || item.meio || null,
+                        // data-only em meia-noite LOCAL (mesma regra dos prazos)
+                        dataDisponibilizacao: item.data_disponibilizacao ? new Date(`${item.data_disponibilizacao}T00:00:00`) : null,
+                        clienteExtraido: extrairCliente(item),
+                        advogadoNome: extrairAdvogado(item),
+                        oabConsulta: `${oab.numero}/${oab.uf}`,
+                    },
+                });
+                resultado.criadas++;
+            }
+
+            coletadas += items.length;
+            pagina++;
+            await sleep(800); // gentileza com a API entre páginas
+        }
+
+        resultado.oabs.push(`${oab.numero}/${oab.uf}`);
+    }
+
+    logger.info(`[DJEN] sync concluído: ${resultado.criadas} novas, ${resultado.jaExistiam} já existiam (janela ${resultado.janela})`);
+    return resultado;
+}
+
+module.exports = { syncIntimacoes, lerConfig, extrairCliente, extrairAdvogado };

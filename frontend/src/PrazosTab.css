@@ -1,0 +1,762 @@
+.prazo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ── Cabeçalho: resumo + ação ─────────────────────────────────────── */
+.prazo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.prazo-summary {
+  display: flex;
+  gap: 1rem;
+}
+
+.prazo-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 92px;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-left-width: 4px;
+}
+
+.prazo-summary-num { font-size: 1.6rem; font-weight: 800; line-height: 1; color: var(--text-primary); }
+.prazo-summary-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.2rem; }
+
+.prazo-summary-item--vencido { border-left-color: #ef4444; }
+.prazo-summary-item--vencido .prazo-summary-num { color: #ef4444; }
+.prazo-summary-item--hoje { border-left-color: #f59e0b; }
+.prazo-summary-item--hoje .prazo-summary-num { color: #f59e0b; }
+.prazo-summary-item--semana { border-left-color: #eab308; }
+
+.prazo-header-actions { display: flex; gap: 0.75rem; align-items: center; }
+.prazo-empty-actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+.prazo-hidden-input { display: none; }
+
+/* ── Estados de carregamento / vazio ──────────────────────────────── */
+.prazo-loading { display: flex; justify-content: center; padding: 5rem 0; }
+
+.prazo-empty-all {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 4rem 2rem;
+  color: var(--text-secondary);
+}
+.prazo-empty-icon { opacity: 0.25; }
+.prazo-empty-all h3 { color: var(--text-primary); margin: 0; }
+.prazo-empty-all p { max-width: 420px; margin: 0 0 0.5rem; }
+
+/* ── Quadro kanban ────────────────────────────────────────────────── */
+.prazo-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.prazo-col {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  border-top: 3px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+}
+
+.prazo-col--vencido { border-top-color: #ef4444; }
+.prazo-col--hoje { border-top-color: #f59e0b; }
+.prazo-col--semana { border-top-color: #eab308; }
+.prazo-col--futuro { border-top-color: #64748b; }
+.prazo-col--concluido { border-top-color: #10b981; }
+
+.prazo-col--dragover {
+  outline: 2px dashed var(--gold);
+  outline-offset: -2px;
+  background: var(--bg-card);
+}
+
+.prazo-col-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.prazo-col-count {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  min-width: 22px;
+  text-align: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 20px;
+}
+
+.prazo-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.prazo-col-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1.25rem 0;
+  opacity: 0.6;
+}
+
+/* ── Cartão de prazo ──────────────────────────────────────────────── */
+.prazo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  cursor: grab;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.prazo-card:hover { border-color: var(--gold); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.prazo-card:active { cursor: grabbing; }
+.prazo-card--done { opacity: 0.72; }
+.prazo-card--done .prazo-card-title { text-decoration: line-through; }
+
+.prazo-card-moved {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 0.1rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.35rem;
+}
+
+.prazo-card-top {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.prazo-card-actions { display: flex; gap: 0.15rem; }
+
+.prazo-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.prazo-icon-btn:hover { background: var(--bg-input); color: var(--text-primary); }
+.prazo-icon-btn--danger:hover { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+
+.prazo-card-title { font-weight: 700; font-size: 0.92rem; color: var(--text-primary); line-height: 1.25; }
+.prazo-card-case { font-size: 0.8rem; color: var(--text-secondary); }
+
+.prazo-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.prazo-card-rel { font-weight: 600; }
+.prazo-card-rel--vencido { color: #ef4444; }
+.prazo-card-rel--hoje { color: #f59e0b; }
+.prazo-card-rel--semana { color: #eab308; }
+.prazo-card-rel--futuro { color: var(--text-muted); }
+
+.prazo-card-resp {
+  font-size: 0.75rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* ── Modal ────────────────────────────────────────────────────────── */
+.prazo-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 2rem;
+}
+
+.prazo-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.prazo-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.prazo-modal-header h3 { margin: 0; color: var(--text-primary); font-size: 1.15rem; }
+
+.prazo-form {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.prazo-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.prazo-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+.prazo-field label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.prazo-field input,
+.prazo-field select,
+.prazo-field textarea {
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.prazo-field input:focus,
+.prazo-field select:focus,
+.prazo-field textarea:focus { border-color: var(--gold); }
+.prazo-field textarea { resize: vertical; }
+
+.prazo-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem 1.5rem;
+}
+
+.prazo-modal--sm { max-width: 420px; }
+.prazo-move-desc { margin: 0; color: var(--text-secondary); font-size: 0.9rem; }
+
+.prazo-import-step { margin: 0; font-size: 0.9rem; color: var(--text-primary); }
+.prazo-import-tpl,
+.prazo-import-up { width: 100%; justify-content: center; }
+.prazo-import-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+/* ── Caixa de entrada de intimações (DJEN) ────────────────────────── */
+.prazo-inbox-toggle { position: relative; }
+.prazo-inbox-toggle--active { border-color: var(--gold); color: var(--gold); }
+.prazo-inbox-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.35rem;
+}
+
+.prazo-inbox { display: flex; flex-direction: column; gap: 1rem; }
+
+.prazo-inbox-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.prazo-inbox-filters { display: flex; gap: 0.4rem; }
+
+/* Chips de filtro por área do direito */
+.prazo-inbox-areas { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.6rem; }
+.prazo-inbox-area {
+  padding: 0.3rem 0.75rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.prazo-inbox-area:hover { color: var(--text-primary); border-color: var(--gold); }
+.prazo-inbox-area--active {
+  background: var(--primary-dim);
+  border-color: var(--gold);
+  color: var(--text-primary);
+}
+
+/* Painel MNI: expedientes pendentes de ciência no PJe (somente monitoramento) */
+.prazo-mni {
+  background: var(--primary-dim);
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  padding: 0.35rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.prazo-mni-head { display: flex; align-items: center; gap: 0.5rem; }
+.prazo-mni-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  padding: 0.35rem 0;
+  text-align: left;
+}
+.prazo-mni-titulo strong { color: var(--gold); }
+.prazo-mni-urg {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #fff;
+  background: #ef4444;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+}
+.prazo-mni-lista { list-style: none; margin: 0.25rem 0 0; padding: 0; border-top: 1px solid var(--border); }
+.prazo-mni-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.4rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+.prazo-mni-item:last-child { border-bottom: none; }
+.prazo-mni-tipo {
+  font-weight: 800;
+  font-size: 0.68rem;
+  color: var(--gold);
+  min-width: 30px;
+}
+.prazo-mni-tipo--urg { color: #ef4444; }
+.prazo-mni-proc {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline dotted;
+  font-size: 0.78rem;
+}
+.prazo-mni-proc:hover { color: var(--gold); }
+.prazo-mni-orgao { flex: 1; color: var(--text-secondary); min-width: 0; }
+.prazo-mni-data { color: var(--text-muted); white-space: nowrap; }
+.prazo-mni-aviso {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  padding: 0.5rem 0.25rem 0.3rem;
+}
+.prazo-mni-aviso a { color: var(--gold); }
+
+/* Busca por processo/cliente na caixa */
+.prazo-inbox-busca {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  transition: border-color 0.12s;
+}
+.prazo-inbox-busca:focus-within { border-color: var(--gold); }
+.prazo-inbox-busca input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+.prazo-inbox-busca input::placeholder { color: var(--text-muted); }
+.prazo-inbox-busca-limpar {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.1rem;
+}
+.prazo-inbox-busca-limpar:hover { color: var(--text-primary); }
+
+/* Navegador de mês da caixa (‹ Julho de 2026 ›) */
+.prazo-inbox-mes { display: flex; align-items: center; gap: 0.35rem; }
+.prazo-inbox-mes-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.prazo-inbox-mes-nav:hover { color: var(--text-primary); border-color: var(--gold); }
+.prazo-inbox-mes-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 130px;
+  text-align: center;
+}
+.prazo-inbox-mes-todos {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0.2rem 0.3rem;
+}
+.prazo-inbox-mes-todos:hover { color: var(--gold); }
+.prazo-inbox-filter {
+  padding: 0.45rem 0.9rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.prazo-inbox-filter:hover { border-color: var(--gold); }
+.prazo-inbox-filter--active { background: var(--gold); border-color: var(--gold); color: #000; }
+
+/* Kanban da caixa por tipo de ato (Intimações/Decisões/Sentenças/Despachos/Outros).
+   O quadro é o próprio viewport de rolagem (altura limitada à janela): assim a
+   barra horizontal fica sempre visível na base, em vez de escondida no pé de
+   um quadro mais alto que a tela. */
+.prazo-int-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(300px, 1fr));
+  gap: 1rem;
+  align-items: start;
+  overflow: auto;
+  max-height: calc(100vh - 250px);
+  min-height: 320px;
+  padding-bottom: 0.5rem;
+}
+.prazo-int-board::-webkit-scrollbar { height: 12px; width: 10px; }
+.prazo-int-board::-webkit-scrollbar-track { background: var(--bg-input); border-radius: 6px; }
+.prazo-int-board::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid var(--bg-input); }
+.prazo-int-board::-webkit-scrollbar-thumb:hover { background: var(--gold); }
+
+/* Cabeçalho da coluna acompanha a rolagem vertical dentro do quadro */
+.prazo-int-col .prazo-col-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-main);
+  border-radius: 14px 14px 0 0;
+}
+.prazo-int-col .prazo-col-body { padding: 0 0.6rem 0.6rem; }
+.prazo-int-col--intimacao { border-top-color: var(--gold); }
+.prazo-int-col--decisao { border-top-color: #3b82f6; }
+.prazo-int-col--sentenca { border-top-color: #ef4444; }
+.prazo-int-col--despacho { border-top-color: #8b5cf6; }
+.prazo-int-col--outros { border-top-color: #0f172a; }
+[data-theme='dark'] .prazo-int-col--outros { border-top-color: #f1f5f9; }
+
+/* Visão detalhe: a coluna aberta ocupa a tela toda, cards lado a lado */
+.prazo-int-detail { display: block; }
+.prazo-int-detail .prazo-col-header { justify-content: flex-start; gap: 0.75rem; }
+.prazo-int-detail .prazo-col-count { margin-left: auto; }
+.prazo-int-detail .prazo-col-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+.prazo-int-detail-voltar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.prazo-int-detail-voltar:hover { color: var(--text-primary); border-color: var(--gold); }
+
+/* Chip do prazo vinculado (aba "Viraram prazo") */
+.prazo-int-vinculo {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  background: var(--primary-dim);
+  color: var(--text-primary);
+  border-left: 3px solid var(--gold);
+}
+.prazo-int-vinculo--done { border-left-color: #10b981; }
+.prazo-int-vinculo--orfao { border-left-color: #ef4444; color: var(--text-secondary); }
+.prazo-int-vinculo--done .prazo-int-vinculo-status { color: #10b981; }
+.prazo-int-vinculo-titulo { font-weight: 700; }
+.prazo-int-vinculo-fatal { color: var(--text-secondary); }
+.prazo-int-vinculo-status { font-weight: 800; font-size: 0.68rem; letter-spacing: 0.03em; color: var(--gold); margin-left: auto; }
+
+/* Botão no pé da coluna que abre a visão detalhe */
+.prazo-col-vermais {
+  width: 100%;
+  padding: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.prazo-col-vermais:hover { color: var(--text-primary); border-color: var(--gold); }
+
+.prazo-int-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.prazo-int-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.prazo-int-tags { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.prazo-int-tag {
+  background: var(--primary-dim);
+  color: var(--gold);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.15rem 0.5rem;
+  border-radius: 5px;
+}
+/* Data e tipo do ato em destaque (informação-chave para triagem) */
+.prazo-int-date {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.prazo-int-multi {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.prazo-int-multi::after { content: ' ▾'; font-size: 0.6rem; opacity: 0.7; }
+.prazo-int-multi:hover { border-color: var(--gold); color: var(--text-primary); }
+.prazo-int-multi--open {
+  background: var(--primary-dim);
+  border-color: var(--gold);
+  color: var(--text-primary);
+}
+.prazo-int-multi--open::after { content: ' ▴'; }
+
+/* Lista das publicações individuais de um grupo (uma por destinatário) */
+.prazo-int-pubs {
+  list-style: none;
+  margin: 0.15rem 0 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.prazo-int-pub {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.prazo-int-pub:last-child { border-bottom: none; }
+.prazo-int-pub-n { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.prazo-int-pub-data { font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+.prazo-int-pub-dest { color: var(--text-secondary); flex: 1; min-width: 0; }
+.prazo-int-pub-oab { color: var(--text-muted); }
+.prazo-int-pub-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--gold);
+  text-decoration: none;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.prazo-int-pub-link:hover { text-decoration: underline; }
+/* Selo do tipo de ato, colorido conforme a coluna do kanban */
+.prazo-int-tipo {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.15rem 0.55rem;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.prazo-int-tipo--intimacao { color: var(--gold); background: var(--primary-dim); }
+.prazo-int-tipo--decisao { color: #3b82f6; background: rgba(59, 130, 246, 0.14); }
+.prazo-int-tipo--sentenca { color: #ef4444; background: rgba(239, 68, 68, 0.14); }
+.prazo-int-tipo--despacho { color: #8b5cf6; background: rgba(139, 92, 246, 0.14); }
+.prazo-int-tipo--outros { color: #0f172a; background: rgba(15, 23, 42, 0.12); }
+/* Preto não é legível no tema escuro — inverte para claro */
+[data-theme='dark'] .prazo-int-tipo--outros { color: #f1f5f9; background: rgba(241, 245, 249, 0.16); }
+.prazo-int-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--gold);
+  text-decoration: none;
+}
+.prazo-int-link:hover { text-decoration: underline; }
+
+.prazo-int-cliente { font-weight: 700; color: var(--text-primary); font-size: 0.95rem; }
+.prazo-int-proc { font-size: 0.82rem; color: var(--text-secondary); }
+.prazo-int-classe { color: var(--text-muted); }
+
+.prazo-int-texto {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prazo-int-texto--full { display: block; -webkit-line-clamp: unset; }
+
+.prazo-int-expand {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.prazo-int-expand:hover { text-decoration: underline; }
+
+.prazo-int-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.6rem;
+}
+.prazo-int-revisado { font-size: 0.72rem; color: var(--text-muted); }
+.prazo-int-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+.prazo-int-gerar { padding: 0.5rem 1rem; }
+
+.prazo-gerar-origem {
+  margin: 0;
+  padding: 0.75rem 1.5rem 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+/* ── Responsivo: reduz colunas em telas estreitas ─────────────────── */
+@media (max-width: 1200px) {
+  .prazo-board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  .prazo-board { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 540px) {
+  .prazo-board { grid-template-columns: 1fr; }
+  .prazo-field-row { grid-template-columns: 1fr; }
+  .prazo-header { flex-direction: column; align-items: stretch; }
+}

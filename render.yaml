@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: lexgen-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: node index.js
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: database
+          name: lexgen-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: REDIS_URL
+        value: redis://red-d7p5rt57vvec73bupc80:6379
+      - key: NODE_VERSION
+        value: 20.0.0
+
+databases:
+  - name: lexgen-db
+    plan: free

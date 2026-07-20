@@ -1,0 +1,45 @@
+node_modules/
+**/dist/
+**/build/
+/.env
+/.env.local
+/.env.development
+/.env.production
+backend/.env
+frontend/.env
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.DS_Store
+.idea/
+.vscode/
+
+# Backend runtime
+backend/uploads/
+# base de conhecimento: pecas reais de clientes, fica so em disco
+backend/modelos/
+backend/config/escritorio.json
+backend/scratch/
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# WhatsApp Web.js & Chrome Sessions
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+**/session/
+**/.firebase/
+*.log
+*.old
+passkey_enclave_state
+
+# Arquivos de clientes (dados sensíveis — nunca versionar)
+*.pdf
+*.docx
+*.xlsx
+
+# Arquivos temporários e scripts de teste
+temp_docx/
+scratch/
+
+# graphify (grafo de código gerado, regenerável)
+graphify-out/
