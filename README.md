@@ -219,6 +219,6 @@ Este projeto mantém um grafo de conhecimento do código em `graphify-out/`. Ant
 
 ---
 
-## 📄 Uso
+## 📄 Licença
 
-Software de uso interno. Todos os direitos reservados. A titularidade dos direitos patrimoniais ainda não foi formalizada neste repositório.
+Software proprietário de uso interno — Copyright © 2026 JVO Advocacia. Todos os direitos reservados. Veja [LICENSE](LICENSE).
