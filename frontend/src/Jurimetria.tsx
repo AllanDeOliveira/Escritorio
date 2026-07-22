@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Search, Loader2, AlertTriangle, TrendingUp,
-  TrendingDown, CheckCircle, Scale, Activity, Thermometer, ChevronRight, X, ShieldAlert, Layers, Target, Trash2
+  TrendingDown, CheckCircle, Scale, ChevronRight, X, ShieldAlert, Target, Trash2
 } from 'lucide-react';
 
 import { jurimetriaService } from './services/jurimetriaService';

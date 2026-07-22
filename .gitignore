@@ -13,7 +13,7 @@ yarn-error.log
 .DS_Store
 .idea/
 .vscode/
-
+.agents/
 # Backend runtime
 backend/uploads/
 # base de conhecimento: pecas reais de clientes, fica so em disco

@@ -10,7 +10,6 @@ const path = require('path');
 // o builder-fallback sem template foi removido — restaurar do git se precisar
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
-const pdfParse = require('pdf-parse');
 const prisma = require('./src/infra/prismaClient');
 const logger = require('./src/infra/logger');
 

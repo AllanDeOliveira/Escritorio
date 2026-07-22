@@ -2,7 +2,6 @@ const logger = require('../infra/logger');
 const pkg = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const { Client, LocalAuth } = pkg;
