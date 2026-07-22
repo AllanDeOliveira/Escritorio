@@ -1,9 +1,9 @@
 const logger = require('../infra/logger');
 const prisma = require('../infra/prismaClient');
 const { sendDirectMessage } = require('./whatsappService.js');
-const { GoogleGenAI } = require('@google/genai');
+const { getGenAI } = require('../infra/genai');
 const { getProcesso: buscarProcessoDatajud } = require('./tribunalService.js');
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = getGenAI();
 
 const runDailyNotifications = async () => {
     logger.info('Iniciando Varredura Inteligente Datajud para WhatsApp...');

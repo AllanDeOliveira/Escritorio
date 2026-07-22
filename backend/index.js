@@ -2,7 +2,8 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const { GoogleGenAI } = require('@google/genai');
+const { getGenAI } = require('./src/infra/genai');
+const { lerConfig, salvarConfig } = require('./src/config/escritorioConfig');
 const mammoth = require('mammoth');
 const fs = require('fs');
 const path = require('path');
@@ -47,28 +48,6 @@ const CONFIG_DIR = path.join(__dirname, 'config');
 if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR);
 const CONFIG_FILE = path.join(CONFIG_DIR, 'escritorio.json');
 
-const CONFIG_DEFAULT = {
-    nomeEscritorio: '',
-    subtitulo: 'Advocacia e Consultoria Jurídica',
-    nomeAdvogado: '',
-    oab: '',
-    cidade: '',
-    estado: '',
-    endereco: '',
-    cep: '',
-    telefone: '',
-    email: '',
-};
-
-function lerConfig() {
-    try {
-        if (fs.existsSync(CONFIG_FILE)) {
-            return { ...CONFIG_DEFAULT, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
-        }
-    } catch (e) { /* silently fallback */ }
-    return { ...CONFIG_DEFAULT };
-}
-
 // ── Multer ───────────────────────────────────────────────────────────────────
 const uploadTemp = multer({
     dest: 'uploads/',
@@ -80,10 +59,7 @@ const uploadModelo = multer({
 });
 
 // ── Google GenAI ─────────────────────────────────────────────────────────────
-const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    httpOptions: { timeout: 300000 }
-});
+const ai = getGenAI();
 
 // ── Helper: aguardar arquivo ficar ACTIVE na File API ────────────────────────
 async function waitForFileActive(fileName, maxWaitMs = 120000) {

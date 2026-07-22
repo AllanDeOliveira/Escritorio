@@ -57,8 +57,8 @@ router.post('/settings', async (req, res) => {
 });
 
 const { sendDirectMessage, logoutWhatsApp } = require('../services/whatsappService.js');
-const { GoogleGenAI } = require('@google/genai');
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const { getGenAI } = require('../infra/genai');
+const ai = getGenAI();
 
 router.post('/test-message', async (req, res) => {
   try {

@@ -1,20 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X, Loader2, Download, Edit3,
-  CheckCircle, FileText, Trash2, AlertCircle, AlertTriangle, Clock,
-  ShieldAlert, BarChart3, Gavel, Zap, LogOut, Menu, ChevronLeft, ChevronRight, Sun, Moon, TrendingUp, Users
+  CheckCircle, FileText, BookOpen, Trash2, AlertCircle, AlertTriangle, Clock,
+  ShieldAlert, BarChart3, Gavel, Zap, LogOut, Activity, Menu, ChevronLeft, ChevronRight, Sun, Moon, TrendingUp, Users, CalendarClock
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import WhatsAppCenter from './WhatsAppCenter';
-import { auth } from './firebase';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { auth, googleProvider } from './firebase';
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import AdminPanel from './AdminPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import Jurimetria from './Jurimetria';
 import ProductivityPanel from './ProductivityPanel';
+import SkeletonPetition from './SkeletonPetition';
 import LoginScreen from './LoginScreen';
 import NameCaptureModal from './NameCaptureModal';
-import ModelosTab from './ModelosTab';
+import ModelosTab, { type ModeloInfo } from './ModelosTab';
 import DossierTab from './DossierTab';
 import GerarTab from './GerarTab';
 import PrazosTab from './PrazosTab';
