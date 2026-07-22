@@ -27,7 +27,14 @@ const { initializeWhatsApp } = require('./src/services/whatsappService');
 const { runDailyNotifications, notifyPetitionGenerated } = require('./src/services/notificationService');
 
 const app = express();
-app.use(cors());
+const allowedOrigins = process.env.FRONTEND_URL
+    ? [process.env.FRONTEND_URL]
+    : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({
+    origin: allowedOrigins,
+    credentials: true
+}));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
@@ -1171,11 +1178,11 @@ app.post('/api/admin/settings', async (req, res) => {
 // Registar rotas
 app.use('/api/whatsapp', requireAdmin, whatsappRoutes);
 const tribunalRoutes = require('./src/routes/tribunalRoutes');
-app.use('/api/processos', tribunalRoutes);
+app.use('/api/processos', requireUser, tribunalRoutes);
 const petitionRoutes = require('./src/routes/petitionRoutes');
-app.use('/api/pieces', petitionRoutes);
+app.use('/api/pieces', requireUser, petitionRoutes);
 const jurimetriaRoutes = require('./src/routes/jurimetriaExpressRoutes');
-app.use('/api', jurimetriaRoutes);
+app.use('/api', requireUser, jurimetriaRoutes);
 const prazosRoutes = require('./src/routes/prazosRoutes');
 app.use('/api/prazos', requireUser, prazosRoutes);
 const intimacoesRoutes = require('./src/routes/intimacoesRoutes');
