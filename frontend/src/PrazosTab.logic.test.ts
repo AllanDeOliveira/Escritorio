@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, buscaMatch, formatarNumeroCnj,
+  relativeLabel,
   type Intimacao,
 } from './PrazosTab';
 
@@ -129,5 +130,16 @@ describe('filtro de mês', () => {
   it('nomeMes formata em pt-BR com inicial maiúscula', () => {
     expect(nomeMes('2026-07')).toBe('Julho de 2026');
     expect(nomeMes('2026-12')).toBe('Dezembro de 2026');
+  });
+});
+
+describe('relativeLabel', () => {
+  it('não finge precisão em data absurda (o prazo com ano 2406 da planilha)', () => {
+    expect(relativeLabel(138583)).toBe('data suspeita');
+    expect(relativeLabel(-138583)).toBe('data suspeita');
+    // faixa normal intacta
+    expect(relativeLabel(30)).toBe('em 30 dias');
+    expect(relativeLabel(0)).toBe('vence hoje');
+    expect(relativeLabel(-2)).toBe('atrasado 2 dias');
   });
 });

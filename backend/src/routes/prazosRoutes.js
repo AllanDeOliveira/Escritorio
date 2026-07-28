@@ -49,21 +49,30 @@ function parseDateOnly(value) {
  * Parse tolerante de data vinda da planilha: aceita Date do Excel, "DD/MM/AAAA"
  * e "AAAA-MM-DD". Sempre retorna meia-noite LOCAL (mesma regra do parseDateOnly).
  */
+function naFaixa(d) {
+    if (!d || isNaN(d)) return null;
+    const ano = d.getFullYear();
+    // Ano fora desta faixa é erro de digitação na planilha, não prazo: a célula "2406"
+    // (24/06 sem a barra) virava o ano 2406. Guard no resultado cobre os 4 formatos
+    // aceitos e, por tabela, os 3 pontos de chamada da importação.
+    // ponytail: faixa fixa; se um dia importarem histórico anterior a 2000, baixe o piso.
+    return ano >= 2000 && ano <= new Date().getFullYear() + 10 ? d : null;
+}
+
 function parseImportDate(v) {
     if (v === null || v === undefined || v === '') return null;
-    if (v instanceof Date && !isNaN(v)) return parseDateOnly(v.toISOString().slice(0, 10));
+    if (v instanceof Date && !isNaN(v)) return naFaixa(parseDateOnly(v.toISOString().slice(0, 10)));
     const s = String(v).trim();
     if (!s) return null;
     // DD/MM/AAAA ou DD.MM.AAAA — ano opcional (assume o ano corrente quando ausente)
     let m = s.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?$/);
     if (m) {
         const year = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : new Date().getFullYear();
-        return new Date(year, Number(m[2]) - 1, Number(m[1]));
+        return naFaixa(new Date(year, Number(m[2]) - 1, Number(m[1])));
     }
     m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); // AAAA-MM-DD
-    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    const d = new Date(s);
-    return isNaN(d) ? null : d;
+    if (m) return naFaixa(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return naFaixa(new Date(s));
 }
 
 /**
@@ -154,7 +163,10 @@ router.get('/', async (req, res) => {
         }
 
         const where = {};
-        if (status && PRAZO_STATUS.includes(status)) where.status = status;
+        const statusExplicito = status && PRAZO_STATUS.includes(status) ? status : null;
+        // Cancelado sai do quadro ativo por padrão; ainda acessível via ?status=CANCELADO.
+        if (statusExplicito) where.status = statusExplicito;
+        else where.status = { not: 'CANCELADO' };
         if (responsibleId) where.responsibleId = responsibleId;
         if (lawsuitId) where.lawsuitId = lawsuitId;
         if (clientId) where.clientId = clientId;
@@ -168,7 +180,7 @@ router.get('/', async (req, res) => {
             // Combina com filtros já definidos em vez de sobrescrevê-los:
             // só assume PENDENTE se o caller não pediu outro status explicitamente,
             // e soma o corte "vencido" ao invés de descartar from/to.
-            where.status = where.status || 'PENDENTE';
+            where.status = statusExplicito || 'PENDENTE';
             where.fatalDate = { ...(where.fatalDate || {}), lt: startOfToday() };
         }
 
@@ -454,3 +466,4 @@ router.delete('/:id', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.parseImportDate = parseImportDate; // exposto para teste

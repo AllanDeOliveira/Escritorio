@@ -201,7 +201,10 @@ const emptyForm = {
   type: 'JUDICIAL', fatalDate: '', internalDate: '', description: '',
 };
 
-function relativeLabel(days: number): string {
+export function relativeLabel(days: number): string {
+  // ponytail: mais de 10 anos é ano digitado errado na planilha, não prazo.
+  // Prefiro admitir que a data é suspeita a imprimir "em 138583 dias" com cara de certeza.
+  if (Math.abs(days) > 3650) return 'data suspeita';
   if (days < 0) return `atrasado ${Math.abs(days)} dia${Math.abs(days) > 1 ? 's' : ''}`;
   if (days === 0) return 'vence hoje';
   if (days === 1) return 'vence amanhã';
@@ -209,7 +212,8 @@ function relativeLabel(days: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  // Ano com 4 dígitos: com 2 dígitos, o ano 2406 aparecia como "05" e escondia o erro.
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board' }: PrazosTabProps) {
@@ -548,21 +552,14 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   return (
     <div className="lx-single-panel prazo-panel">
-      {/* Cabeçalho: resumo de alertas + ações */}
+      {/* Cabeçalho: título da visão à esquerda, ações da visão à direita.
+          Os totais por urgência já aparecem no cabeçalho de cada coluna e no painel inicial. */}
       <div className="prazo-header">
-        <div className="prazo-summary">
-          <div className="prazo-summary-item prazo-summary-item--vencido">
-            <span className="prazo-summary-num">{count('vencido')}</span>
-            <span className="prazo-summary-label">Vencidos</span>
-          </div>
-          <div className="prazo-summary-item prazo-summary-item--hoje">
-            <span className="prazo-summary-num">{count('hoje')}</span>
-            <span className="prazo-summary-label">Hoje</span>
-          </div>
-          <div className="prazo-summary-item prazo-summary-item--semana">
-            <span className="prazo-summary-num">{count('semana')}</span>
-            <span className="prazo-summary-label">Esta semana</span>
-          </div>
+        <div className="prazo-header-title">
+          <h2>{view === 'inbox' ? 'Caixa de intimações' : 'Quadro de prazos'}</h2>
+          <span className="prazo-header-sub">
+            {view === 'inbox' ? 'Publicações do DJEN aguardando triagem' : 'Prazos ativos por urgência'}
+          </span>
         </div>
         <div className="prazo-header-actions">
           <button
@@ -573,12 +570,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             {view === 'inbox' ? 'Voltar ao quadro' : 'Notificações'}
             {view !== 'inbox' && intCounts.nova > 0 && <span className="prazo-inbox-badge">{intCounts.nova}</span>}
           </button>
-          <button className="lx-btn-tool" onClick={() => setImportOpen(true)}>
-            <Upload size={16} /> Importar planilha
-          </button>
-          <button className="lx-btn-primary" onClick={abrirNovo}>
-            <Plus size={18} /> Novo Prazo
-          </button>
+          {view === 'inbox' ? (
+            <button className="lx-btn-primary" onClick={sincronizarDjen} disabled={syncing}>
+              {syncing ? <Loader2 className="lx-spin" size={16} /> : <RefreshCw size={16} />}
+              {syncing ? 'Consultando DJEN...' : 'Buscar novas no DJEN'}
+            </button>
+          ) : (
+            <>
+              <button className="lx-btn-tool" onClick={() => setImportOpen(true)}>
+                <Upload size={16} /> Importar planilha
+              </button>
+              <button className="lx-btn-primary" onClick={abrirNovo}>
+                <Plus size={18} /> Novo Prazo
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -676,34 +682,29 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 {intMes ? 'Ver todos' : 'Mês atual'}
               </button>
             </div>
-            <button className="lx-btn-primary" onClick={sincronizarDjen} disabled={syncing}>
-              {syncing ? <Loader2 className="lx-spin" size={16} /> : <RefreshCw size={16} />}
-              {syncing ? 'Consultando DJEN...' : 'Buscar novas no DJEN'}
-            </button>
-          </div>
-
-          <div className="prazo-inbox-areas">
-            <button
-              type="button"
-              className={`prazo-inbox-area ${intArea === '' ? 'prazo-inbox-area--active' : ''}`}
-              onClick={() => { setIntArea(''); setColAberta(null); }}
-            >
-              Todas ({gruposBuscados.length})
-            </button>
-            {AREAS.map(a => {
-              const n = gruposBuscados.filter(g => areaDireito(g.rep) === a.key).length;
-              if (n === 0) return null;
-              return (
-                <button
-                  key={a.key}
-                  type="button"
-                  className={`prazo-inbox-area ${intArea === a.key ? 'prazo-inbox-area--active' : ''}`}
-                  onClick={() => { setIntArea(intArea === a.key ? '' : a.key); setColAberta(null); }}
-                >
-                  {a.label} ({n})
-                </button>
-              );
-            })}
+            <div className="prazo-inbox-areas">
+              <button
+                type="button"
+                className={`prazo-inbox-area ${intArea === '' ? 'prazo-inbox-area--active' : ''}`}
+                onClick={() => { setIntArea(''); setColAberta(null); }}
+              >
+                Todas ({gruposBuscados.length})
+              </button>
+              {AREAS.map(a => {
+                const n = gruposBuscados.filter(g => areaDireito(g.rep) === a.key).length;
+                if (n === 0) return null;
+                return (
+                  <button
+                    key={a.key}
+                    type="button"
+                    className={`prazo-inbox-area ${intArea === a.key ? 'prazo-inbox-area--active' : ''}`}
+                    onClick={() => { setIntArea(intArea === a.key ? '' : a.key); setColAberta(null); }}
+                  >
+                    {a.label} ({n})
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {intLoading ? (
@@ -901,14 +902,28 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       ) : totalPrazos === 0 ? (
         <div className="prazo-empty-all">
           <CalendarClock size={48} className="prazo-empty-icon" />
-          <h3>Nenhum prazo cadastrado</h3>
-          <p>Cadastre o primeiro prazo ou importe sua planilha atual para começar.</p>
+          <h3>Quadro em dia</h3>
+          <p>
+            Nenhum prazo ativo no momento.
+            {intCounts.nova > 0 && (intCounts.nova === 1
+              ? ' 1 intimação nova aguarda triagem na caixa.'
+              : ` ${intCounts.nova} intimações novas aguardam triagem na caixa.`)}
+          </p>
           <div className="prazo-empty-actions">
+            {intCounts.nova > 0 && (
+              <button className="lx-btn-primary" onClick={() => setView('inbox')}>
+                <Inbox size={16} /> Abrir caixa de intimações
+              </button>
+            )}
+            <button className="lx-btn-tool" onClick={abrirNovo}><Plus size={16} /> Novo prazo</button>
             <button className="lx-btn-tool" onClick={() => setImportOpen(true)}><Upload size={16} /> Importar planilha</button>
-            <button className="lx-btn-primary" onClick={abrirNovo}><Plus size={18} /> Novo prazo</button>
           </div>
         </div>
       ) : (
+        <>
+        {count('hoje') + count('semana') === 0 && (
+          <p className="prazo-nada-hoje">Nada vence hoje nem nesta semana.</p>
+        )}
         <div className="prazo-board">
           {COLUMNS.map(col => {
             const items = groups[col.key] || [];
@@ -917,7 +932,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             return (
               <div
                 key={col.key}
-                className={`prazo-col ${col.cls} ${dragOverCol === col.key ? 'prazo-col--dragover' : ''}`}
+                // "Concluído" nunca encolhe: é o alvo de soltar do arrastar-e-soltar.
+                className={`prazo-col ${col.cls} ${items.length === 0 && col.key !== 'concluido' ? 'prazo-col--vazia' : ''} ${dragOverCol === col.key ? 'prazo-col--dragover' : ''}`}
                 onDragOver={e => onColDragOver(e, col.key)}
                 onDragLeave={onColDragLeave}
                 onDrop={() => onColDrop(col.key)}
@@ -974,6 +990,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             );
           })}
         </div>
+        </>
       )}
 
       {/* Modal criar / editar / gerar de intimação */}
