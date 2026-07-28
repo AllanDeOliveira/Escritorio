@@ -11,25 +11,19 @@
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.prazo-header-title h2 {
+.prazo-header-resumo h2 {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 800;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
-.prazo-header-sub { font-size: 0.78rem; color: var(--text-muted); }
-
-.prazo-nada-hoje {
-  margin: 0;
-  padding: 0.75rem 1rem;
-  border-left: 3px solid var(--success);
-  border-radius: var(--r-md);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-}
+.prazo-header-resumo p { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--text-secondary); }
+.prazo-header-resumo p.prazo-header-resumo--alerta { color: var(--error); font-weight: 600; }
 
 .prazo-header-actions { display: flex; gap: 0.75rem; align-items: center; }
 .prazo-empty-actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
@@ -59,11 +53,16 @@
   align-items: start;
 }
 
-/* Coluna com carga divide a largura; coluna vazia encolhe até o próprio cabeçalho,
-   em vez de ocupar 1/5 da tela mostrando "Nenhum". */
+/* Colunas com a mesma largura; a vazia fica "ghost" (tracejada, quieta) em vez
+   de encolher — toco estreito parecia layout quebrado. Régua de acento no topo
+   continua sólida para preservar o código de cores das 5 raias. */
 .prazo-board > .prazo-col { flex: 1 1 220px; min-width: 0; }
-.prazo-board > .prazo-col--vazia { flex: 0 1 auto; }
-.prazo-board > .prazo-col--vazia .prazo-col-empty { display: none; }
+.prazo-col--vazia {
+  background: transparent;
+  border-style: dashed;
+  border-top-style: solid;
+}
+.prazo-col--vazia .prazo-col-header { opacity: 0.55; }
 
 .prazo-col {
   background: var(--bg-main);
@@ -87,14 +86,18 @@
   background: var(--bg-card);
 }
 
+/* Cabeçalho de coluna recua a rótulo (small-caps); a contagem ganha a cor de
+   acento da própria coluna — "12 sentenças" escaneável de relance. */
 .prazo-col-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1rem 0.6rem;
   font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--text-primary);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
 }
 
 .prazo-col-count {
@@ -102,11 +105,23 @@
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 0.75rem;
+  font-weight: 800;
   min-width: 22px;
   text-align: center;
   padding: 0.1rem 0.4rem;
   border-radius: 20px;
 }
+
+/* quadro */
+.prazo-col--vencido .prazo-col-count { color: #ef4444; }
+.prazo-col--hoje .prazo-col-count { color: #f59e0b; }
+.prazo-col--semana .prazo-col-count { color: #eab308; }
+.prazo-col--concluido .prazo-col-count { color: #10b981; }
+/* caixa */
+.prazo-int-col--intimacao .prazo-col-count { color: var(--gold); }
+.prazo-int-col--decisao .prazo-col-count { color: #3b82f6; }
+.prazo-int-col--sentenca .prazo-col-count { color: #ef4444; }
+.prazo-int-col--despacho .prazo-col-count { color: #8b5cf6; }
 
 .prazo-col-body {
   display: flex;
@@ -125,6 +140,7 @@
 
 /* ── Cartão de prazo ──────────────────────────────────────────────── */
 .prazo-card {
+  position: relative;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -152,13 +168,28 @@
   padding-top: 0.35rem;
 }
 
+/* Ações fora do fluxo: o título abre o card; editar/excluir só aparecem no
+   hover (sempre visíveis em telas de toque). */
 .prazo-card-top {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
   display: flex;
   justify-content: flex-end;
   align-items: center;
 }
 
-.prazo-card-actions { display: flex; gap: 0.15rem; }
+.prazo-card-actions {
+  display: flex;
+  gap: 0.15rem;
+  opacity: 0;
+  background: var(--bg-card);
+  border-radius: 6px;
+  transition: opacity 0.12s ease;
+}
+.prazo-card:hover .prazo-card-actions,
+.prazo-card:focus-within .prazo-card-actions { opacity: 1; }
+@media (hover: none) { .prazo-card-actions { opacity: 1; } }
 
 .prazo-icon-btn {
   display: flex;
@@ -176,19 +207,20 @@
 .prazo-icon-btn:hover { background: var(--bg-input); color: var(--text-primary); }
 .prazo-icon-btn--danger:hover { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
-.prazo-card-title { font-weight: 700; font-size: 0.92rem; color: var(--text-primary); line-height: 1.25; }
+.prazo-card-title { font-weight: 700; font-size: 0.92rem; color: var(--text-primary); line-height: 1.25; padding-right: 3.2rem; }
 .prazo-card-case { font-size: 0.8rem; color: var(--text-secondary); }
 
+/* A data fatal é a resposta de "o que preciso fazer hoje" — meio degrau acima. */
 .prazo-card-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.3rem;
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
   margin-top: 0.15rem;
 }
-.prazo-card-rel { font-weight: 600; }
+.prazo-card-rel { font-weight: 700; }
 .prazo-card-rel--vencido { color: #ef4444; }
 .prazo-card-rel--hoje { color: #f59e0b; }
 .prazo-card-rel--semana { color: #eab308; }
@@ -311,24 +343,28 @@
 
 .prazo-inbox { display: flex; flex-direction: column; gap: 1rem; }
 
-/* Faixa única de filtros: status + busca + mês na primeira linha, áreas na segunda,
-   dentro do mesmo bloco. --bg-main atrás de pílulas --bg-card, igual às colunas. */
+/* Faixa única de filtros, sem moldura: as pílulas têm bordas próprias e se
+   sustentam sobre o fundo do painel. Controles da 1ª linha normalizados em 34px;
+   a 2ª linha (áreas) se separa por um divisor tracejado. */
 .prazo-inbox-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.6rem 0.75rem;
   flex-wrap: wrap;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--bg-main);
 }
 
 .prazo-inbox-filters { display: flex; gap: 0.4rem; }
 
 /* Chips de filtro por área do direito */
-.prazo-inbox-areas { display: flex; gap: 0.4rem; flex-wrap: wrap; flex-basis: 100%; }
+.prazo-inbox-areas {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
+}
 .prazo-inbox-area {
   padding: 0.3rem 0.75rem;
   border-radius: 20px;
@@ -425,7 +461,8 @@
   flex: 1;
   min-width: 220px;
   max-width: 360px;
-  padding: 0.4rem 0.7rem;
+  height: 34px;
+  padding: 0 0.7rem;
   border: 1px solid var(--border);
   border-radius: 20px;
   background: var(--bg-card);
@@ -460,8 +497,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -489,7 +526,10 @@
 }
 .prazo-inbox-mes-todos:hover { color: var(--gold); }
 .prazo-inbox-filter {
-  padding: 0.45rem 0.9rem;
+  height: 34px;
+  padding: 0 0.9rem;
+  display: inline-flex;
+  align-items: center;
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -508,11 +548,13 @@
    um quadro mais alto que a tela. */
 .prazo-int-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(300px, 1fr));
-  gap: 1rem;
+  /* 280px + gap menor: ~110px a menos de largura mínima — em notebook com
+     sidebar é a diferença entre ver 4 ou 5 colunas. */
+  grid-template-columns: repeat(5, minmax(280px, 1fr));
+  gap: 0.85rem;
   align-items: start;
   overflow: auto;
-  max-height: calc(100vh - 250px);
+  max-height: calc(100vh - 290px);
   min-height: 320px;
   padding-bottom: 0.5rem;
 }
@@ -598,32 +640,39 @@
 }
 .prazo-col-vermais:hover { color: var(--text-primary); border-color: var(--gold); }
 
+/* Card quieto; o dourado significa "foco aqui" e volta só no hover, espelhando
+   o .prazo-card do quadro. 25 filetes dourados fixos viravam textura de fundo. */
 .prazo-int-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--gold);
   border-radius: 10px;
-  padding: 0.9rem 1.1rem;
+  padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.45rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
+.prazo-int-card:hover { border-color: var(--gold); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); }
 
-.prazo-int-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-.prazo-int-tags { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+/* Linha 1 do card: cliente à esquerda, data à direita */
+.prazo-int-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+/* Linha de meta no rodapé do conteúdo: tribunal · tipo · publicações · certidão */
+.prazo-int-tags { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
 .prazo-int-tag {
-  background: var(--primary-dim);
-  color: var(--gold);
-  font-size: 0.68rem;
-  font-weight: 800;
-  padding: 0.15rem 0.5rem;
-  border-radius: 5px;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
-/* Data e tipo do ato em destaque (informação-chave para triagem) */
 .prazo-int-date {
-  font-size: 0.85rem;
-  font-weight: 800;
-  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  margin-left: auto;
 }
 .prazo-int-multi {
   font-size: 0.68rem;
@@ -681,21 +730,32 @@
 }
 .prazo-int-pub-link:hover { text-decoration: underline; }
 /* Selo do tipo de ato, colorido conforme a coluna do kanban */
+/* Tipo do ato: ponto colorido + texto, sem mancha de fundo — a cor por tipo
+   permanece, o peso visual sai (eram 2 blocos de cor × 25 cards). */
 .prazo-int-tipo {
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 0.15rem 0.55rem;
-  border-radius: 5px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  background: none;
+  padding: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
-.prazo-int-tipo--intimacao { color: var(--gold); background: var(--primary-dim); }
-.prazo-int-tipo--decisao { color: #3b82f6; background: rgba(59, 130, 246, 0.14); }
-.prazo-int-tipo--sentenca { color: #ef4444; background: rgba(239, 68, 68, 0.14); }
-.prazo-int-tipo--despacho { color: #8b5cf6; background: rgba(139, 92, 246, 0.14); }
-.prazo-int-tipo--outros { color: #0f172a; background: rgba(15, 23, 42, 0.12); }
+.prazo-int-tipo::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.35rem;
+  vertical-align: 1px;
+}
+.prazo-int-tipo--intimacao { color: var(--gold); }
+.prazo-int-tipo--decisao { color: #3b82f6; }
+.prazo-int-tipo--sentenca { color: #ef4444; }
+.prazo-int-tipo--despacho { color: #8b5cf6; }
+.prazo-int-tipo--outros { color: #0f172a; }
 /* Preto não é legível no tema escuro — inverte para claro */
-[data-theme='dark'] .prazo-int-tipo--outros { color: #f1f5f9; background: rgba(241, 245, 249, 0.16); }
+[data-theme='dark'] .prazo-int-tipo--outros { color: #f1f5f9; }
 .prazo-int-link {
   display: inline-flex;
   align-items: center;
@@ -706,15 +766,20 @@
   text-decoration: none;
 }
 .prazo-int-link:hover { text-decoration: underline; }
+/* Na linha de meta do card, a certidão ancora à direita */
+.prazo-int-tags .prazo-int-link { margin-left: auto; font-weight: 600; }
 
-.prazo-int-cliente { font-weight: 700; color: var(--text-primary); font-size: 0.95rem; }
-.prazo-int-proc { font-size: 0.82rem; color: var(--text-secondary); }
+.prazo-int-cliente { font-weight: 600; color: var(--text-primary); font-size: 1rem; letter-spacing: -0.01em; }
+.prazo-int-proc { font-size: 0.8rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .prazo-int-classe { color: var(--text-muted); }
 
+/* O teor é citação do documento oficial: um degrau acima do muted, com régua. */
 .prazo-int-texto {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  line-height: 1.45;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -739,12 +804,26 @@
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 0.35rem;
-  border-top: 1px dashed var(--border);
-  padding-top: 0.6rem;
+  margin-top: 0.45rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.55rem;
 }
 .prazo-int-revisado { font-size: 0.72rem; color: var(--text-muted); }
 .prazo-int-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+/* Uma ação primária compacta por card; secundárias viram fantasma até o hover. */
+.prazo-int-actions .lx-btn-tool {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.prazo-int-actions .lx-btn-tool:hover:not(:disabled) {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.prazo-int-card .prazo-int-gerar { padding: 0.4rem 0.85rem; font-size: 0.8rem; }
 .prazo-int-gerar { padding: 0.5rem 1rem; }
 
 .prazo-gerar-origem {

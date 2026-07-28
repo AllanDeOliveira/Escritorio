@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, buscaMatch, formatarNumeroCnj,
-  relativeLabel,
+  relativeLabel, nomeProprio,
   type Intimacao,
 } from './PrazosTab';
 
@@ -141,5 +141,14 @@ describe('relativeLabel', () => {
     expect(relativeLabel(30)).toBe('em 30 dias');
     expect(relativeLabel(0)).toBe('vence hoje');
     expect(relativeLabel(-2)).toBe('atrasado 2 dias');
+  });
+});
+
+describe('nomeProprio', () => {
+  it('capitaliza nomes em CAIXA ALTA do DJEN com partículas em minúsculas', () => {
+    expect(nomeProprio('MARIA APARECIDA DO ESPIRITO SANTO')).toBe('Maria Aparecida do Espirito Santo');
+    expect(nomeProprio('CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA')).toBe('Cumprimento de Sentença Contra A Fazenda Pública');
+    expect(nomeProprio('DA SILVA')).toBe('Da Silva'); // partícula inicial mantém maiúscula
+    expect(nomeProprio(null)).toBe('');
   });
 });

@@ -11,11 +11,11 @@ const API_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 const TYPES = ['JUDICIAL', 'ADMINISTRATIVO', 'INTERNO'];
 
 const COLUMNS = [
-  { key: 'vencido', label: 'Vencidos', cls: 'prazo-col--vencido' },
-  { key: 'hoje', label: 'Hoje', cls: 'prazo-col--hoje' },
-  { key: 'semana', label: 'Esta semana', cls: 'prazo-col--semana' },
-  { key: 'futuro', label: 'Futuro', cls: 'prazo-col--futuro' },
-  { key: 'concluido', label: 'Concluído', cls: 'prazo-col--concluido' },
+  { key: 'vencido', label: 'Vencidos', cls: 'prazo-col--vencido', empty: 'Nenhum vencido' },
+  { key: 'hoje', label: 'Hoje', cls: 'prazo-col--hoje', empty: 'Nada para hoje' },
+  { key: 'semana', label: 'Esta semana', cls: 'prazo-col--semana', empty: 'Nada nesta semana' },
+  { key: 'futuro', label: 'Futuro', cls: 'prazo-col--futuro', empty: 'Nenhum agendado' },
+  { key: 'concluido', label: 'Concluído', cls: 'prazo-col--concluido', empty: 'Arraste um card aqui para concluir' },
 ] as const;
 
 interface Prazo {
@@ -159,6 +159,18 @@ export function formatarNumeroCnj(n?: string | null): string {
   const d = String(n || '').replace(/\D/g, '');
   if (d.length !== 20) return String(n || '');
   return `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}`;
+}
+
+// Nomes e classes chegam do DJEN em CAIXA ALTA; exibimos em capitalização de
+// nome próprio (partículas em minúsculas). Não usar em órgão/tribunal — siglas
+// como TJMT virariam "Tjmt".
+const PARTICULAS = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
+export function nomeProprio(s?: string | null): string {
+  return String(s || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w, i) => (i > 0 && PARTICULAS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 // Aviso pendente de ciência vindo do MNI/PJe (GET /api/mni/avisos)
@@ -364,7 +376,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     setGerandoDe({ int: i, grupoIds: g.ids.filter(id => id !== i.id) });
     setEditingId(null);
     setForm({
-      title: i.clienteExtraido || i.numeroProcesso || '',
+      title: nomeProprio(i.clienteExtraido) || i.numeroProcesso || '',
       caseReference: i.numeroProcesso || '',
       responsibleName: i.advogadoNome || '',
       type: 'JUDICIAL',
@@ -555,11 +567,23 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       {/* Cabeçalho: título da visão à esquerda, ações da visão à direita.
           Os totais por urgência já aparecem no cabeçalho de cada coluna e no painel inicial. */}
       <div className="prazo-header">
-        <div className="prazo-header-title">
+        <div className="prazo-header-resumo">
           <h2>{view === 'inbox' ? 'Caixa de intimações' : 'Quadro de prazos'}</h2>
-          <span className="prazo-header-sub">
-            {view === 'inbox' ? 'Publicações do DJEN aguardando triagem' : 'Prazos ativos por urgência'}
-          </span>
+          {view === 'inbox' ? (
+            <p>{intCounts.nova > 0 ? `${intCounts.nova} aguardando triagem${intMes ? ` · ${nomeMes(intMes)}` : ''}` : 'Nenhuma intimação pendente de triagem'}</p>
+          ) : !loading && (
+            <p className={count('vencido') > 0 ? 'prazo-header-resumo--alerta' : ''}>
+              {count('vencido') + count('hoje') + count('semana') > 0
+                ? [
+                    count('vencido') > 0 && `${count('vencido')} vencido${count('vencido') > 1 ? 's' : ''}`,
+                    count('hoje') > 0 && `${count('hoje')} vence${count('hoje') > 1 ? 'm' : ''} hoje`,
+                    count('semana') > 0 && `${count('semana')} nesta semana`,
+                  ].filter(Boolean).join(' · ')
+                : intCounts.nova > 0
+                  ? `Nada vence hoje · ${intCounts.nova} intimaç${intCounts.nova > 1 ? 'ões' : 'ão'} aguardando triagem`
+                  : 'Nada vence hoje'}
+            </p>
+          )}
         </div>
         <div className="prazo-header-actions">
           <button
@@ -567,7 +591,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             onClick={() => setView(v => v === 'inbox' ? 'board' : 'inbox')}
           >
             {view === 'inbox' ? <ArrowLeft size={16} /> : <Inbox size={16} />}
-            {view === 'inbox' ? 'Voltar ao quadro' : 'Notificações'}
+            {view === 'inbox' ? 'Quadro de prazos' : 'Caixa de intimações'}
             {view !== 'inbox' && intCounts.nova > 0 && <span className="prazo-inbox-badge">{intCounts.nova}</span>}
           </button>
           {view === 'inbox' ? (
@@ -712,8 +736,16 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           ) : intimacoes.length === 0 ? (
             <div className="prazo-empty-all">
               <Inbox size={48} className="prazo-empty-icon" />
-              <h3>{intFilter === 'NOVA' ? 'Nenhuma intimação nova' : 'Nada aqui'}</h3>
-              {intFilter === 'NOVA' && <p>Clique em "Buscar novas no DJEN" para consultar as publicações das OABs do escritório.</p>}
+              <h3>
+                {intFilter === 'NOVA' ? 'Nenhuma intimação nova' : intFilter === 'GERADA' ? 'Nenhuma intimação virou prazo' : 'Nenhuma intimação descartada'}
+                {intMes ? ` em ${nomeMes(intMes)}` : ''}
+              </h3>
+              {intFilter === 'NOVA' && (!intMes || intMes === mesAtual()) && (
+                <p>Use "Buscar novas no DJEN" para consultar as publicações das OABs do escritório.</p>
+              )}
+              {intMes && (
+                <button className="lx-btn-tool" onClick={() => setIntMes('')}>Ver todos os meses</button>
+              )}
             </div>
           ) : gruposFiltrados.length === 0 ? (
             <div className="prazo-empty-all">
@@ -754,42 +786,14 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                         const i = g.rep;
                         return (
                 <div key={i.id} className="prazo-int-card">
+                  {/* Ordem de leitura: cliente+data (1s) → processo (3s) → teor → origem (meta) */}
                   <div className="prazo-int-head">
-                    <div className="prazo-int-tags">
-                      {i.tribunal && <span className="prazo-int-tag">{i.tribunal}</span>}
-                      {g.datas.length > 0 && <span className="prazo-int-date">{g.datas.join(' · ')}</span>}
-                      {(i.tipoDocumento || i.tipoComunicacao) && (
-                        <span className={`prazo-int-tipo prazo-int-tipo--${tipoBucket(i)}`}>
-                          {i.tipoDocumento || i.tipoComunicacao}
-                        </span>
-                      )}
-                      {g.ids.length > 1 && (
-                        <button
-                          type="button"
-                          className={`prazo-int-multi ${pubsAbertas === i.id ? 'prazo-int-multi--open' : ''}`}
-                          onClick={() => setPubsAbertas(pubsAbertas === i.id ? null : i.id)}
-                          title="O tribunal publicou este mesmo ato uma vez por destinatário/advogado. Clique para ver todas."
-                        >
-                          ×{g.ids.length} publicações
-                        </button>
-                      )}
-                    </div>
-                    {(i.hash || i.link) && (
-                      <a
-                        className="prazo-int-link"
-                        href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : i.link!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={i.hash ? 'Abrir a certidão oficial da comunicação (PDF)' : 'Abrir no PJe do tribunal'}
-                      >
-                        <ExternalLink size={14} /> {i.hash ? 'Certidão (PDF)' : 'PJe'}
-                      </a>
-                    )}
+                    {i.clienteExtraido && <div className="prazo-int-cliente">{nomeProprio(i.clienteExtraido)}</div>}
+                    {g.datas.length > 0 && <span className="prazo-int-date">{g.datas.join(' · ')}</span>}
                   </div>
-                  {i.clienteExtraido && <div className="prazo-int-cliente">{i.clienteExtraido}</div>}
                   <div className="prazo-int-proc">
-                    {i.numeroProcesso || 'Processo não identificado'}
-                    {i.nomeClasse && <span className="prazo-int-classe"> · {i.nomeClasse}</span>}
+                    {formatarNumeroCnj(i.numeroProcesso) || 'Processo não identificado'}
+                    {i.nomeClasse && <span className="prazo-int-classe"> · {nomeProprio(i.nomeClasse)}</span>}
                   </div>
                   {g.ids.length > 1 && pubsAbertas === i.id && (
                     <ul className="prazo-int-pubs">
@@ -825,6 +829,35 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       {expandedId === i.id ? 'ocultar teor' : 'ver teor completo'}
                     </button>
                   )}
+                  <div className="prazo-int-tags">
+                    {i.tribunal && <span className="prazo-int-tag">{i.tribunal}</span>}
+                    {(i.tipoDocumento || i.tipoComunicacao) && (
+                      <span className={`prazo-int-tipo prazo-int-tipo--${tipoBucket(i)}`}>
+                        {i.tipoDocumento || i.tipoComunicacao}
+                      </span>
+                    )}
+                    {g.ids.length > 1 && (
+                      <button
+                        type="button"
+                        className={`prazo-int-multi ${pubsAbertas === i.id ? 'prazo-int-multi--open' : ''}`}
+                        onClick={() => setPubsAbertas(pubsAbertas === i.id ? null : i.id)}
+                        title="O tribunal publicou este mesmo ato uma vez por destinatário/advogado. Clique para ver todas."
+                      >
+                        ×{g.ids.length} publicações
+                      </button>
+                    )}
+                    {(i.hash || i.link) && (
+                      <a
+                        className="prazo-int-link"
+                        href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : i.link!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={i.hash ? 'Abrir a certidão oficial da comunicação (PDF)' : 'Abrir no PJe do tribunal'}
+                      >
+                        <ExternalLink size={14} /> {i.hash ? 'Certidão (PDF)' : 'PJe'}
+                      </a>
+                    )}
+                  </div>
                   {intFilter === 'GERADA' && (i.prazo ? (
                     <div className={`prazo-int-vinculo ${i.prazo.status === 'CUMPRIDO' ? 'prazo-int-vinculo--done' : ''}`}>
                       {i.prazo.status === 'CUMPRIDO' ? <Check size={13} /> : <CalendarClock size={13} />}
@@ -902,28 +935,28 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       ) : totalPrazos === 0 ? (
         <div className="prazo-empty-all">
           <CalendarClock size={48} className="prazo-empty-icon" />
-          <h3>Quadro em dia</h3>
-          <p>
-            Nenhum prazo ativo no momento.
-            {intCounts.nova > 0 && (intCounts.nova === 1
-              ? ' 1 intimação nova aguarda triagem na caixa.'
-              : ` ${intCounts.nova} intimações novas aguardam triagem na caixa.`)}
-          </p>
+          <h3>Nenhum prazo ativo no quadro</h3>
+          {intCounts.nova > 0 ? (
+            <p>Os prazos nascem da triagem: há <strong>{intCounts.nova}</strong> intimaç{intCounts.nova > 1 ? 'ões' : 'ão'} aguardando na caixa.</p>
+          ) : (
+            <p>Gere prazos a partir das intimações da caixa ou cadastre manualmente.</p>
+          )}
           <div className="prazo-empty-actions">
             {intCounts.nova > 0 && (
               <button className="lx-btn-primary" onClick={() => setView('inbox')}>
-                <Inbox size={16} /> Abrir caixa de intimações
+                <Inbox size={16} /> Triar intimações ({intCounts.nova})
               </button>
             )}
-            <button className="lx-btn-tool" onClick={abrirNovo}><Plus size={16} /> Novo prazo</button>
-            <button className="lx-btn-tool" onClick={() => setImportOpen(true)}><Upload size={16} /> Importar planilha</button>
+            <button className={intCounts.nova > 0 ? 'lx-btn-tool' : 'lx-btn-primary'} onClick={abrirNovo}>
+              <Plus size={16} /> Novo prazo
+            </button>
+            <button className="lx-btn-tool" onClick={() => setImportOpen(true)}>
+              <Upload size={16} /> Importar planilha
+            </button>
           </div>
         </div>
       ) : (
         <>
-        {count('hoje') + count('semana') === 0 && (
-          <p className="prazo-nada-hoje">Nada vence hoje nem nesta semana.</p>
-        )}
         <div className="prazo-board">
           {COLUMNS.map(col => {
             const items = groups[col.key] || [];
@@ -944,7 +977,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 </div>
                 <div className="prazo-col-body">
                   {items.length === 0 ? (
-                    <div className="prazo-col-empty">{col.key === 'concluido' ? 'Arraste um card aqui para concluir' : 'Nenhum'}</div>
+                    <div className="prazo-col-empty">{col.empty}</div>
                   ) : visiveis.map(p => (
                     <div
                       key={p.id}
