@@ -22,7 +22,11 @@ export default function Jurimetria() {
   const [areas, setAreas] = useState<any[]>([]);
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const [showNovaAreaModal, setShowNovaAreaModal] = useState(false);
-  const [novaAreaForm, setNovaAreaForm] = useState({ name: '', courtAcronym: 'TJSP', subjectCode: '' });
+  const [novaAreaForm, setNovaAreaForm] = useState({
+    name: '', courtAcronym: 'TJSP', subjectCode: '',
+    // Extensões do filtro de descoberta — sem elas, cai no padrão (últimos 30 dias, 1 assunto).
+    outrosAssuntos: '', dataInicio: '', dataFim: '', classCode: '',
+  });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [outcomeAnalyses, setOutcomeAnalyses] = useState<any[]>([]);
   const [loadingOutcome, setLoadingOutcome] = useState(false);
@@ -143,9 +147,21 @@ export default function Jurimetria() {
    */
   const handleCreateArea = async () => {
     try {
-      await jurimetriaService.createMonitoringArea(novaAreaForm);
+      const subjectCodes = novaAreaForm.outrosAssuntos
+        .split(',').map(s => s.trim()).filter(Boolean);
+      await jurimetriaService.createMonitoringArea({
+        name: novaAreaForm.name,
+        courtAcronym: novaAreaForm.courtAcronym,
+        subjectCode: novaAreaForm.subjectCode,
+        filters: {
+          ...(subjectCodes.length > 0 ? { subjectCodes } : {}),
+          ...(novaAreaForm.dataInicio ? { startDate: novaAreaForm.dataInicio } : {}),
+          ...(novaAreaForm.dataFim ? { endDate: novaAreaForm.dataFim } : {}),
+          ...(novaAreaForm.classCode ? { classCode: novaAreaForm.classCode } : {}),
+        },
+      });
       setShowNovaAreaModal(false);
-      setNovaAreaForm({ name: '', courtAcronym: 'TJSP', subjectCode: '' });
+      setNovaAreaForm({ name: '', courtAcronym: 'TJSP', subjectCode: '', outrosAssuntos: '', dataInicio: '', dataFim: '', classCode: '' });
       await carregarAreas();
     } catch (e: any) {
       alert("Erro ao criar área de monitoramento: " + (e.message || "Erro desconhecido"));
@@ -206,6 +222,15 @@ export default function Jurimetria() {
               <input type="text" placeholder="Nome da Área (ex: Direito Bancário)" value={novaAreaForm.name} onChange={e => setNovaAreaForm({...novaAreaForm, name: e.target.value})} style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
               <input type="text" placeholder="Sigla do Tribunal (ex: TJSP, STF)" value={novaAreaForm.courtAcronym} onChange={e => setNovaAreaForm({...novaAreaForm, courtAcronym: e.target.value})} style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
               <input type="text" placeholder="Código Assunto TPU (opcional)" value={novaAreaForm.subjectCode} onChange={e => setNovaAreaForm({...novaAreaForm, subjectCode: e.target.value})} style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+              <input type="text" placeholder="Outros códigos de assunto (separados por vírgula)" value={novaAreaForm.outrosAssuntos} onChange={e => setNovaAreaForm({...novaAreaForm, outrosAssuntos: e.target.value})} style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+              <input type="text" placeholder="Código da Classe Processual (opcional)" value={novaAreaForm.classCode} onChange={e => setNovaAreaForm({...novaAreaForm, classCode: e.target.value})} style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Período (opcional — sem isso, busca os últimos 30 dias)</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input type="date" value={novaAreaForm.dataInicio} onChange={e => setNovaAreaForm({...novaAreaForm, dataInicio: e.target.value})} style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+                  <input type="date" value={novaAreaForm.dataFim} onChange={e => setNovaAreaForm({...novaAreaForm, dataFim: e.target.value})} style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
                 <button className="lx-btn-tool" onClick={() => setShowNovaAreaModal(false)}>Cancelar</button>
                 <button className="lx-btn-primary" onClick={handleCreateArea}>Salvar e Monitorar</button>

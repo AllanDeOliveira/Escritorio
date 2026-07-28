@@ -110,9 +110,21 @@ export class DataJudAdapter implements BaseLegalAdapter {
 
   /**
    * Realiza uma busca por processos recentes baseada em filtros de tribunal,
-   * código de assunto (TPU) e período de tempo.
+   * código(s) de assunto (TPU), classe processual e período de tempo.
+   *
+   * `subjectCode`/`daysAgo` continuam aceitos (compat com chamadas antigas);
+   * `subjectCodes`/`startDate`/`endDate`/`classCode` são as extensões novas.
+   * Quando `startDate`/`endDate` vêm preenchidos, prevalecem sobre `daysAgo`.
    */
-  async searchProcesses(filters: { courtAcronym: string, subjectCode?: string, daysAgo?: number }): Promise<string[]> {
+  async searchProcesses(filters: {
+    courtAcronym: string,
+    subjectCode?: string,
+    subjectCodes?: string[],
+    daysAgo?: number,
+    startDate?: string,
+    endDate?: string,
+    classCode?: string,
+  }): Promise<string[]> {
     if (!this.apiKey) {
       throw new Error('DATAJUD_API_KEY is missing');
     }
@@ -122,14 +134,28 @@ export class DataJudAdapter implements BaseLegalAdapter {
 
     const mustClauses: any[] = [];
 
-    if (filters.subjectCode) {
-      // campo correto no índice é assuntos.codigo (codigoNacional não existe → 0 hits)
-      mustClauses.push({
-        match: { "assuntos.codigo": parseInt(filters.subjectCode, 10) }
-      });
+    // campo correto no índice é assuntos.codigo (codigoNacional não existe → 0 hits)
+    const subjectCodes = Array.from(new Set([
+      ...(filters.subjectCode ? [filters.subjectCode] : []),
+      ...(filters.subjectCodes || []),
+    ])).map(c => parseInt(c, 10)).filter(n => !isNaN(n));
+    if (subjectCodes.length > 0) {
+      mustClauses.push({ terms: { "assuntos.codigo": subjectCodes } });
     }
 
-    if (filters.daysAgo) {
+    if (filters.classCode) {
+      const classCode = parseInt(filters.classCode, 10);
+      if (!isNaN(classCode)) {
+        mustClauses.push({ term: { "classe.codigo": classCode } });
+      }
+    }
+
+    if (filters.startDate || filters.endDate) {
+      const range: { gte?: string, lte?: string } = {};
+      if (filters.startDate) range.gte = new Date(filters.startDate).toISOString();
+      if (filters.endDate) range.lte = new Date(filters.endDate).toISOString();
+      mustClauses.push({ range: { "dataAjuizamento": range } });
+    } else if (filters.daysAgo) {
       const date = new Date();
       date.setDate(date.getDate() - filters.daysAgo);
       mustClauses.push({
@@ -147,7 +173,7 @@ export class DataJudAdapter implements BaseLegalAdapter {
       sort: [{ "dataAjuizamento": "desc" }]
     };
 
-    console.log(`[DataJudAdapter] Searching ${indexName} with subject: ${filters.subjectCode}`);
+    console.log(`[DataJudAdapter] Searching ${indexName} — assuntos:${subjectCodes.join(',') || '-'} classe:${filters.classCode || '-'} periodo:${filters.startDate || filters.daysAgo + 'd atrás' || '-'}..${filters.endDate || 'hoje'}`);
 
     try {
       const response = await fetch(url, {

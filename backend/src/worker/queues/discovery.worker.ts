@@ -21,11 +21,24 @@ export const discoveryWorker = new Worker(
     if (!area || !area.active) return { success: false, reason: 'Área inativa ou não encontrada' };
 
     try {
+      // area.filters é aceito pela API desde sempre, mas só passa a ser lido aqui.
+      // Formato esperado (todos opcionais): { subjectCodes?: string[], startDate?: string,
+      // endDate?: string, classCode?: string }. Sem filters, cai no comportamento de sempre
+      // (últimos 30 dias, só o subjectCode único da área).
+      const extraFilters = (area.filters && typeof area.filters === 'object' ? area.filters : {}) as {
+        subjectCodes?: string[], startDate?: string, endDate?: string, classCode?: string,
+      };
+
       // 1. Busca CNJs recentes no DataJud
       const cnjs = await adapter.searchProcesses({
         courtAcronym: area.courtAcronym,
         subjectCode: area.subjectCode || undefined,
-        daysAgo: 30 // Busca os últimos 30 dias para maior amostragem
+        subjectCodes: extraFilters.subjectCodes,
+        classCode: extraFilters.classCode,
+        startDate: extraFilters.startDate,
+        endDate: extraFilters.endDate,
+        // Só usa a janela fixa de 30 dias quando nenhum período explícito foi definido.
+        daysAgo: (extraFilters.startDate || extraFilters.endDate) ? undefined : 30,
       });
 
       console.log(`[Worker] Discovery encontrou ${cnjs.length} CNJs para a área ${area.name}`);

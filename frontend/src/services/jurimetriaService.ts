@@ -1,7 +1,3 @@
-import { 
-  aggregateProcessosToTeses, 
-  mapProcessosToRadar
-} from '../utils/jurimetriaMappers';
 import type {
   TeseInfoUI,
   PrecedenteInfoUI
@@ -29,70 +25,6 @@ export interface JurimetriaDataPayload {
 }
 
 export const jurimetriaService = {
-  /**
-   * Obtém os dados unificados para a tela principal (Dashboard de Jurimetria)
-   * Faz o fetch em paralelo das fontes necessárias.
-   */
-  async getDashboardData(): Promise<JurimetriaDataPayload> {
-    try {
-      // 1. Fetch de Teses (via agregação de processos recentes do tribunal X)
-      const tesesResponse = await this.buscarProcessosDatajud(); 
-      const tesesMapeadas = aggregateProcessosToTeses(tesesResponse);
-
-      // 2. Fetch Radar Superiores (processos em STF/STJ)
-      const radarResponse = await this.buscarProcessosDatajud();
-      const radarMapeado = mapProcessosToRadar(radarResponse);
-
-      // 3. Cálculo de métricas gerais no frontend baseado nos dados recebidos
-      const metrics: DashboardMetrics = {
-        totalTeses: tesesMapeadas.length,
-        emAscensao: tesesMapeadas.filter(t => t.status === 'ascensao').length,
-        consolidadas: tesesMapeadas.filter(t => t.status === 'consolidada').length,
-        risco: tesesMapeadas.filter(t => t.status === 'risco').length,
-      };
-
-      return {
-        teses: tesesMapeadas,
-        radar: radarMapeado,
-        metrics
-      };
-    } catch (error) {
-      console.error('Falha ao carregar dados de Jurimetria', error);
-      throw error; // Repassa para a UI tratar
-    }
-  },
-
-  /**
-   * Busca processos do banco de dados local
-   */
-  async buscarProcessosDatajud(): Promise<any> {
-    try {
-      const response = await fetch(`${API}/api/processes`);
-      if (!response.ok) throw new Error('API Local offline');
-      
-      const processes: any[] = await response.json();
-      
-      // 2. Mapeia o formato do Banco de Dados (Prisma) para o formato esperado pela UI
-      return processes.map(p => ({
-        numeroProcesso: p.cnjNumber,
-        classeProcessual: p.className || 'Não Informado',
-        dataAjuizamento: p.filingDate || p.createdAt,
-        tribunal: p.court?.acronym || 'Desconhecido',
-        assuntos: [{ codigo: 0, nome: p.className || 'Geral' }], // Simplificado para o MVP
-        movimentos: (p.movements || []).map((m: any) => ({
-          codigo: m.code || 0,
-          nome: m.description,
-          dataHora: m.date
-        }))
-      }));
-
-    } catch (error) {
-      console.warn('API Local falhou ou vazia.', error);
-      return [];
-    }
-  },
-
-
   /**
    * Busca todas as áreas de monitoramento cadastradas.
    */
@@ -131,9 +63,15 @@ export const jurimetriaService = {
   },
 
   /**
-   * Cria uma nova área de monitoramento no backend.
+   * Cria uma nova área de monitoramento no backend. `filters` é opcional — sem ele,
+   * a descoberta cai no comportamento padrão (últimos 30 dias, só o subjectCode acima).
    */
-  async createMonitoringArea(data: { name: string, courtAcronym: string, subjectCode?: string }) {
+  async createMonitoringArea(data: {
+    name: string,
+    courtAcronym: string,
+    subjectCode?: string,
+    filters?: { subjectCodes?: string[], startDate?: string, endDate?: string, classCode?: string },
+  }) {
     const res = await fetch(`${API}/api/monitoring`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
