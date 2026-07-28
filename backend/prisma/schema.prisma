@@ -200,6 +200,15 @@ model SystemSettings {
   id                String   @id @default(uuid())
   whatsappGroupId   String?
   whatsappGroupName String?
+
+  // Heartbeat da sincronização DJEN. djenLastSyncAt só avança numa passada LIMPA
+  // (erros.length === 0): a API do DJEN falha sem lançar, então "completou" não é
+  // "buscou". Carimbar um sync sujo esconderia dias sem intimação atrás de um "✓".
+  djenLastSyncAt    DateTime? // última busca limpa — base da regra de staleness
+  djenLastAttemptAt DateTime? // início da última execução (sempre)
+  djenLastError     String? // erros da última execução; null quando limpa
+  djenLastCriadas   Int      @default(0)
+
   updatedAt         DateTime @updatedAt
 
   @@map("configuracoes_sistema")

@@ -1,0 +1,223 @@
+.dash-panel {
+  overflow-y: auto;
+}
+
+.dash-content {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Saudação — linha fina, não bloco */
+.dash-greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.dash-greeting-hi {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.dash-greeting-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.dash-greeting-sub svg { color: var(--gold); }
+
+/* Estado de erro — jamais mostra zeros no lugar */
+.dash-erro {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.15rem;
+  border-radius: var(--r-md, 12px);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+.dash-erro-txt { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; }
+.dash-erro-txt strong { color: var(--text-primary); font-size: 0.95rem; }
+.dash-erro-txt span { color: var(--text-secondary); font-size: 0.82rem; }
+
+.dash-loading {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 0;
+  color: var(--gold);
+}
+
+/* Banner de alerta crítico */
+.dash-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--r-md, 12px);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: var(--t);
+  text-align: left;
+}
+.dash-banner:hover { background: rgba(239, 68, 68, 0.18); }
+.dash-banner span { flex: 1; }
+.dash-banner strong { font-weight: 700; }
+.dash-banner-seta { opacity: 0.6; flex-shrink: 0; }
+
+/* Heartbeat do sync DJEN — verde só em passada limpa e recente */
+.dash-sync {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--r-sm, 8px);
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+}
+.dash-sync-txt { flex: 1; }
+.dash-sync svg { flex-shrink: 0; }
+
+.dash-sync--ok {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.25);
+  color: #16a34a;
+}
+.dash-sync--warn {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+.dash-sync--stale {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+.dash-sync--warn .dash-sync-txt,
+.dash-sync--stale .dash-sync-txt { color: var(--text-primary); }
+
+/* Cabeçalhos do digest herdam a cor de urgência das colunas */
+.dash-recentes-head--hoje { color: #f59e0b; }
+.dash-recentes-head--hoje svg { color: #f59e0b; }
+.dash-recentes-head--semana { color: #eab308; }
+.dash-recentes-head--semana svg { color: #eab308; }
+
+/* Cards de estatística — clicáveis */
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+.dash-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 1.15rem 1.25rem;
+  border-radius: var(--r-md, 12px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  cursor: pointer;
+  transition: var(--t);
+  text-align: left;
+}
+.dash-card:hover {
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+}
+.dash-card-num { font-size: 2rem; font-weight: 800; line-height: 1; }
+.dash-card-label { font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
+
+.dash-card--vencido { border-left-color: #ef4444; }
+.dash-card--vencido .dash-card-num { color: #ef4444; }
+.dash-card--hoje { border-left-color: #f59e0b; }
+.dash-card--hoje .dash-card-num { color: #f59e0b; }
+.dash-card--semana { border-left-color: #eab308; }
+.dash-card--semana .dash-card-num { color: #eab308; }
+
+/* Card de intimações */
+.dash-intimacoes {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.95rem 1.15rem;
+  border-radius: var(--r-md, 12px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--t);
+  text-align: left;
+  color: var(--text-primary);
+}
+.dash-intimacoes:hover { background: var(--bg-card-hover); }
+.dash-intimacoes > svg:first-child { color: var(--gold); flex-shrink: 0; }
+.dash-intimacoes-txt { flex: 1; font-size: 0.95rem; font-weight: 500; }
+.dash-intimacoes-badge {
+  min-width: 1.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}
+.dash-intimacoes-badge--on { background: #ef4444; color: #fff; }
+
+/* Últimos processos */
+.dash-recentes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.dash-recentes-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding-left: 0.15rem;
+}
+.dash-recentes-empty {
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.dash-recentes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.dash-recente {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--r-sm, 8px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--t);
+  text-align: left;
+  color: var(--text-primary);
+}
+.dash-recente:hover { background: var(--bg-card-hover); }
+.dash-recente-ic { color: var(--gold); flex-shrink: 0; }
+.dash-recente-nome { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.dash-recente-proc { font-size: 0.78rem; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-recente-data { font-size: 0.8rem; color: var(--text-secondary); flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .dash-cards { grid-template-columns: 1fr; }
+  .dash-recente-nome { max-width: 140px; }
+}

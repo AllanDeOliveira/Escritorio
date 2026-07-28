@@ -2,9 +2,25 @@ const logger = require('../infra/logger');
 const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
-const { syncIntimacoes } = require('../services/djenService');
+const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
 
 const INT_STATUS = ['NOVA', 'GERADA', 'DESCARTADA'];
+
+/**
+ * Estado da última sincronização com o DJEN. `stale` é calculado no servidor
+ * para a regra viver num lugar só (isSyncStale).
+ */
+async function syncStatusPayload() {
+    const s = await prisma.systemSettings.findFirst();
+    const lastSuccessAt = s?.djenLastSyncAt || null;
+    return {
+        lastSuccessAt,
+        lastAttemptAt: s?.djenLastAttemptAt || null,
+        lastError: s?.djenLastError || null,
+        criadas: s?.djenLastCriadas ?? 0,
+        stale: isSyncStale(lastSuccessAt),
+    };
+}
 
 // Meia-noite local de "YYYY-MM-DD" (mesma regra do prazosRoutes)
 function parseDateOnly(value) {
@@ -38,7 +54,7 @@ router.get('/', async (req, res) => {
             const mesIdx = Number(mMes[2]) - 1;
             porMes = { dataDisponibilizacao: { gte: new Date(ano, mesIdx, 1), lt: new Date(ano, mesIdx + 1, 1) } };
         }
-        const [intimacoes, novaG, geradaG, descartadaG] = await Promise.all([
+        const [intimacoes, novaG, geradaG, descartadaG, syncStatus] = await Promise.all([
             prisma.intimacao.findMany({
                 where: { status, ...porMes },
                 orderBy: { dataDisponibilizacao: 'desc' },
@@ -48,11 +64,13 @@ router.get('/', async (req, res) => {
             prisma.intimacao.groupBy({ by: CHAVE_ATO, where: { status: 'NOVA', ...porMes } }),
             prisma.intimacao.groupBy({ by: CHAVE_ATO, where: { status: 'GERADA', ...porMes } }),
             prisma.intimacao.groupBy({ by: CHAVE_ATO, where: { status: 'DESCARTADA', ...porMes } }),
+            syncStatusPayload(),
         ]);
         res.json({
             success: true,
             intimacoes,
             counts: { nova: novaG.length, gerada: geradaG.length, descartada: descartadaG.length },
+            syncStatus,
         });
     } catch (error) {
         logger.error('[listIntimacoes] Erro:', error);
@@ -64,7 +82,11 @@ router.get('/', async (req, res) => {
 router.post('/sync', async (req, res) => {
     try {
         const dias = req.body?.dias ? Number(req.body.dias) : undefined;
-        const resultado = await syncIntimacoes({ dias });
+        const resultado = await syncIntimacoesSafe({ dias });
+        // O cron pode estar rodando: não enfileira, avisa (o front já mostra o toast de erro).
+        if (resultado.skipped) {
+            return res.status(409).json({ success: false, error: 'Sincronização já em andamento. Tente em instantes.' });
+        }
         res.json({ success: true, ...resultado });
     } catch (error) {
         logger.error('[syncIntimacoes] Erro:', error);

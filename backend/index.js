@@ -25,6 +25,7 @@ const cron = require('node-cron');
 const whatsappRoutes = require('./src/routes/whatsappRoutes');
 const { initializeWhatsApp } = require('./src/services/whatsappService');
 const { runDailyNotifications, notifyPetitionGenerated } = require('./src/services/notificationService');
+const { syncIntimacoesSafe } = require('./src/services/djenService');
 
 const app = express();
 const allowedOrigins = process.env.FRONTEND_URL
@@ -1206,6 +1207,28 @@ app.listen(PORT, () => {
         logger.info('Executando Rotina Diária CRON - Notificações de Audiência...');
         await runDailyNotifications();
     });
+
+    // Sincronização automática do DJEN — dias úteis, 06:30 em Cuiabá.
+    // Guarda própria (NÃO a do WhatsApp): aquela desliga no Render por causa do
+    // Chromium; este sync é fetch puro e o Render é produção — é onde precisa rodar.
+    // Timezone explícito porque o Render roda em UTC e a OAB é MT (UTC-4): sem
+    // isso, '30 6' dispararia 02:30 local e o rótulo "sincronizado às 06:30" mentiria.
+    if (process.env.DISABLE_DJEN_CRON === 'true') {
+        logger.info('Cron do DJEN desativado (DISABLE_DJEN_CRON=true).');
+    } else {
+        cron.schedule('30 6 * * 1-5', async () => {
+            logger.info('[DJEN cron] Iniciando sincronização automática...');
+            try {
+                const r = await syncIntimacoesSafe();
+                if (r.skipped) logger.warn('[DJEN cron] Pulado: já havia uma sincronização em andamento.');
+                else logger.info(`[DJEN cron] ${r.criadas} nova(s) intimação(ões) (janela ${r.janela}).`);
+            } catch (e) {
+                // O servidor nunca cai por causa do sync; o heartbeat marca a falha.
+                logger.error('[DJEN cron] Falhou:', e.message);
+            }
+        }, { timezone: 'America/Cuiaba' });
+        logger.info('Cron do DJEN agendado: 06:30, dias úteis (America/Cuiaba).');
+    }
 
     // Iniciar Workers em background (para Radar Preditivo funcionar em Produção/Render)
     if (process.env.RENDER) {

@@ -1,0 +1,233 @@
+import {
+  AlertTriangle, CalendarClock, Inbox, Gavel, ChevronRight, Loader2, RefreshCw, Activity,
+  CheckCircle2, CloudOff,
+} from 'lucide-react';
+import { motion } from 'framer-motion';
+import './DashboardTab.css';
+
+export interface PrazoBucketed { bucket: string }
+
+// Conta prazos por bucket de urgência. Buckets desconhecidos (futuro/concluído/lixo)
+// são ignorados de propósito — não entram no resumo de "o que exige ação agora".
+export function resumoDePrazos(prazos: PrazoBucketed[]): { vencido: number; hoje: number; semana: number } {
+  const r = { vencido: 0, hoje: 0, semana: 0 };
+  for (const p of prazos) {
+    if (p.bucket === 'vencido') r.vencido++;
+    else if (p.bucket === 'hoje') r.hoje++;
+    else if (p.bucket === 'semana') r.semana++;
+  }
+  return r;
+}
+
+export interface CasoRecente {
+  id: string;
+  clientName?: string | null;
+  caseNumber?: string | null;
+  title?: string | null;
+  createdAt?: string | null;
+}
+
+export interface Resumo { vencido: number; hoje: number; semana: number; novas: number }
+
+/** Estado da última sincronização com o DJEN (`stale` vem calculado do servidor). */
+export interface SyncStatus {
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  stale: boolean;
+  criadas?: number;
+}
+
+/** Prazo no digest. Usa `responsibleName` (texto livre) — a relação `responsible` não vem em /api/prazos. */
+export interface PrazoLite {
+  id: string;
+  title?: string | null;
+  caseReference?: string | null;
+  responsibleName?: string | null;
+}
+
+interface DashboardTabProps {
+  resumo: Resumo | null;
+  recentes: CasoRecente[];
+  loading: boolean;
+  erro: boolean;
+  nomeUsuario: string;
+  onRefresh: () => void;
+  onNavigate: (tab: string, opts?: { view?: 'board' | 'inbox'; caseId?: string }) => void;
+  sync: SyncStatus | null;
+  onSyncNow: () => void;
+  syncing: boolean;
+  prazosHoje: PrazoLite[];
+  prazosSemana: PrazoLite[];
+}
+
+function formatDate(iso?: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+function formatHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** "há 2 dias" / "há 3 horas" — para o banner de sync desatualizado. */
+export function tempoDesde(iso: string | null, agora: Date = new Date()): string {
+  if (!iso) return 'nunca';
+  const h = Math.floor((agora.getTime() - new Date(iso).getTime()) / 3_600_000);
+  if (h < 1) return 'há menos de uma hora';
+  if (h < 24) return `há ${h} hora${h > 1 ? 's' : ''}`;
+  const d = Math.floor(h / 24);
+  return `há ${d} dia${d > 1 ? 's' : ''}`;
+}
+
+export default function DashboardTab({
+  resumo, recentes, loading, erro, nomeUsuario, onRefresh, onNavigate,
+  sync, onSyncNow, syncing, prazosHoje, prazosSemana,
+}: DashboardTabProps) {
+  const primeiroNome = nomeUsuario?.split(' ')[0] || 'Doutor(a)';
+  const critico = resumo ? resumo.vencido + resumo.hoje : 0;
+
+  // Lista do digest — reusa a marcação dos "últimos processos".
+  const listaPrazos = (itens: PrazoLite[], titulo: string, cls: string) => itens.length > 0 && (
+    <div className="dash-recentes">
+      <div className={`dash-recentes-head ${cls}`}><CalendarClock size={16} /> {titulo} ({itens.length})</div>
+      <ul className="dash-recentes-list">
+        {itens.map(p => (
+          <li key={p.id}>
+            <button className="dash-recente" onClick={() => onNavigate('prazos')}>
+              <span className="dash-recente-nome">{p.title || 'Prazo sem título'}</span>
+              {p.caseReference && <span className="dash-recente-proc">{p.caseReference}</span>}
+              {p.responsibleName && <span className="dash-recente-data">{p.responsibleName}</span>}
+              <ChevronRight size={15} className="dash-banner-seta" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="lx-single-panel dash-panel"
+    >
+      <div className="dash-content">
+        <div className="dash-greeting">
+          <span className="dash-greeting-hi">Bem-vindo de volta, {primeiroNome}</span>
+          <span className="dash-greeting-sub"><Activity size={14} /> Situação do escritório agora</span>
+        </div>
+
+        {/* Erro de carregamento: NUNCA mostrar contagens — um "0 vencidos" falso esconde um
+            prazo perdido. `erro` vence sobre `resumo` de propósito: mesmo que alguém passe
+            números aqui junto com erro, a UI se recusa a exibi-los. */}
+        {erro ? (
+          <div className="dash-erro">
+            <AlertTriangle size={22} />
+            <div className="dash-erro-txt">
+              <strong>Não foi possível carregar o resumo.</strong>
+              <span>Os números abaixo não estão disponíveis — não confie em "zero vencidos".</span>
+            </div>
+            <button className="lx-btn-tool" onClick={onRefresh}>
+              <RefreshCw size={15} /> Atualizar
+            </button>
+          </div>
+        ) : loading && !resumo ? (
+          <div className="dash-loading"><Loader2 className="lx-spin" size={30} /></div>
+        ) : resumo ? (
+          <>
+            {critico > 0 && (
+              <button className="dash-banner" onClick={() => onNavigate('prazos')}>
+                <AlertTriangle size={18} />
+                <span>
+                  {resumo.vencido > 0 && <strong>{resumo.vencido} {resumo.vencido === 1 ? 'prazo vencido' : 'prazos vencidos'}</strong>}
+                  {resumo.vencido > 0 && resumo.hoje > 0 && ' · '}
+                  {resumo.hoje > 0 && <span>{resumo.hoje} {resumo.hoje === 1 ? 'vence hoje' : 'vencem hoje'}</span>}
+                </span>
+                <ChevronRight size={16} className="dash-banner-seta" />
+              </button>
+            )}
+
+            {/* Heartbeat do sync — três estados exclusivos. Nenhum tranquiliza à toa:
+                o "✓" verde só aparece quando houve passada limpa e recente. */}
+            {sync && (
+              sync.stale ? (
+                <div className="dash-sync dash-sync--stale">
+                  <CloudOff size={17} />
+                  <span className="dash-sync-txt">
+                    Última busca no DJEN <strong>{tempoDesde(sync.lastSuccessAt)}</strong> — as intimações podem estar desatualizadas.
+                  </span>
+                  <button className="lx-btn-tool" onClick={onSyncNow} disabled={syncing}>
+                    {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
+                    {syncing ? 'Buscando...' : 'Buscar agora'}
+                  </button>
+                </div>
+              ) : sync.lastError ? (
+                <div className="dash-sync dash-sync--warn">
+                  <AlertTriangle size={17} />
+                  <span className="dash-sync-txt">Sincronizado com avisos: {sync.lastError}</span>
+                  <button className="lx-btn-tool" onClick={onSyncNow} disabled={syncing}>
+                    {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
+                    {syncing ? 'Buscando...' : 'Tentar de novo'}
+                  </button>
+                </div>
+              ) : sync.lastSuccessAt ? (
+                <div className="dash-sync dash-sync--ok">
+                  <CheckCircle2 size={17} />
+                  <span className="dash-sync-txt">DJEN sincronizado às {formatHora(sync.lastSuccessAt)}</span>
+                </div>
+              ) : null
+            )}
+
+            <div className="dash-cards">
+              <button className="dash-card dash-card--vencido" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-num">{resumo.vencido}</span>
+                <span className="dash-card-label">Vencidos</span>
+              </button>
+              <button className="dash-card dash-card--hoje" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-num">{resumo.hoje}</span>
+                <span className="dash-card-label">Vencem hoje</span>
+              </button>
+              <button className="dash-card dash-card--semana" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-num">{resumo.semana}</span>
+                <span className="dash-card-label">Esta semana</span>
+              </button>
+            </div>
+
+            <button className="dash-intimacoes" onClick={() => onNavigate('prazos', { view: 'inbox' })}>
+              <Inbox size={20} />
+              <span className="dash-intimacoes-txt">Intimações novas no DJEN</span>
+              <span className={`dash-intimacoes-badge ${resumo.novas > 0 ? 'dash-intimacoes-badge--on' : ''}`}>{resumo.novas}</span>
+              <ChevronRight size={16} className="dash-banner-seta" />
+            </button>
+
+            {/* Digest da rotina matinal: quais prazos, não só quantos. */}
+            {listaPrazos(prazosHoje, 'Vencem hoje', 'dash-recentes-head--hoje')}
+            {listaPrazos(prazosSemana, 'Esta semana', 'dash-recentes-head--semana')}
+
+            <div className="dash-recentes">
+              <div className="dash-recentes-head"><Gavel size={16} /> Últimos processos</div>
+              {recentes.length === 0 ? (
+                <div className="dash-recentes-empty">Nenhum processo no arquivo ainda.</div>
+              ) : (
+                <ul className="dash-recentes-list">
+                  {recentes.map(c => (
+                    <li key={c.id}>
+                      <button className="dash-recente" onClick={() => onNavigate('dossier', { caseId: c.id })}>
+                        <CalendarClock size={14} className="dash-recente-ic" />
+                        <span className="dash-recente-nome">{c.clientName || c.title || 'Caso sem nome'}</span>
+                        {c.caseNumber && <span className="dash-recente-proc">{c.caseNumber}</span>}
+                        <span className="dash-recente-data">{formatDate(c.createdAt)}</span>
+                        <ChevronRight size={15} className="dash-banner-seta" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </motion.div>
+  );
+}

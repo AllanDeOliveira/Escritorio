@@ -76,8 +76,10 @@ function extrairAdvogado(item) {
  * Janela de busca: `dias` explícito, ou incremental (última data gravada - 2
  * dias de sobreposição; a dedupe por djenId torna a sobreposição inócua), ou
  * o backfill configurado quando a tabela está vazia.
+ *
+ * Corpo interno: não grava heartbeat. Use `syncIntimacoes` (que envolve esta).
  */
-async function syncIntimacoes({ dias } = {}) {
+async function executarSync({ dias } = {}) {
     const cfg = lerConfig();
     const hoje = new Date();
     let inicio;
@@ -171,4 +173,76 @@ async function syncIntimacoes({ dias } = {}) {
     return resultado;
 }
 
-module.exports = { syncIntimacoes, lerConfig, extrairCliente, extrairAdvogado };
+// ── Heartbeat do sync ───────────────────────────────────────────────────────
+// 26h: dá folga para o run das 06:30 de dias úteis sem falso-positivo, mas
+// acusa um dia inteiro perdido.
+const STALE_MS = 26 * 60 * 60 * 1000;
+
+/** Regra de staleness — pura, mora só aqui. Sem sync bem-sucedido = stale. */
+function isSyncStale(lastSuccessAt, now = new Date()) {
+    if (!lastSuccessAt) return true;
+    return now.getTime() - new Date(lastSuccessAt).getTime() > STALE_MS;
+}
+
+/**
+ * Decide o que gravar a partir do resultado do sync — pura, testável sem banco.
+ *
+ * `djenLastSyncAt` (base da staleness) SÓ avança quando `erros` está vazio.
+ * A API do DJEN não lança quando cai: `fetchPagina` desiste após 5 tentativas,
+ * o erro vai para `resultado.erros` e a função retorna com `criadas: 0`. Se
+ * carimbássemos esse caso, o painel diria "sincronizado agora" com o DJEN fora
+ * do ar há dias, e o banner de stale nunca dispararia. Falha parcial (1 de N
+ * OABs) também não carimba: aquelas intimações realmente não foram buscadas.
+ */
+function heartbeatPatch(resultado, now = new Date()) {
+    const limpo = !resultado.erros || resultado.erros.length === 0;
+    return {
+        djenLastCriadas: resultado.criadas || 0,
+        djenLastError: limpo ? null : resultado.erros.join(' · ').slice(0, 500),
+        ...(limpo ? { djenLastSyncAt: now } : {}),
+    };
+}
+
+/** Grava o heartbeat na linha única de SystemSettings. Nunca derruba o sync. */
+async function recordHeartbeat(patch) {
+    try {
+        const row = await prisma.systemSettings.findFirst();
+        if (row) await prisma.systemSettings.update({ where: { id: row.id }, data: patch });
+        else await prisma.systemSettings.create({ data: patch });
+    } catch (e) {
+        logger.warn('[DJEN] falha ao gravar heartbeat:', e.message);
+    }
+}
+
+/** Envolve o sync com o heartbeat. Os dois chamadores (cron e botão) passam por aqui. */
+async function syncIntimacoes({ dias } = {}) {
+    await recordHeartbeat({ djenLastAttemptAt: new Date() });
+    try {
+        const resultado = await executarSync({ dias });
+        await recordHeartbeat(heartbeatPatch(resultado));
+        return resultado;
+    } catch (e) {
+        await recordHeartbeat({ djenLastError: String(e?.message || e).slice(0, 500) });
+        throw e;
+    }
+}
+
+// ponytail: lock em memória, processo único. Se um dia rodar múltiplas
+// instâncias, trocar por advisory lock no Postgres.
+let _running = false;
+
+/** Serializa o sync: cron e botão manual nunca rodam sobrepostos. */
+async function syncIntimacoesSafe(opts = {}) {
+    if (_running) return { skipped: true };
+    _running = true;
+    try {
+        return await syncIntimacoes(opts);
+    } finally {
+        _running = false;
+    }
+}
+
+module.exports = {
+    syncIntimacoes, syncIntimacoesSafe, isSyncStale, heartbeatPatch,
+    lerConfig, extrairCliente, extrairAdvogado,
+};

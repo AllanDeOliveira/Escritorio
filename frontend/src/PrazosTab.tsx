@@ -192,6 +192,8 @@ interface PrazosTabProps {
   currentUser: any;
   dbUser: any;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  // View inicial ao montar (deep-link do dashboard: card de intimações → 'inbox')
+  initialView?: 'board' | 'inbox';
 }
 
 const emptyForm = {
@@ -210,7 +212,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
-export default function PrazosTab({ currentUser, dbUser, showToast }: PrazosTabProps) {
+export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board' }: PrazosTabProps) {
   const [groups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
@@ -234,8 +236,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast }: PrazosTabP
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // Caixa de entrada de intimações (DJEN)
-  const [view, setView] = useState<'board' | 'inbox'>('board');
+  // Caixa de entrada de intimações (DJEN). Monta na view pedida pelo dashboard.
+  const [view, setView] = useState<'board' | 'inbox'>(initialView);
   const [intimacoes, setIntimacoes] = useState<Intimacao[]>([]);
   const [intCounts, setIntCounts] = useState<IntCounts>({ nova: 0, gerada: 0, descartada: 0 });
   const [intFilter, setIntFilter] = useState<'NOVA' | 'GERADA' | 'DESCARTADA'>('NOVA');

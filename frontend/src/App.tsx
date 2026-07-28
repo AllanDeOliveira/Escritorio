@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X, Loader2, Download, Edit3,
   CheckCircle, FileText, BookOpen, Trash2, AlertCircle, AlertTriangle, Clock,
@@ -19,6 +19,7 @@ import ModelosTab, { type ModeloInfo } from './ModelosTab';
 import DossierTab from './DossierTab';
 import GerarTab from './GerarTab';
 import PrazosTab from './PrazosTab';
+import DashboardTab, { resumoDePrazos, type Resumo, type CasoRecente, type SyncStatus, type PrazoLite } from './DashboardTab';
 
 const API = import.meta.env.VITE_LEGACY_API_URL || 'http://localhost:3001';
 
@@ -198,6 +199,99 @@ function App() {
     const interval = setInterval(checkSystemStatus, 60000); // Check every 1 min
     return () => clearInterval(interval);
   }, []);
+
+  // ── Resumo do Dashboard (situação do escritório) ─────────────────────────
+  const [resumo, setResumo] = useState<Resumo | null>(null);
+  const [recentes, setRecentes] = useState<CasoRecente[]>([]);
+  const [resumoLoading, setResumoLoading] = useState(true);
+  const [resumoErro, setResumoErro] = useState(false);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [listaHoje, setListaHoje] = useState<PrazoLite[]>([]);
+  const [listaSemana, setListaSemana] = useState<PrazoLite[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  // View inicial ao entrar na aba Prazos (deep-link do card de intimações → caixa)
+  const [prazosInitialView, setPrazosInitialView] = useState<'board' | 'inbox'>('board');
+
+  const carregarResumo = useCallback(async () => {
+    const email = currentUser?.email;
+    if (!email) return;
+    setResumoLoading(true);
+    const headers = { 'x-user-email': email };
+    // Números (prazos + intimações): se qualquer um falhar, resumo fica null e a UI
+    // mostra erro — nunca "0 vencidos" falso, que esconderia um prazo perdido.
+    try {
+      const [pr, intr] = await Promise.all([
+        fetch(`${API}/api/prazos`, { headers }).then(r => r.json()),
+        fetch(`${API}/api/intimacoes?status=NOVA`, { headers }).then(r => r.json()),
+      ]);
+      if (!pr.success || !intr.success) throw new Error('resumo');
+      // O backend já roda enrich() em cada prazo, então `bucket` vem pronto — o
+      // digest sai de um filtro no array que já temos. Sem endpoint novo.
+      const prazos = pr.prazos || [];
+      setResumo({ ...resumoDePrazos(prazos), novas: intr.counts?.nova || 0 });
+      setListaHoje(prazos.filter((p: any) => p.bucket === 'hoje'));
+      setListaSemana(prazos.filter((p: any) => p.bucket === 'semana'));
+      setSync(intr.syncStatus || null);
+      setResumoErro(false);
+    } catch {
+      // Zera tudo junto: nada de "✓ sincronizado" ou lista de prazos ao lado de um erro.
+      setResumo(null);
+      setSync(null);
+      setListaHoje([]);
+      setListaSemana([]);
+      setResumoErro(true);
+    } finally {
+      setResumoLoading(false);
+    }
+    // Últimos processos — secundário; falha aqui não derruba os números.
+    try {
+      const h = await fetch(`${API}/api/history`, { headers }).then(r => r.json());
+      if (h.success) {
+        const ord = [...(h.history || [])].sort(
+          (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        );
+        setRecentes(ord.slice(0, 5));
+      }
+    } catch { /* mantém a lista anterior */ }
+  }, [currentUser?.email]);
+
+  // Busca no login (o badge da sidebar precisa do resumo em qualquer aba) + refresh a cada 5 min
+  useEffect(() => {
+    carregarResumo();
+    const iv = setInterval(carregarResumo, 5 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [carregarResumo]);
+
+  // Reforça a atualização ao voltar para a home
+  useEffect(() => {
+    if (activeTab === 'dashboard') carregarResumo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // "Buscar agora" do banner de sync desatualizado. O resultado real vem do
+  // carregarResumo() seguinte — inclusive um 409 (cron já rodando).
+  const handleSyncNow = useCallback(async () => {
+    const email = currentUser?.email;
+    if (!email) return;
+    setSyncing(true);
+    try {
+      await fetch(`${API}/api/intimacoes/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-email': email },
+        body: '{}',
+      });
+    } catch { /* o estado real aparece no carregarResumo abaixo */ }
+    finally {
+      setSyncing(false);
+      await carregarResumo();
+    }
+  }, [currentUser?.email, carregarResumo]);
+
+  const handleDashboardNavigate = (tab: string, opts?: { view?: 'board' | 'inbox'; caseId?: string }) => {
+    if (tab === 'dossier' && opts?.caseId) { carregarCaso(opts.caseId); return; }
+    if (tab === 'prazos') setPrazosInitialView(opts?.view || 'board');
+    setActiveTab(tab);
+  };
 
   async function carregarModelos() {
     setLoadingModelos(true);
@@ -612,9 +706,14 @@ function App() {
             <Gavel size={24} />
             <span className="lx-nav-text">Processos</span>
           </button>
-          <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} onClick={() => setActiveTab('prazos')}>
+          <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} onClick={() => { setPrazosInitialView('board'); setActiveTab('prazos'); }}>
             <CalendarClock size={24} />
             <span className="lx-nav-text">Prazos</span>
+            {resumo && (resumo.vencido + resumo.hoje) > 0 && (
+              <span className="lx-nav-badge" title={`${resumo.vencido + resumo.hoje} prazo(s) crítico(s)`}>
+                {resumo.vencido + resumo.hoje}
+              </span>
+            )}
           </button>
           <button id="tab-modelos" title="Base de Conhecimento" className={`lx-nav-item ${activeTab === 'modelos' ? 'active' : ''}`} onClick={() => setActiveTab('modelos')}>
             <BookOpen size={24} />
@@ -723,60 +822,22 @@ function App() {
         )}
 
 
-        {/* ── Aba: Dashboard (central de acesso rápido) ───────────────────── */}
+        {/* ── Aba: Dashboard (situação do escritório) ─────────────────────── */}
         {activeTab === 'dashboard' && (
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="lx-single-panel app-dashboard-panel">
-            <div className="app-dashboard-content">
-
-              <div className="lx-dash-header">
-                <div className="app-dash-welcome">
-                  Bem-vindo de volta, {dbUser?.name?.split(' ')[0] || 'Doutor(a)'}
-                </div>
-                <h2>O que você precisa fazer hoje?</h2>
-                <p className="app-dash-subtitle">
-                  <Activity size={16} color="var(--gold)" />
-                  Escolha uma ferramenta abaixo para começar.
-                </p>
-              </div>
-
-              <div className="app-launcher-grid">
-                <button className="app-launcher-card" onClick={() => setActiveTab('gerar')}>
-                  <div className="app-launcher-icon"><FileText size={28} /></div>
-                  <div className="app-launcher-title">Gerar Impugnação</div>
-                  <div className="app-launcher-desc">Redija uma peça processual nova com apoio de IA.</div>
-                </button>
-                <button className="app-launcher-card" onClick={() => setActiveTab('prazos')}>
-                  <div className="app-launcher-icon"><CalendarClock size={28} /></div>
-                  <div className="app-launcher-title">Prazos</div>
-                  <div className="app-launcher-desc">Acompanhe impugnações, recursos e outros prazos.</div>
-                </button>
-                <button className="app-launcher-card" onClick={() => setActiveTab('dossier')}>
-                  <div className="app-launcher-icon"><Gavel size={28} /></div>
-                  <div className="app-launcher-title">Processos</div>
-                  <div className="app-launcher-desc">Acesse o arquivo de dossiês e casos gerados.</div>
-                </button>
-                <button className="app-launcher-card" onClick={() => setActiveTab('jurimetria')}>
-                  <div className="app-launcher-icon"><TrendingUp size={28} /></div>
-                  <div className="app-launcher-title">Jurimetria</div>
-                  <div className="app-launcher-desc">Radar preditivo de teses e precedentes.</div>
-                </button>
-                <button className="app-launcher-card" onClick={() => setActiveTab('produtividade')}>
-                  <div className="app-launcher-icon"><BarChart3 size={28} /></div>
-                  <div className="app-launcher-title">Produtividade</div>
-                  <div className="app-launcher-desc">Acompanhe seu desempenho e estatísticas.</div>
-                </button>
-                <button className="app-launcher-card" onClick={() => setActiveTab('perfil')}>
-                  <div className="app-launcher-icon"><Users size={28} /></div>
-                  <div className="app-launcher-title">Perfil</div>
-                  <div className="app-launcher-desc">Configurações da sua conta e do escritório.</div>
-                </button>
-              </div>
-            </div>
-          </motion.div>
+          <DashboardTab
+            resumo={resumo}
+            recentes={recentes}
+            loading={resumoLoading}
+            erro={resumoErro}
+            nomeUsuario={dbUser?.name || currentUser?.displayName || ''}
+            onRefresh={carregarResumo}
+            onNavigate={handleDashboardNavigate}
+            sync={sync}
+            onSyncNow={handleSyncNow}
+            syncing={syncing}
+            prazosHoje={listaHoje}
+            prazosSemana={listaSemana}
+          />
         )}
 
         {/* ── Aba: Gerar ──────────────────────────────────────────────── */}
@@ -847,7 +908,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} />
+          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} />
         )}
 
         {/* ── Aba: Modelos ─────────────────────────────────────────────────── */}
