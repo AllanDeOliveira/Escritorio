@@ -13,11 +13,14 @@ const IMPORT_HEADERS = ['Título', 'Processo/Cliente', 'Responsável', 'Tipo', '
 
 const PRAZO_TYPES = ['JUDICIAL', 'ADMINISTRATIVO', 'INTERNO'];
 const PRAZO_STATUS = ['PENDENTE', 'CUMPRIDO', 'CANCELADO'];
+const PRAZO_PRIORIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
 
 const includeRelations = {
     responsible: { select: { id: true, name: true, email: true } },
     lawsuit: { select: { id: true, caseNumber: true, actionType: true } },
     client: { select: { id: true, name: true } },
+    // intimação de origem: tribunal e tipo de ato viram etiquetas no card do quadro
+    intimacoes: { select: { tribunal: true, tipoDocumento: true, tipoComunicacao: true }, take: 1 },
 };
 
 // Meia-noite de hoje, para comparar apenas por dia (não por hora)
@@ -140,6 +143,7 @@ function validateCreate(body) {
     const errors = [];
     if (!body.title || typeof body.title !== 'string') errors.push('title é obrigatório');
     if (!body.fatalDate || isNaN(Date.parse(body.fatalDate))) errors.push('fatalDate é obrigatório e deve ser uma data válida');
+    if (body.prioridade && !PRAZO_PRIORIDADES.includes(body.prioridade)) errors.push(`prioridade deve ser uma de: ${PRAZO_PRIORIDADES.join(', ')}`);
     if (body.internalDate && isNaN(Date.parse(body.internalDate))) errors.push('internalDate inválida');
     if (body.type && !PRAZO_TYPES.includes(body.type)) errors.push(`type deve ser um de: ${PRAZO_TYPES.join(', ')}`);
     if (body.fatalDate && body.internalDate && !isNaN(Date.parse(body.internalDate)) && !isNaN(Date.parse(body.fatalDate))) {
@@ -350,13 +354,14 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Dados inválidos', details: errors });
         }
 
-        const { title, description, type, fatalDate, internalDate, responsibleName, caseReference, responsibleId, lawsuitId, clientId, createdById } = req.body;
+        const { title, description, type, prioridade, fatalDate, internalDate, responsibleName, caseReference, responsibleId, lawsuitId, clientId, createdById } = req.body;
 
         const prazo = await prisma.prazo.create({
             data: {
                 title,
                 description,
                 type: type || 'JUDICIAL',
+                prioridade: prioridade || null,
                 fatalDate: parseDateOnly(fatalDate),
                 internalDate: internalDate ? parseDateOnly(internalDate) : undefined,
                 responsibleName,
@@ -386,6 +391,7 @@ router.put('/:id', async (req, res) => {
         const errors = [];
         if (body.status !== undefined && !PRAZO_STATUS.includes(body.status)) errors.push(`status deve ser um de: ${PRAZO_STATUS.join(', ')}`);
         if (body.type !== undefined && !PRAZO_TYPES.includes(body.type)) errors.push(`type deve ser um de: ${PRAZO_TYPES.join(', ')}`);
+        if (body.prioridade && !PRAZO_PRIORIDADES.includes(body.prioridade)) errors.push(`prioridade deve ser uma de: ${PRAZO_PRIORIDADES.join(', ')}`);
         if (body.fatalDate !== undefined && isNaN(Date.parse(body.fatalDate))) errors.push('fatalDate inválida');
         if (body.internalDate && isNaN(Date.parse(body.internalDate))) errors.push('internalDate inválida');
         if (errors.length > 0) {
@@ -395,6 +401,7 @@ router.put('/:id', async (req, res) => {
         if (body.title !== undefined) data.title = body.title;
         if (body.description !== undefined) data.description = body.description;
         if (body.type !== undefined) data.type = body.type;
+        if (body.prioridade !== undefined) data.prioridade = body.prioridade || null;
         if (body.status !== undefined) {
             data.status = body.status;
             // Mantém completedAt consistente com o status também fora do atalho /cumprir

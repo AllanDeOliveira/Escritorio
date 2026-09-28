@@ -147,6 +147,7 @@ async function lerExpedientes(pjeUrl) {
     for (const jur of linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.total > 0)) {
         const htmlJur = await clicar(jur.form, jur.params);
         for (const caixa of linksA4j(htmlJur).filter((l) => l.params.ajaxSingle?.endsWith(':cxExItem') && l.total > 0)) {
+            const antes = porId.size;
             let html = await clicar(caixa.form, caixa.params);
             let { total, itens } = parseLista(html);
             itens.forEach((i) => porId.set(i.idExpediente, { ...i, orgao: i.orgao || jur.rotulo }));
@@ -160,7 +161,8 @@ async function lerExpedientes(pjeUrl) {
                 itens.forEach((i) => porId.set(i.idExpediente, i));
                 vistos += itens.length;
             }
-            logger.info(`[PJe] ${jur.rotulo} › ${caixa.rotulo}: ${total} expediente(s)`);
+            const lidos = porId.size - antes;
+            (lidos < total ? logger.warn : logger.info).call(logger, `[PJe] ${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total} lido(s)`);
         }
     }
     return [...porId.values()];

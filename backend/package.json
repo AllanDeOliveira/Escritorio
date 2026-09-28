@@ -2,6 +2,9 @@
   "name": "backend",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env index.js",
     "start:worker": "node --env-file-if-exists=.env dist/worker/worker.js",

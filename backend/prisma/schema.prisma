@@ -23,6 +23,7 @@ model User {
   name           String?
   role           String            @default("member") // admin | member
   areas          String[]          @default([]) // áreas que a pessoa tria (chaves de AREAS no PrazosTab.tsx)
+  noQuadro       Boolean           @default(false) // tem coluna no quadro de prazos "Por pessoa" (admin define)
   organizationId String?
   createdAt      DateTime          @default(now())
   documents      DocumentHistory[]
@@ -283,6 +284,7 @@ model Prazo {
   description String?
   type        String  @default("JUDICIAL") // JUDICIAL | ADMINISTRATIVO | INTERNO
   status      String  @default("PENDENTE") // PENDENTE | CUMPRIDO | CANCELADO
+  prioridade  String? // ALTA | MEDIA | BAIXA (null = sem prioridade definida)
   source      String? // 'PLANILHA' quando veio de importação; null = criado manualmente
 
   fatalDate    DateTime // prazo fatal (limite intransponível)

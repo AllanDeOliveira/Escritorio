@@ -39,11 +39,11 @@ describe('userRoutes — equipe e minhas áreas (integração)', () => {
     expect(r.status).toBe(401);
   });
 
-  it('GET /api/users lista a equipe só com id, nome e e-mail', async () => {
+  it('GET /api/users lista a equipe só com id, nome, e-mail e noQuadro', async () => {
     const d = await (await req('GET', '/api/users')).json();
     expect(d.success).toBe(true);
     const eu = d.users.find((u) => u.email === EMAIL);
-    expect(Object.keys(eu).sort()).toEqual(['email', 'id', 'name']);
+    expect(Object.keys(eu).sort()).toEqual(['email', 'id', 'name', 'noQuadro']);
     expect(eu.name).toBe('Tester Áreas');
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, colunasPorArea, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
-  relativeLabel, nomeProprio, iniciais, cargaPorPessoa,
+  agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
+  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade,
   type Intimacao,
 } from './PrazosTab';
 
@@ -99,21 +99,7 @@ describe('areaDireito (espelho das regras do backend)', () => {
   });
 });
 
-describe('colunasPorArea (quadro "Organizar por: Área")', () => {
-  it('só as áreas presentes no recorte, na ordem fixa de AREAS', () => {
-    expect(colunasPorArea(['civel', 'fazenda', 'civel', 'bancario']).map(c => c.key)).toEqual(['fazenda', 'bancario', 'civel']);
-  });
-
-  it('usa o rótulo da área como título da coluna', () => {
-    expect(colunasPorArea(['previdenciario'])).toEqual([{ key: 'previdenciario', label: 'Previdenciário' }]);
-  });
-
-  it('recorte vazio → nenhuma coluna', () => {
-    expect(colunasPorArea([])).toEqual([]);
-  });
-});
-
-describe('tribunaisPresentes (filtro e colunas por tribunal)', () => {
+describe('tribunaisPresentes (filtro por tribunal)', () => {
   it('um item por tribunal presente, do mais frequente ao menos', () => {
     expect(tribunaisPresentes(['TJMT', 'TRF1', 'TJMT', 'TRT23', 'TRF1', 'TJMT'])).toEqual([
       { key: 'TJMT', label: 'TJMT', n: 3 },
@@ -232,5 +218,12 @@ describe('distribuição', () => {
     ]);
     expect(c.get('a')).toEqual({ abertos: 2, vencidos: 1 });
     expect(c.size).toBe(1);
+  });
+});
+
+describe('ordenarPorPrioridade', () => {
+  it('Alta, Média, Baixa e sem prioridade por último, mantendo a ordem dentro da faixa', () => {
+    const ps = [{ id: 1, prioridade: null }, { id: 2, prioridade: 'BAIXA' }, { id: 3, prioridade: 'ALTA' }, { id: 4, prioridade: 'ALTA' }, { id: 5, prioridade: 'MEDIA' }];
+    expect(ordenarPorPrioridade(ps).map(p => p.id)).toEqual([3, 4, 5, 2, 1]);
   });
 });

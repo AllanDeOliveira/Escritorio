@@ -127,7 +127,12 @@ router.post('/sync', async (req, res) => {
 router.post('/sync-pje', async (_req, res) => {
     try {
         const r = await syncExpedientesPje();
-        if (r.skipped) return res.status(409).json({ success: false, error: `PJe não sincronizado: ${r.motivo}` });
+        if (r.skipped) {
+            const error = r.motivo === 'já em andamento'
+                ? 'Alguém já está buscando os prazos no PJe. Aguarde uns 2 minutos e recarregue a caixa.'
+                : `PJe não sincronizado: ${r.motivo}`;
+            return res.status(409).json({ success: false, error });
+        }
         res.json({ success: true, resultado: r.resultado });
     } catch (error) {
         logger.error('[syncPje] Erro:', error);
