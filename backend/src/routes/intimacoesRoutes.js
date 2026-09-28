@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
+const { syncExpedientesPje } = require('../services/pjePainel');
 
 const INT_STATUS = ['NOVA', 'GERADA', 'DESCARTADA'];
 
@@ -28,6 +29,25 @@ function parseDateOnly(value) {
     const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     return new Date(value);
+}
+
+// Liga cada intimação (DJEN) ao expediente do Painel do PJe do mesmo processo.
+// Vários expedientes por processo → o de expedição mais próxima da disponibilização.
+// É do expediente que vem a data limite oficial (calculada pelo PJe, não por nós).
+const soDigitos = (s) => String(s || '').replace(/\D/g, '');
+async function anexarExpedientesPje(intimacoes) {
+    const numeros = [...new Set(intimacoes.map((i) => soDigitos(i.numeroProcesso)).filter(Boolean))];
+    if (!numeros.length) return intimacoes;
+    const expedientes = await prisma.expedientePje.findMany({ where: { numeroProcesso: { in: numeros } } });
+    const porProcesso = new Map();
+    for (const e of expedientes) porProcesso.set(e.numeroProcesso, [...(porProcesso.get(e.numeroProcesso) || []), e]);
+    return intimacoes.map((i) => {
+        const candidatos = porProcesso.get(soDigitos(i.numeroProcesso)) || [];
+        const ref = i.dataDisponibilizacao ? new Date(i.dataDisponibilizacao).getTime() : Date.now();
+        const dist = (e) => Math.abs((e.dataExpedicao ? e.dataExpedicao.getTime() : 0) - ref);
+        const expedientePje = candidatos.sort((a, b) => dist(a) - dist(b))[0] || null;
+        return { ...i, expedientePje };
+    });
 }
 
 function nomeRevisor(req) {
@@ -76,7 +96,7 @@ router.get('/', async (req, res) => {
         ]);
         res.json({
             success: true,
-            intimacoes,
+            intimacoes: await anexarExpedientesPje(intimacoes),
             counts: { nova: novaG.length, gerada: geradaG.length, descartada: descartadaG.length },
             syncStatus,
         });
@@ -99,6 +119,19 @@ router.post('/sync', async (req, res) => {
     } catch (error) {
         logger.error('[syncIntimacoes] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao buscar intimações no DJEN.' });
+    }
+});
+
+// POST /api/intimacoes/sync-pje — lê o Painel do Advogado (certificado A1) e
+// atualiza prazos/datas limite oficiais. Só leitura no PJe (ver pjePainel.js).
+router.post('/sync-pje', async (_req, res) => {
+    try {
+        const r = await syncExpedientesPje();
+        if (r.skipped) return res.status(409).json({ success: false, error: `PJe não sincronizado: ${r.motivo}` });
+        res.json({ success: true, resultado: r.resultado });
+    } catch (error) {
+        logger.error('[syncPje] Erro:', error);
+        res.status(500).json({ success: false, error: 'Erro ao ler o Painel do PJe.' });
     }
 });
 

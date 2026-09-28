@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, colunasPorArea, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
-  relativeLabel, nomeProprio,
+  relativeLabel, nomeProprio, iniciais, cargaPorPessoa,
   type Intimacao,
 } from './PrazosTab';
 
@@ -212,5 +212,25 @@ describe('nomeProprio', () => {
     expect(nomeProprio('CUMPRIMENTO DE SENTENÇA CONTRA A FAZENDA PÚBLICA')).toBe('Cumprimento de Sentença Contra A Fazenda Pública');
     expect(nomeProprio('DA SILVA')).toBe('Da Silva'); // partícula inicial mantém maiúscula
     expect(nomeProprio(null)).toBe('');
+  });
+});
+
+describe('distribuição', () => {
+  it('iniciais ignoram partículas e aceitam e-mail', () => {
+    expect(iniciais('Mariana Rocha')).toBe('MR');
+    expect(iniciais('João Vitor de Oliveira')).toBe('JO');
+    expect(iniciais('joao@x.com')).toBe('J');
+    expect(iniciais('')).toBe('?');
+  });
+
+  it('carga conta abertos e vencidos por pessoa, sem concluídos nem sem responsável', () => {
+    const c = cargaPorPessoa([
+      { responsibleId: 'a', bucket: 'vencido' },
+      { responsibleId: 'a', bucket: 'hoje' },
+      { responsibleId: 'a', bucket: 'concluido' },
+      { responsibleId: null, bucket: 'vencido' },
+    ]);
+    expect(c.get('a')).toEqual({ abertos: 2, vencidos: 1 });
+    expect(c.size).toBe(1);
   });
 });

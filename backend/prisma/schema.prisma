@@ -347,6 +347,34 @@ model Intimacao {
   @@map("intimacoes")
 }
 
+// Expediente lido do Painel do Advogado do PJe (robô com certificado A1).
+// O prazo e a data limite são os que o PRÓPRIO PJe calcula — fonte da verdade.
+// Só leitura: o robô nunca clica em "Tomar ciência" nem abre o documento.
+model ExpedientePje {
+  id           String @id @default(uuid())
+  tribunal     String // TJMT | TRF1 ...
+  idExpediente String // número do expediente no PJe
+
+  numeroProcesso String? // só dígitos (20), para casar com Intimacao
+  tipo           String? // Intimação, Decisão, Citação...
+  destinatario   String?
+  meio           String? // Diário Eletrônico, Sistema...
+  orgao          String?
+  partes         String?
+  dataExpedicao  DateTime?
+
+  prazoDias       Int? // null = "sem prazo"
+  cienciaPendente Boolean   @default(false) // ainda não houve ciência
+  dataCiencia     DateTime?
+  dataLimite      DateTime? // "Data limite prevista para manifestação" (23:59)
+
+  vistoEm DateTime @default(now()) // última leitura em que o expediente apareceu no painel
+
+  @@unique([tribunal, idExpediente])
+  @@index([numeroProcesso])
+  @@map("expedientes_pje")
+}
+
 model KnowledgeModel {
   id        String   @id @default(uuid())
   nome      String   @unique

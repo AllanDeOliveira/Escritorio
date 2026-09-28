@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus, Check, Pencil, Trash2, X, CalendarClock, Loader2, Upload, Download, History,
   Inbox, RefreshCw, ExternalLink, RotateCcw, ArrowLeft, ChevronLeft, ChevronRight, Search,
+  Send, ChevronDown, Users, Clock,
 } from 'lucide-react';
 import './PrazosTab.css';
 
@@ -57,7 +58,7 @@ export interface Intimacao {
   prazo?: PrazoVinculado | null;
 }
 
-// Resumo do prazo gerado a partir da intimação (aba "Viraram prazo")
+// Resumo do prazo gerado a partir da intimação (aba "Distribuídas")
 type PrazoVinculado = Pick<Prazo, 'id' | 'title' | 'status' | 'fatalDate'> & { caseReference?: string | null };
 
 type IntCounts = { nova: number; gerada: number; descartada: number };
@@ -202,6 +203,26 @@ export function nomeProprio(s?: string | null): string {
     .join(' ');
 }
 
+// "Mariana Rocha" → "MR"; "joao@x.com" → "J". Partículas (da, de...) não contam.
+export function iniciais(nome?: string | null): string {
+  const p = String(nome || '').trim().split(/\s+/).filter(w => w && !PARTICULAS.has(w.toLowerCase()));
+  if (!p.length) return '?';
+  return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
+}
+
+// Carga de cada pessoa (prazos abertos e vencidos), para escolher para quem enviar.
+export function cargaPorPessoa(prazos: Pick<Prazo, 'responsibleId' | 'bucket'>[]) {
+  const m = new Map<string, { abertos: number; vencidos: number }>();
+  prazos.forEach(p => {
+    if (!p.responsibleId || p.bucket === 'concluido') return;
+    const c = m.get(p.responsibleId) || { abertos: 0, vencidos: 0 };
+    c.abertos++;
+    if (p.bucket === 'vencido') c.vencidos++;
+    m.set(p.responsibleId, c);
+  });
+  return m;
+}
+
 // Aviso pendente de ciência vindo do MNI/PJe (GET /api/mni/avisos)
 export interface AvisoMni {
   idAviso?: string | null;
@@ -310,7 +331,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [agruparPor, setAgruparPor] = useState<'ato' | 'area' | 'tribunal'>('ato');
   // Filtro por tribunal na caixa ('' = todos; chave de chaveTribunal)
   const [intTribunal, setIntTribunal] = useState('');
-  const [gerandoDe, setGerandoDe] = useState<{ int: Intimacao; grupoIds: string[] } | null>(null);
   // Filtro por área do direito na caixa ('' = todas; 'minhas' = áreas do usuário)
   const [intArea, setIntArea] = useState<AreaKey | '' | 'minhas'>('');
   // Busca por número do processo ou cliente
@@ -323,6 +343,14 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [salvandoAreas, setSalvandoAreas] = useState(false);
   const [soMeus, setSoMeus] = useState(false);
   const [equipe, setEquipe] = useState<Membro[]>([]);
+
+  // Quadro: colunas por pessoa (distribuição) ou por urgência
+  const [visao, setVisao] = useState<'pessoa' | 'tempo'>('pessoa');
+  // "Enviar para": intimação com o seletor aberto, pessoa e prazo limite escolhidos
+  const [envio, setEnvio] = useState<{ g: IntGroup; pessoaId: string; fatal: string } | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  // Seleção em lote na caixa (ids do representante de cada grupo)
+  const [selecionados, setSelecionados] = useState<string[]>([]);
 
   // Pendentes de ciência no PJe via MNI (Fase 4 — somente leitura)
   const [mniAvisos, setMniAvisos] = useState<AvisoMni[] | null>(null);
@@ -399,6 +427,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       if (d.success) {
         setIntimacoes(d.intimacoes);
         setIntCounts(d.counts);
+        setSelecionados([]);
+        setEnvio(null);
       }
     } catch {
       showToast('Erro ao carregar intimações.', 'error');
@@ -433,22 +463,78 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     }
   };
 
-  const abrirGerarPrazo = (g: IntGroup) => {
-    const i = g.rep;
-    setGerandoDe({ int: i, grupoIds: g.ids.filter(id => id !== i.id) });
-    setEditingId(null);
-    setForm({
-      title: nomeProprio(i.clienteExtraido) || i.numeroProcesso || '',
-      caseReference: i.numeroProcesso || '',
-      // quem tria fica com o prazo (dá para trocar no seletor)
-      responsibleName: defaultMover,
-      responsibleId: dbUser?.id || '',
-      type: 'JUDICIAL',
-      fatalDate: '',
-      internalDate: '',
-      description: [i.tipoDocumento || i.tipoComunicacao, i.nomeClasse, i.tribunal, i.orgao].filter(Boolean).join(' · '),
+  // Campos do prazo que saem da própria intimação ("Enviar para")
+  const dadosDaIntimacao = (i: Intimacao) => ({
+    title: nomeProprio(i.clienteExtraido) || i.numeroProcesso || '',
+    caseReference: i.numeroProcesso || '',
+    type: 'JUDICIAL',
+    description: [i.tipoDocumento || i.tipoComunicacao, i.nomeClasse, i.tribunal, i.orgao].filter(Boolean).join(' · '),
+  });
+
+  const enviarIntimacao = async () => {
+    if (!envio?.pessoaId || !envio.fatal) return;
+    const { g } = envio;
+    const m = opcoesEquipe.find(u => u.id === envio.pessoaId);
+    setEnviando(true);
+    try {
+      const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/gerar-prazo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          ...dadosDaIntimacao(g.rep),
+          responsibleId: envio.pessoaId,
+          responsibleName: m ? m.name || m.email : null,
+          fatalDate: envio.fatal,
+          grupoIds: g.ids.filter(id => id !== g.rep.id),
+        }),
+      });
+      const d = await r.json();
+      // 409: outra pessoa tratou antes — recarrega de qualquer jeito
+      showToast(d.success ? `Prazo enviado para ${m?.name || m?.email || 'a pessoa'}.` : d.error || 'Erro ao enviar.', d.success ? 'success' : 'error');
+      setEnvio(null);
+      carregarIntimacoes(intFilter);
+      if (d.success) carregar();
+    } catch {
+      showToast('Erro de conexão ao enviar.', 'error');
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const descartarSelecionados = () => {
+    const alvo = grupos.filter(g => selecionados.includes(g.rep.id));
+    (window as any).showConfirm(`Descartar ${alvo.length} intimação(ões) selecionada(s)? (não viram prazo)`, async () => {
+      let ok = 0;
+      // ponytail: uma chamada por grupo; endpoint em lote se passar de algumas dezenas por vez
+      for (const g of alvo) {
+        try {
+          const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
+          });
+          if ((await r.json()).success) ok++;
+        } catch { /* conta como falha abaixo */ }
+      }
+      showToast(ok === alvo.length ? `${ok} descartada(s).` : `${ok} de ${alvo.length} descartadas — as demais já tinham sido tratadas.`, ok === alvo.length ? 'info' : 'error');
+      carregarIntimacoes(intFilter);
     });
-    setModalOpen(true);
+  };
+
+  // Arrastar para a coluna de outra pessoa (visão "Por pessoa") passa o prazo para ela
+  const reatribuir = async (p: Prazo, userId: string | null) => {
+    if ((p.responsibleId || null) === userId) return;
+    const m = opcoesEquipe.find(u => u.id === userId);
+    try {
+      const r = await fetch(`${API}/api/prazos/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ responsibleId: userId, responsibleName: m ? m.name || m.email : null, lastMovedBy: defaultMover }),
+      });
+      const d = await r.json();
+      showToast(d.success ? (m ? `Prazo passado para ${m.name || m.email}.` : 'Prazo ficou sem responsável.') : 'Erro ao reatribuir.', d.success ? 'success' : 'error');
+      carregar();
+    } catch { showToast('Erro de conexão.', 'error'); }
   };
 
   const descartarIntimacao = (g: IntGroup) => {
@@ -508,13 +594,12 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   };
 
   const abrirNovo = () => {
-    setGerandoDe(null); setEditingId(null);
+    setEditingId(null);
     setForm({ ...emptyForm, responsibleName: defaultMover, responsibleId: dbUser?.id || '' });
     setModalOpen(true);
   };
 
   const abrirEdicao = (p: Prazo) => {
-    setGerandoDe(null);
     setEditingId(p.id);
     setForm({
       title: p.title || '', caseReference: p.caseReference || '',
@@ -529,7 +614,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const salvar = async () => {
     if (!form.title.trim() || !form.fatalDate) {
-      showToast('Preencha ao menos o título e a data fatal.', 'error');
+      showToast('Preencha ao menos o título e o prazo limite.', 'error');
       return;
     }
     setSaving(true);
@@ -543,27 +628,19 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         fatalDate: form.fatalDate, internalDate: form.internalDate || null,
         description: form.description.trim() || null,
       };
-      const url = gerandoDe
-        ? `${API}/api/intimacoes/${gerandoDe.int.id}/gerar-prazo`
-        : editingId ? `${API}/api/prazos/${editingId}` : `${API}/api/prazos`;
-      const body = gerandoDe ? { ...payload, grupoIds: gerandoDe.grupoIds } : payload;
+      const url = editingId ? `${API}/api/prazos/${editingId}` : `${API}/api/prazos`;
       const r = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       const d = await r.json();
       if (d.success) {
         setModalOpen(false);
-        showToast(gerandoDe ? 'Prazo gerado da intimação!' : editingId ? 'Prazo atualizado!' : 'Prazo criado!', 'success');
-        if (gerandoDe) { setGerandoDe(null); carregarIntimacoes(intFilter); }
+        showToast(editingId ? 'Prazo atualizado!' : 'Prazo criado!', 'success');
         carregar();
       } else {
         showToast(d.error || 'Erro ao salvar prazo.', 'error');
-        // 409: outra pessoa da mesma área gerou/descartou antes — fecha e mostra a fila atual
-        if (gerandoDe && r.status === 409) {
-          setModalOpen(false); setGerandoDe(null); carregarIntimacoes(intFilter);
-        }
       }
     } catch {
       showToast('Erro de conexão ao salvar.', 'error');
@@ -592,6 +669,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     const d = dragged.current;
     dragged.current = null;
     if (!d) return;
+    // Colunas de pessoa ("p:<id>"; "p:" = sem responsável): muda o responsável
+    if (colKey.startsWith('p:')) {
+      if (!d.isDone) reatribuir(d.prazo, colKey.slice(2) || null);
+      return;
+    }
     const targetIsDone = colKey === 'concluido';
     // Só há mudança de status entre "pendente" (qualquer coluna de urgência) e "concluído".
     // Arrastar entre colunas de urgência não muda nada (a coluna é definida pela data).
@@ -660,8 +742,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   };
 
   // "Meus prazos": colunas, contagens e resumo do cabeçalho seguem o recorte
-  const groups: Groups = soMeus && dbUser?.id
-    ? Object.fromEntries(Object.entries(todosGroups).map(([k, ps]) => [k, ps.filter(p => p.responsibleId === dbUser.id)]))
+  // (na visão por pessoa o recorte não se aplica: cada coluna já é uma pessoa)
+  const groups: Groups = soMeus && dbUser?.id && visao === 'tempo'
+    ?Object.fromEntries(Object.entries(todosGroups).map(([k, ps]) => [k, ps.filter(p => p.responsibleId === dbUser.id)]))
     : todosGroups;
   const totalPrazos = COLUMNS.reduce((acc, c) => acc + (groups[c.key]?.length || 0), 0);
   const totalTodos = COLUMNS.reduce((acc, c) => acc + (todosGroups[c.key]?.length || 0), 0);
@@ -691,9 +774,42 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     agruparPor === 'area' ? areaDe.get(g)! : agruparPor === 'tribunal' ? chaveTribunal(g.rep.tribunal) : tipoBucket(g.rep);
   // Seletor de responsável: sem a lista da equipe, ao menos o próprio usuário
   const opcoesEquipe: Membro[] = equipe.length ? equipe : dbUser?.id ? [{ id: dbUser.id, name: dbUser.name, email: dbUser.email }] : [];
+  const carga = useMemo(() => cargaPorPessoa(Object.values(todosGroups).flat()), [todosGroups]);
+  // Cor do avatar fixa por posição na equipe (4 tons que se repetem)
+  const avatar = (id?: string | null, nome?: string | null, cls = '') => {
+    const idx = opcoesEquipe.findIndex(u => u.id === id);
+    const m = opcoesEquipe[idx];
+    const n = m ? m.name || m.email : nome;
+    return <span className={`prazo-av prazo-av--${idx < 0 ? 'x' : idx % 4} ${cls}`} title={n || undefined}>{iniciais(n)}</span>;
+  };
+
+  // Colunas do quadro. Por pessoa: uma por membro da equipe + "Sem responsável" (inclui
+  // quem não está na lista da equipe, para nenhum prazo sumir) + Concluído.
+  type ColQuadro = { key: string; label: string; cls: string; empty: string; itens: Prazo[]; pessoa?: Membro };
+  const idsEquipe = new Set(opcoesEquipe.map(u => u.id));
+  const pendentes = (['vencido', 'hoje', 'semana', 'futuro'] as const).flatMap(k => todosGroups[k] || []);
+  const semResp = pendentes.filter(p => !p.responsibleId || !idsEquipe.has(p.responsibleId));
+  const colunasQuadro: ColQuadro[] = visao === 'pessoa'
+    ? [
+        ...opcoesEquipe.map(u => ({
+          key: `p:${u.id}`, label: u.name || u.email, cls: 'prazo-col--pessoa', empty: 'Nenhum prazo aberto',
+          itens: pendentes.filter(p => p.responsibleId === u.id), pessoa: u,
+        })),
+        ...(semResp.length ? [{ key: 'p:', label: 'Sem responsável', cls: 'prazo-col--pessoa', empty: '', itens: semResp }] : []),
+        { ...COLUMNS[4], itens: todosGroups.concluido || [] },
+      ]
+    : COLUMNS.map(c => ({ ...c, itens: groups[c.key] || [] }));
 
   return (
     <div className="lx-single-panel prazo-panel">
+      <div className="prazo-abas" role="tablist" aria-label="Controle de prazos">
+        {([['inbox', 'Caixa de intimações', intCounts.nova, 'prazo-aba-badge'], ['board', 'Quadro de prazos', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta']] as const).map(([k, label, n, cls]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} className={`prazo-aba ${view === k ? 'prazo-aba--ativa' : ''}`} onClick={() => setView(k)}>
+            {label}
+            {n > 0 && <span className={cls}>{n}</span>}
+          </button>
+        ))}
+      </div>
       {/* Cabeçalho: título da visão à esquerda, ações da visão à direita.
           Os totais por urgência já aparecem no cabeçalho de cada coluna e no painel inicial. */}
       <div className="prazo-header">
@@ -716,14 +832,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           )}
         </div>
         <div className="prazo-header-actions">
-          <button
-            className={`lx-btn-tool prazo-inbox-toggle ${view === 'inbox' ? 'prazo-inbox-toggle--active' : ''}`}
-            onClick={() => setView(v => v === 'inbox' ? 'board' : 'inbox')}
-          >
-            {view === 'inbox' ? <ArrowLeft size={16} /> : <Inbox size={16} />}
-            {view === 'inbox' ? 'Quadro de prazos' : 'Caixa de intimações'}
-            {view !== 'inbox' && intCounts.nova > 0 && <span className="prazo-inbox-badge">{intCounts.nova}</span>}
-          </button>
           {view === 'inbox' ? (
             <button className="lx-btn-primary" onClick={sincronizarDjen} disabled={syncing}>
               {syncing ? <Loader2 className="lx-spin" size={16} /> : <RefreshCw size={16} />}
@@ -731,7 +839,20 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             </button>
           ) : (
             <>
-              {dbUser?.id && (
+              <div className="prazo-inbox-filters" role="group" aria-label="Organizar o quadro">
+                {([['pessoa', 'Por pessoa', Users], ['tempo', 'Por tempo', Clock]] as const).map(([k, label, Icon]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={visao === k}
+                    className={`prazo-inbox-filter ${visao === k ? 'prazo-inbox-filter--active' : ''}`}
+                    onClick={() => setVisao(k)}
+                  >
+                    <Icon size={13} /> {label}
+                  </button>
+                ))}
+              </div>
+              {dbUser?.id && visao === 'tempo' && (
                 <div className="prazo-inbox-filters" role="group" aria-label="Recorte do quadro">
                   {([[true, 'Meus prazos'], [false, 'Todos']] as const).map(([meus, label]) => (
                     <button
@@ -811,7 +932,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           )}
           <div className="prazo-inbox-toolbar">
             <div className="prazo-inbox-filters">
-              {([['NOVA', `Novas (${intCounts.nova})`], ['GERADA', `Viraram prazo (${intCounts.gerada})`], ['DESCARTADA', `Descartadas (${intCounts.descartada})`]] as const).map(([k, label]) => (
+              {([['NOVA', `Novas (${intCounts.nova})`], ['GERADA', `Distribuídas (${intCounts.gerada})`], ['DESCARTADA', `Descartadas (${intCounts.descartada})`]] as const).map(([k, label]) => (
                 <button
                   key={k}
                   className={`prazo-inbox-filter ${intFilter === k ? 'prazo-inbox-filter--active' : ''}`}
@@ -960,7 +1081,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             <div className="prazo-empty-all">
               <Inbox size={48} className="prazo-empty-icon" />
               <h3>
-                {intFilter === 'NOVA' ? 'Nenhuma intimação nova' : intFilter === 'GERADA' ? 'Nenhuma intimação virou prazo' : 'Nenhuma intimação descartada'}
+                {intFilter === 'NOVA' ? 'Nenhuma intimação nova' : intFilter === 'GERADA' ? 'Nenhuma intimação distribuída' : 'Nenhuma intimação descartada'}
                 {intMes ? ` em ${nomeMes(intMes)}` : ''}
               </h3>
               {intFilter === 'NOVA' && (!intMes || intMes === mesAtual()) && (
@@ -1012,9 +1133,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       ) : visiveis.map(g => {
                         const i = g.rep;
                         return (
-                <div key={i.id} className="prazo-int-card">
+                <div
+                  key={i.id}
+                  className={`prazo-int-card ${selecionados.includes(i.id) ? 'prazo-int-card--sel' : ''} ${envio?.g.rep.id === i.id ? 'prazo-int-card--envio' : ''}`}
+                >
                   {/* Ordem de leitura: cliente+data (1s) → processo (3s) → teor → origem (meta) */}
                   <div className="prazo-int-head">
+                    {intFilter === 'NOVA' && (
+                      <input
+                        type="checkbox"
+                        className="prazo-int-check"
+                        checked={selecionados.includes(i.id)}
+                        onChange={e => setSelecionados(s => e.target.checked ? [...s, i.id] : s.filter(x => x !== i.id))}
+                        aria-label={`Selecionar ${nomeProprio(i.clienteExtraido) || i.numeroProcesso || 'intimação'}`}
+                      />
+                    )}
                     {i.clienteExtraido && <div className="prazo-int-cliente">{nomeProprio(i.clienteExtraido)}</div>}
                     {g.datas.length > 0 && <span className="prazo-int-date">{g.datas.join(' · ')}</span>}
                   </div>
@@ -1093,7 +1226,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                     <div className={`prazo-int-vinculo ${i.prazo.status === 'CUMPRIDO' ? 'prazo-int-vinculo--done' : ''}`}>
                       {i.prazo.status === 'CUMPRIDO' ? <Check size={13} /> : <CalendarClock size={13} />}
                       <span className="prazo-int-vinculo-titulo">{i.prazo.title}</span>
-                      <span className="prazo-int-vinculo-fatal">fatal {formatDate(i.prazo.fatalDate)}</span>
+                      <span className="prazo-int-vinculo-fatal">prazo limite {formatDate(i.prazo.fatalDate)}</span>
                       <span className="prazo-int-vinculo-status">{i.prazo.status === 'CUMPRIDO' ? 'CUMPRIDO' : 'PENDENTE'}</span>
                     </div>
                   ) : (
@@ -1127,11 +1260,22 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       )}
                       {intFilter === 'NOVA' && (
                         <>
-                          <button className="lx-btn-tool" onClick={() => descartarIntimacao(g)}>
-                            <Trash2 size={14} /> Descartar
+                          <button className="prazo-icon-btn prazo-icon-btn--danger" title="Descartar (não vira prazo)" onClick={() => descartarIntimacao(g)}>
+                            <Trash2 size={15} />
                           </button>
-                          <button className="lx-btn-primary prazo-int-gerar" onClick={() => abrirGerarPrazo(g)}>
-                            <CalendarClock size={15} /> Gerar prazo
+                          <span className="prazo-int-rapido" title="Enviar rápido">
+                            {opcoesEquipe.slice(0, 4).map(u => (
+                              <button key={u.id} type="button" className="prazo-int-rapido-btn" title={`Enviar para ${u.name || u.email}`} onClick={() => setEnvio({ g, pessoaId: u.id, fatal: '' })}>
+                                {avatar(u.id)}
+                              </button>
+                            ))}
+                          </span>
+                          <button
+                            className="lx-btn-primary prazo-int-gerar"
+                            aria-expanded={envio?.g.rep.id === i.id}
+                            onClick={() => setEnvio(envio?.g.rep.id === i.id ? null : { g, pessoaId: '', fatal: '' })}
+                          >
+                            <Send size={14} /> Enviar para <ChevronDown size={13} />
                           </button>
                         </>
                       )}
@@ -1142,6 +1286,59 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       )}
                     </div>
                   </div>
+                  {envio?.g.rep.id === i.id && (() => {
+                    const escolhido = opcoesEquipe.find(u => u.id === envio.pessoaId);
+                    return (
+                      <div className="prazo-envio">
+                        <div className="prazo-envio-titulo">Enviar para o quadro de</div>
+                        <div className="prazo-envio-pessoas">
+                          {opcoesEquipe.map(u => {
+                            const c = carga.get(u.id);
+                            const sel = u.id === envio.pessoaId;
+                            return (
+                              <button
+                                key={u.id}
+                                type="button"
+                                aria-pressed={sel}
+                                className={`prazo-envio-pessoa ${sel ? 'prazo-envio-pessoa--sel' : ''}`}
+                                onClick={() => setEnvio({ ...envio, pessoaId: u.id })}
+                              >
+                                {avatar(u.id)}
+                                <span className="prazo-envio-nome">
+                                  {u.name || u.email}
+                                  <small>{c?.abertos || 0} prazos abertos · {c?.vencidos || 0} vencidos</small>
+                                </span>
+                                {sel && <Check size={15} />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="prazo-envio-fatal">
+                          <CalendarClock size={13} />
+                          <label htmlFor={`envio-fatal-${i.id}`}>Prazo limite</label>
+                          <input
+                            id={`envio-fatal-${i.id}`}
+                            type="date"
+                            value={envio.fatal}
+                            onChange={e => setEnvio({ ...envio, fatal: e.target.value })}
+                          />
+                        </div>
+                        <div className="prazo-envio-acoes">
+                          <button type="button" className="lx-btn-tool" onClick={() => setEnvio(null)} disabled={enviando}>Cancelar</button>
+                          <button
+                            type="button"
+                            className="lx-btn-primary"
+                            onClick={enviarIntimacao}
+                            disabled={!escolhido || !envio.fatal || enviando}
+                            title={!escolhido ? 'Escolha a pessoa' : !envio.fatal ? 'Defina o prazo limite' : undefined}
+                          >
+                            {enviando ? <Loader2 className="lx-spin" size={14} /> : <Send size={14} />}
+                            {escolhido ? `Enviar para ${(escolhido.name || escolhido.email).split(/\s+/)[0]}` : 'Enviar'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                         );
                       })}
@@ -1160,6 +1357,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               })}
             </div>
           )}
+          {intFilter === 'NOVA' && selecionados.length > 0 && (
+            <div className="prazo-lote" role="region" aria-label="Ações em lote">
+              <strong>{selecionados.length} selecionada{selecionados.length > 1 ? 's' : ''}</strong>
+              <button type="button" className="prazo-lote-btn" onClick={descartarSelecionados}>
+                <Trash2 size={14} /> Descartar
+              </button>
+              <button type="button" className="prazo-lote-fechar" title="Limpar seleção" onClick={() => setSelecionados([])}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
         </div>
       ) : loading ? (
         <div className="prazo-loading"><Loader2 className="lx-spin" size={32} /></div>
@@ -1167,7 +1375,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         <div className="prazo-empty-all">
           <CalendarClock size={48} className="prazo-empty-icon" />
           <h3>Nenhum prazo no seu nome</h3>
-          <p>Os prazos que você gerar na triagem aparecem aqui.</p>
+          <p>Os prazos enviados para você na triagem aparecem aqui.</p>
           <div className="prazo-empty-actions">
             <button className="lx-btn-tool" onClick={() => setSoMeus(false)}>Ver todos os prazos ({totalTodos})</button>
           </div>
@@ -1179,7 +1387,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           {intCounts.nova > 0 ? (
             <p>Os prazos nascem da triagem: há <strong>{intCounts.nova}</strong> intimaç{intCounts.nova > 1 ? 'ões' : 'ão'} aguardando na caixa.</p>
           ) : (
-            <p>Gere prazos a partir das intimações da caixa ou cadastre manualmente.</p>
+            <p>Os prazos chegam pela caixa de intimações; também dá para cadastrar manualmente.</p>
           )}
           <div className="prazo-empty-actions">
             {intCounts.nova > 0 && (
@@ -1197,22 +1405,29 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         </div>
       ) : (
         <>
-        <div className="prazo-board">
-          {COLUMNS.map(col => {
-            const items = groups[col.key] || [];
+        <div className={`prazo-board ${visao === 'pessoa' ? 'prazo-board--pessoa' : ''}`}>
+          {colunasQuadro.map(col => {
+            const items = col.itens;
             const expandida = !!boardExpandidas[col.key];
             const visiveis = expandida ? items : items.slice(0, PRAZO_CARDS_VISIVEIS);
             return (
               <div
                 key={col.key}
                 // "Concluído" nunca encolhe: é o alvo de soltar do arrastar-e-soltar.
-                className={`prazo-col ${col.cls} ${items.length === 0 && col.key !== 'concluido' ? 'prazo-col--vazia' : ''} ${dragOverCol === col.key ? 'prazo-col--dragover' : ''}`}
+                // Colunas de pessoa também não encolhem: são alvo para reatribuir.
+                className={`prazo-col ${col.cls} ${items.length === 0 && col.key !== 'concluido' && !col.key.startsWith('p:') ? 'prazo-col--vazia' : ''} ${dragOverCol === col.key ? 'prazo-col--dragover' : ''}`}
                 onDragOver={e => onColDragOver(e, col.key)}
                 onDragLeave={onColDragLeave}
                 onDrop={() => onColDrop(col.key)}
               >
                 <div className="prazo-col-header">
-                  <span className="prazo-col-title">{col.label}</span>
+                  {col.pessoa && avatar(col.pessoa.id)}
+                  <span className="prazo-col-title">
+                    {col.label}
+                    {col.pessoa && carga.get(col.pessoa.id)?.vencidos ? (
+                      <small className="prazo-col-sub">{carga.get(col.pessoa.id)!.vencidos} vencidos</small>
+                    ) : null}
+                  </span>
                   <span className="prazo-col-count">{items.length}</span>
                 </div>
                 <div className="prazo-col-body">
@@ -1235,12 +1450,15 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       {p.caseReference && <div className="prazo-card-case">{p.caseReference}</div>}
                       <div className="prazo-card-meta">
                         <CalendarClock size={13} />
-                        <span>fatal {formatDate(p.fatalDate)}</span>
-                        {col.key !== 'concluido' && (
-                          <span className={`prazo-card-rel prazo-card-rel--${col.key}`}>· {relativeLabel(p.daysUntilFatal)}</span>
+                        <span>prazo limite {formatDate(p.fatalDate)}</span>
+                        {p.bucket !== 'concluido' && (
+                          <span className={`prazo-card-rel prazo-card-rel--${p.bucket}`}>· {relativeLabel(p.daysUntilFatal)}</span>
                         )}
                       </div>
-                      {p.responsibleName && <div className="prazo-card-resp">{p.responsibleName}</div>}
+                      {/* Na visão por pessoa a coluna já diz quem é; só o "sem responsável" mostra o nome em texto */}
+                      {p.responsibleName && (visao === 'tempo' || col.key === 'p:') && (
+                        <div className="prazo-card-resp">{p.responsibleId && avatar(p.responsibleId, p.responsibleName, 'prazo-av--sm')}{p.responsibleName}</div>
+                      )}
                       {p.lastMovedBy && (
                         <div className="prazo-card-moved">
                           <History size={11} /> movido por {p.lastMovedBy}
@@ -1266,20 +1484,14 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         </>
       )}
 
-      {/* Modal criar / editar / gerar de intimação */}
+      {/* Modal criar / editar */}
       {modalOpen && (
-        <div className="prazo-modal-overlay" onClick={() => { if (!saving) { setModalOpen(false); setGerandoDe(null); } }}>
+        <div className="prazo-modal-overlay" onClick={() => { if (!saving) setModalOpen(false); }}>
           <div className="prazo-modal" onClick={e => e.stopPropagation()}>
             <div className="prazo-modal-header">
-              <h3>{gerandoDe ? 'Gerar prazo da intimação' : editingId ? 'Editar Prazo' : 'Novo Prazo'}</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => { setModalOpen(false); setGerandoDe(null); }}><X size={18} /></button>
+              <h3>{editingId ? 'Editar Prazo' : 'Novo Prazo'}</h3>
+              <button className="prazo-icon-btn" title="Fechar" onClick={() => setModalOpen(false)}><X size={18} /></button>
             </div>
-            {gerandoDe && (
-              <p className="prazo-gerar-origem">
-                Confira os dados e defina a <strong>data fatal</strong> — {gerandoDe.int.tribunal} · disponibilizada em {gerandoDe.int.dataDisponibilizacao ? formatDate(gerandoDe.int.dataDisponibilizacao) : '—'}
-                {gerandoDe.grupoIds.length > 0 && ` · ${gerandoDe.grupoIds.length + 1} publicações do mesmo ato serão marcadas juntas`}
-              </p>
-            )}
             <div className="prazo-form">
               <div className="prazo-field">
                 <label htmlFor="prazo-title">Título *</label>
@@ -1316,7 +1528,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               </div>
               <div className="prazo-field-row">
                 <div className="prazo-field">
-                  <label htmlFor="prazo-fatal">Data fatal *</label>
+                  <label htmlFor="prazo-fatal">Prazo limite *</label>
                   <input id="prazo-fatal" type="date" value={form.fatalDate}
                     onChange={e => setForm(f => ({ ...f, fatalDate: e.target.value }))} />
                 </div>
@@ -1333,10 +1545,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               </div>
             </div>
             <div className="prazo-modal-footer">
-              <button className="lx-btn-tool" onClick={() => { setModalOpen(false); setGerandoDe(null); }} disabled={saving}>Cancelar</button>
+              <button className="lx-btn-tool" onClick={() => setModalOpen(false)} disabled={saving}>Cancelar</button>
               <button className="lx-btn-primary" onClick={salvar} disabled={saving}>
                 {saving ? <Loader2 className="lx-spin" size={16} /> : <Check size={16} />}
-                {gerandoDe ? 'Gerar prazo' : editingId ? 'Salvar alterações' : 'Criar prazo'}
+                {editingId ? 'Salvar alterações' : 'Criar prazo'}
               </button>
             </div>
           </div>
@@ -1394,7 +1606,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv" className="prazo-hidden-input"
                 title="Planilha de prazos"
                 onChange={e => { if (e.target.files?.[0]) onImportFile(e.target.files[0]); }} />
-              <p className="prazo-import-hint">Colunas: Título, Processo/Cliente, Responsável, Tipo, Data Fatal, Prazo Interno, Observações. Só Título e Data Fatal são obrigatórios.</p>
+              <p className="prazo-import-hint">Colunas: Título, Processo/Cliente, Responsável, Tipo, Prazo Limite, Prazo Interno, Observações. Só Título e Prazo Limite são obrigatórios.</p>
             </div>
           </div>
         </div>

@@ -26,6 +26,7 @@ const whatsappRoutes = require('./src/routes/whatsappRoutes');
 const { initializeWhatsApp } = require('./src/services/whatsappService');
 const { runDailyNotifications, notifyPetitionGenerated } = require('./src/services/notificationService');
 const { syncIntimacoesSafe } = require('./src/services/djenService');
+const { syncExpedientesPje } = require('./src/services/pjePainel');
 
 const app = express();
 const allowedOrigins = process.env.FRONTEND_URL
@@ -1228,6 +1229,23 @@ app.listen(PORT, () => {
             }
         }, { timezone: 'America/Cuiaba' });
         logger.info('Cron do DJEN agendado: 06:30, dias úteis (America/Cuiaba).');
+    }
+
+    // Painel do Advogado do PJe (prazos e datas limite oficiais) — só onde o
+    // certificado A1 + chave TOTP estão configurados; sem eles o sync se recusa sozinho.
+    if (process.env.DISABLE_PJE_CRON === 'true') {
+        logger.info('Cron do PJe desativado (DISABLE_PJE_CRON=true).');
+    } else {
+        cron.schedule('40 6,12 * * 1-5', async () => {
+            try {
+                const r = await syncExpedientesPje();
+                if (r.skipped) logger.warn(`[PJe cron] Pulado: ${r.motivo}`);
+                else logger.info(`[PJe cron] ${JSON.stringify(r.resultado)}`);
+            } catch (e) {
+                logger.error('[PJe cron] Falhou:', e.message);
+            }
+        }, { timezone: 'America/Cuiaba' });
+        logger.info('Cron do PJe agendado: 06:40 e 12:40, dias úteis (America/Cuiaba).');
     }
 
     // Iniciar Workers em background (para Radar Preditivo funcionar em Produção/Render)

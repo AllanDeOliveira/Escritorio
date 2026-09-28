@@ -9,7 +9,7 @@ const prisma = require('../infra/prismaClient');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // Cabeçalhos fixos do modelo de importação
-const IMPORT_HEADERS = ['Título', 'Processo/Cliente', 'Responsável', 'Tipo', 'Data Fatal', 'Prazo Interno', 'Observações'];
+const IMPORT_HEADERS = ['Título', 'Processo/Cliente', 'Responsável', 'Tipo', 'Prazo Limite', 'Prazo Interno', 'Observações'];
 
 const PRAZO_TYPES = ['JUDICIAL', 'ADMINISTRATIVO', 'INTERNO'];
 const PRAZO_STATUS = ['PENDENTE', 'CUMPRIDO', 'CANCELADO'];
@@ -239,7 +239,7 @@ router.get('/template', (req, res) => {
             'Processo/Cliente': 'Silva vs Banco X',
             'Responsável': 'Dr. Ana',
             'Tipo': 'JUDICIAL',
-            'Data Fatal': '10/07/2026',
+            'Prazo Limite': '10/07/2026',
             'Prazo Interno': '07/07/2026',
             'Observações': 'Processo nº 0000000-00.0000.0.00.0000',
         };
@@ -309,7 +309,7 @@ router.post('/import', upload.single('planilha'), async (req, res) => {
             const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
             for (const row of rows) {
                 const title = String(row['Título'] || '').trim();
-                const fatalDate = parseImportDate(row['Data Fatal']);
+                const fatalDate = parseImportDate(row['Prazo Limite'] ?? row['Data Fatal']); // planilhas antigas usam "Data Fatal"
                 if (!title || !fatalDate) { ignoredNoDate++; continue; }
                 const typeRaw = String(row['Tipo'] || '').trim().toUpperCase();
                 records.push({
