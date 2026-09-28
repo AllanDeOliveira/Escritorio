@@ -376,12 +376,66 @@
   cursor: pointer;
   transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
-.prazo-inbox-area:hover { color: var(--text-primary); border-color: var(--gold); }
+.prazo-inbox-area:hover:not(:disabled) { color: var(--text-primary); border-color: var(--gold); }
 .prazo-inbox-area--active {
   background: var(--primary-dim);
   border-color: var(--gold);
   color: var(--text-primary);
 }
+/* Áreas sem intimação no recorte ficam visíveis, mas apagadas */
+.prazo-inbox-area:disabled { opacity: 0.45; cursor: default; }
+.prazo-inbox-areas { align-items: center; }
+/* 2ª fileira de filtro (tribunal) cola na de área, sem outro divisor */
+.prazo-inbox-areas--tribunal { border-top: none; padding-top: 0; }
+.prazo-inbox-areas .prazo-inbox-area { padding: 0.4rem 0.9rem; font-size: 0.8rem; }
+.prazo-inbox-areas-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-right: 0.15rem;
+}
+.prazo-inbox-area--minhas { border-color: var(--gold); }
+.prazo-inbox-area--convite { border: 1px dashed var(--gold); color: var(--gold); }
+/* "Organizar por: Tipo de ato | Área" — encostado à direita da fileira */
+.prazo-inbox-agrupar { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
+.prazo-inbox-areas-editar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.prazo-inbox-areas-editar:hover { color: var(--gold); }
+
+/* Painel "Quais áreas você tria?" — mesma moldura do painel MNI */
+.prazo-areas-painel {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--primary-dim);
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+}
+.prazo-areas-painel-titulo { font-size: 0.85rem; font-weight: 700; color: var(--text-primary); }
+.prazo-areas-painel-opcoes { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
+.prazo-areas-painel-opcao {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.prazo-areas-painel-acoes { display: flex; gap: 0.5rem; margin-left: auto; }
 
 /* Painel MNI: expedientes pendentes de ciência no PJe (somente monitoramento) */
 .prazo-mni {
@@ -577,6 +631,8 @@
 .prazo-int-col--sentenca { border-top-color: #ef4444; }
 .prazo-int-col--despacho { border-top-color: #8b5cf6; }
 .prazo-int-col--outros { border-top-color: #0f172a; }
+/* Colunas por área/tribunal: borda neutra — a cor continua falando do tipo de ato, na etiqueta do card */
+.prazo-int-col--neutra { border-top-color: var(--gold); }
 [data-theme='dark'] .prazo-int-col--outros { border-top-color: #f1f5f9; }
 
 /* Visão detalhe: a coluna aberta ocupa a tela toda, cards lado a lado */
@@ -658,15 +714,20 @@
 .prazo-int-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
 /* Linha de meta no rodapé do conteúdo: tribunal · tipo · publicações · certidão */
 .prazo-int-tags { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
-.prazo-int-tag {
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+/* Área do card: só contorno, para não competir com as cores do tipo de ato */
+.prazo-int-area {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
+/* Tribunal: mesma pílula da área, com o texto em destaque (é sigla curta) */
+.prazo-int-trib { color: var(--text-primary); letter-spacing: 0.05em; }
 .prazo-int-date {
   font-size: 0.75rem;
   font-weight: 600;

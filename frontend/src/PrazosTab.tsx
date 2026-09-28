@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus, Check, Pencil, Trash2, X, CalendarClock, Loader2, Upload, Download, History,
   Inbox, RefreshCw, ExternalLink, RotateCcw, ArrowLeft, ChevronLeft, ChevronRight, Search,
@@ -27,6 +27,7 @@ interface Prazo {
   fatalDate: string;
   internalDate?: string | null;
   responsibleName?: string | null;
+  responsibleId?: string | null;
   caseReference?: string | null;
   lastMovedBy?: string | null;
   lastMovedAt?: string | null;
@@ -111,6 +112,7 @@ export function tipoBucket(i: Intimacao): IntColKey {
   return 'outros';
 }
 
+// Chaves espelhadas em AREAS_VALIDAS (backend/src/routes/userRoutes.js) — mudou aqui, muda lá.
 // Áreas do direito — taxonomia do escritório (não atende criminal): Fazenda Pública é a carteira
 // de servidores contra o Estado (FGTS/férias); Justiça Federal → previdenciário
 // (execuções contra o INSS incluídas). Varas mistas ("Criminal e Fazendário")
@@ -126,13 +128,40 @@ export const AREAS = [
 
 export type AreaKey = (typeof AREAS)[number]['key'];
 
-export function areaDireito(i: Pick<Intimacao, 'nomeClasse' | 'orgao' | 'tribunal'>): AreaKey {
+// Colunas do modo "Organizar por: Área": só as áreas presentes no recorte (sem
+// coluna vazia), na ordem fixa de AREAS.
+export function colunasPorArea(presentes: AreaKey[]) {
+  return AREAS.filter(a => presentes.includes(a.key));
+}
+
+// Tribunal de uma intimação como chave de filtro/coluna ('SEM' quando o DJEN não informa)
+function chaveTribunal(t?: string | null): string {
+  return (t || '').trim().toUpperCase() || 'SEM';
+}
+
+// Tribunais presentes no recorte, do mais frequente ao menos (empate: alfabética).
+// Lista dinâmica: tribunal novo (TJBA, TST...) aparece sozinho.
+export function tribunaisPresentes(tribunais: (string | null | undefined)[]) {
+  const n = new Map<string, number>();
+  tribunais.forEach(t => { const k = chaveTribunal(t); n.set(k, (n.get(k) || 0) + 1); });
+  return [...n.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([key, qtd]) => ({ key, label: key === 'SEM' ? 'Sem tribunal' : key, n: qtd }));
+}
+
+// Banco como PARTE: rótulo de polo seguido de nome de banco, no cabeçalho do teor.
+// Banco só citado no corpo ("depósito no Banco do Brasil") não casa.
+const BANCO_PARTE = /\b(?:REQUERID|REQUERENTE|EXECUTAD|EXEQUENTE|R[ÉE]U|AUTOR|APELAD|APELANTE|RECORRID|RECORRENTE|EMBARGAD|EMBARGANTE|AGRAVAD|AGRAVANTE|RECLAMAD|IMPETRAD|POLO ATIVO|POLO PASSIVO)[A-Z()]*\s*[:-]\s*(?:BANCO|CAIXA ECON[ÔO]MICA|ITA[ÚU]|BRADESCO|SANTANDER|AGIBANK|BMG|CREFISA|NUBANK|SICREDI|SICOOB|AYMOR[ÉE])/;
+
+export function areaDireito(i: Pick<Intimacao, 'nomeClasse' | 'orgao' | 'tribunal' | 'texto'>): AreaKey {
   const classe = (i.nomeClasse || '').toUpperCase();
   const org = (i.orgao || '').toUpperCase();
   const trib = (i.tribunal || '').toUpperCase();
   if (!classe && !org && !trib) return 'outras';
   if (trib.startsWith('TRT') || classe.includes('TRABALH') || org.includes('TRABALH')) return 'trabalhista';
-  if (classe.includes('BANC') || org.includes('BANC')) return 'bancario';
+  // ponytail: só o início do teor — as partes vêm no topo e o teor inteiro pode ter vários KB
+  const cabecalho = (i.texto || '').slice(0, 2000).toUpperCase();
+  if (classe.includes('BANC') || org.includes('BANC') || BANCO_PARTE.test(cabecalho)) return 'bancario';
   if (
     trib.startsWith('TRF') ||
     classe.includes('PREVIDENC') || org.includes('PREVIDENC') ||
@@ -206,10 +235,14 @@ interface PrazosTabProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   // View inicial ao montar (deep-link do dashboard: card de intimações → 'inbox')
   initialView?: 'board' | 'inbox';
+  // Propaga ao App o usuário atualizado (ex.: "minhas áreas" salvas), para não voltar velho ao remontar a aba
+  onDbUserChange?: (user: Record<string, unknown>) => void;
 }
 
+type Membro = { id: string; name?: string | null; email: string };
+
 const emptyForm = {
-  title: '', caseReference: '', responsibleName: '',
+  title: '', caseReference: '', responsibleName: '', responsibleId: '',
   type: 'JUDICIAL', fatalDate: '', internalDate: '', description: '',
 };
 
@@ -228,8 +261,8 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board' }: PrazosTabProps) {
-  const [groups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
+export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board', onDbUserChange }: PrazosTabProps) {
+  const [todosGroups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -271,12 +304,25 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pubsAbertas, setPubsAbertas] = useState<string | null>(null);
   // Coluna aberta em tela cheia (todos os cards lado a lado); null = quadro normal
-  const [colAberta, setColAberta] = useState<IntColKey | null>(null);
+  const [colAberta, setColAberta] = useState<string | null>(null);
+  // Colunas da caixa por tipo de ato (padrão) ou por área.
+  // ponytail: não lembra entre sessões; localStorage se a equipe pedir
+  const [agruparPor, setAgruparPor] = useState<'ato' | 'area' | 'tribunal'>('ato');
+  // Filtro por tribunal na caixa ('' = todos; chave de chaveTribunal)
+  const [intTribunal, setIntTribunal] = useState('');
   const [gerandoDe, setGerandoDe] = useState<{ int: Intimacao; grupoIds: string[] } | null>(null);
-  // Filtro por área do direito na caixa ('' = todas)
-  const [intArea, setIntArea] = useState<AreaKey | ''>('');
+  // Filtro por área do direito na caixa ('' = todas; 'minhas' = áreas do usuário)
+  const [intArea, setIntArea] = useState<AreaKey | '' | 'minhas'>('');
   // Busca por número do processo ou cliente
   const [intBusca, setIntBusca] = useState('');
+
+  // Distribuição por área: cada pessoa tria as próprias áreas e fica com os prazos que gera
+  const minhasAreas: AreaKey[] = dbUser?.areas || [];
+  const [escolhendoAreas, setEscolhendoAreas] = useState(false);
+  const [rascunhoAreas, setRascunhoAreas] = useState<AreaKey[]>([]);
+  const [salvandoAreas, setSalvandoAreas] = useState(false);
+  const [soMeus, setSoMeus] = useState(false);
+  const [equipe, setEquipe] = useState<Membro[]>([]);
 
   // Pendentes de ciência no PJe via MNI (Fase 4 — somente leitura)
   const [mniAvisos, setMniAvisos] = useState<AvisoMni[] | null>(null);
@@ -308,6 +354,22 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const authHeaders = { 'x-user-email': currentUser?.email || '' };
   const defaultMover = dbUser?.name || currentUser?.displayName || currentUser?.email || '';
+
+  // Quem participa da distribuição abre no próprio recorte (caixa e quadro).
+  // Roda quando o usuário carrega, que pode ser depois do mount.
+  useEffect(() => {
+    if (dbUser?.areas?.length) { setIntArea('minhas'); setSoMeus(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbUser?.id]);
+
+  // Equipe para o seletor de responsável (quem já entrou uma vez no sistema)
+  useEffect(() => {
+    fetch(`${API}/api/users`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(d => { if (d.success) setEquipe(d.users); })
+      .catch(() => { /* seletor cai para só o usuário logado */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.email]);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -378,7 +440,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     setForm({
       title: nomeProprio(i.clienteExtraido) || i.numeroProcesso || '',
       caseReference: i.numeroProcesso || '',
-      responsibleName: i.advogadoNome || '',
+      // quem tria fica com o prazo (dá para trocar no seletor)
+      responsibleName: defaultMover,
+      responsibleId: dbUser?.id || '',
       type: 'JUDICIAL',
       fatalDate: '',
       internalDate: '',
@@ -391,15 +455,44 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     const plural = g.ids.length > 1 ? ` (${g.ids.length} publicações do mesmo ato)` : '';
     (window as any).showConfirm(`Descartar esta intimação${plural}? (não vira prazo)`, async () => {
       try {
-        await fetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
+        const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
         });
-        showToast('Intimação descartada.', 'info');
+        const d = await r.json();
+        // 409: outra pessoa da mesma área tratou antes — recarrega para a tela refletir
+        showToast(d.success ? 'Intimação descartada.' : d.error || 'Erro ao descartar.', d.success ? 'info' : 'error');
         carregarIntimacoes(intFilter);
       } catch { showToast('Erro ao descartar.', 'error'); }
     });
+  };
+
+  const abrirEscolhaAreas = () => { setRascunhoAreas(minhasAreas); setEscolhendoAreas(true); };
+
+  const salvarAreas = async () => {
+    setSalvandoAreas(true);
+    try {
+      const r = await fetch(`${API}/api/users/me/areas`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ areas: rascunhoAreas }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        onDbUserChange?.({ ...dbUser, areas: d.areas });
+        setIntArea(d.areas.length ? 'minhas' : '');
+        setColAberta(null);
+        setEscolhendoAreas(false);
+        showToast('Suas áreas foram salvas.', 'success');
+      } else {
+        showToast(d.error || 'Erro ao salvar as áreas.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão ao salvar as áreas.', 'error');
+    } finally {
+      setSalvandoAreas(false);
+    }
   };
 
   const restaurarIntimacao = async (g: IntGroup) => {
@@ -414,13 +507,18 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     } catch { showToast('Erro ao restaurar.', 'error'); }
   };
 
-  const abrirNovo = () => { setGerandoDe(null); setEditingId(null); setForm({ ...emptyForm }); setModalOpen(true); };
+  const abrirNovo = () => {
+    setGerandoDe(null); setEditingId(null);
+    setForm({ ...emptyForm, responsibleName: defaultMover, responsibleId: dbUser?.id || '' });
+    setModalOpen(true);
+  };
 
   const abrirEdicao = (p: Prazo) => {
     setGerandoDe(null);
     setEditingId(p.id);
     setForm({
-      title: p.title || '', caseReference: p.caseReference || '', responsibleName: p.responsibleName || '',
+      title: p.title || '', caseReference: p.caseReference || '',
+      responsibleName: p.responsibleName || '', responsibleId: p.responsibleId || '',
       type: p.type || 'JUDICIAL',
       fatalDate: p.fatalDate ? new Date(p.fatalDate).toISOString().slice(0, 10) : '',
       internalDate: p.internalDate ? new Date(p.internalDate).toISOString().slice(0, 10) : '',
@@ -440,6 +538,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         title: form.title.trim(),
         caseReference: form.caseReference.trim() || null,
         responsibleName: form.responsibleName.trim() || null,
+        responsibleId: form.responsibleId || null,
         type: form.type,
         fatalDate: form.fatalDate, internalDate: form.internalDate || null,
         description: form.description.trim() || null,
@@ -461,6 +560,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         carregar();
       } else {
         showToast(d.error || 'Erro ao salvar prazo.', 'error');
+        // 409: outra pessoa da mesma área gerou/descartou antes — fecha e mostra a fila atual
+        if (gerandoDe && r.status === 409) {
+          setModalOpen(false); setGerandoDe(null); carregarIntimacoes(intFilter);
+        }
       }
     } catch {
       showToast('Erro de conexão ao salvar.', 'error');
@@ -556,11 +659,38 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     }
   };
 
+  // "Meus prazos": colunas, contagens e resumo do cabeçalho seguem o recorte
+  const groups: Groups = soMeus && dbUser?.id
+    ? Object.fromEntries(Object.entries(todosGroups).map(([k, ps]) => [k, ps.filter(p => p.responsibleId === dbUser.id)]))
+    : todosGroups;
   const totalPrazos = COLUMNS.reduce((acc, c) => acc + (groups[c.key]?.length || 0), 0);
+  const totalTodos = COLUMNS.reduce((acc, c) => acc + (todosGroups[c.key]?.length || 0), 0);
   const count = (k: string) => groups[k]?.length || 0;
-  const grupos = agruparIntimacoes(intimacoes);
+  const grupos = useMemo(() => agruparIntimacoes(intimacoes), [intimacoes]);
+  // Área calculada uma vez por carga, não a cada chip/tecla (a regra lê o cabeçalho do teor)
+  const areaDe = useMemo(() => new Map(grupos.map(g => [g, areaDireito(g.rep)])), [grupos]);
+  const naArea = (g: IntGroup, filtro: AreaKey | '' | 'minhas') =>
+    !filtro || (filtro === 'minhas' ? minhasAreas.includes(areaDe.get(g)!) : areaDe.get(g) === filtro);
   const gruposBuscados = intBusca.trim() ? grupos.filter(g => buscaMatch(g.rep, intBusca)) : grupos;
-  const gruposFiltrados = intArea ? gruposBuscados.filter(g => areaDireito(g.rep) === intArea) : gruposBuscados;
+  const naTribunal = (g: IntGroup) => !intTribunal || chaveTribunal(g.rep.tribunal) === intTribunal;
+  // Contagem de cada fileira de filtro já respeita o filtro da outra
+  const baseAreas = gruposBuscados.filter(naTribunal);
+  const baseTribunais = gruposBuscados.filter(g => naArea(g, intArea));
+  const gruposFiltrados = baseTribunais.filter(naTribunal);
+  const tribunaisChips = tribunaisPresentes(baseTribunais.map(g => g.rep.tribunal));
+  // O tribunal selecionado continua clicável mesmo se sumir do recorte (para desmarcar)
+  if (intTribunal && !tribunaisChips.some(t => t.key === intTribunal)) {
+    tribunaisChips.push({ key: intTribunal, label: intTribunal === 'SEM' ? 'Sem tribunal' : intTribunal, n: 0 });
+  }
+  // Quadro da caixa: colunas fixas por tipo de ato, ou só as áreas/tribunais presentes no recorte
+  const colunasInt: { key: string; label: string; cls: string }[] =
+    agruparPor === 'area' ? colunasPorArea(gruposFiltrados.map(g => areaDe.get(g)!)).map(a => ({ ...a, cls: 'prazo-int-col--neutra' }))
+    : agruparPor === 'tribunal' ? tribunaisPresentes(gruposFiltrados.map(g => g.rep.tribunal)).map(t => ({ key: t.key, label: t.label, cls: 'prazo-int-col--neutra' }))
+    : [...INT_COLUMNS];
+  const colunaDe = (g: IntGroup): string =>
+    agruparPor === 'area' ? areaDe.get(g)! : agruparPor === 'tribunal' ? chaveTribunal(g.rep.tribunal) : tipoBucket(g.rep);
+  // Seletor de responsável: sem a lista da equipe, ao menos o próprio usuário
+  const opcoesEquipe: Membro[] = equipe.length ? equipe : dbUser?.id ? [{ id: dbUser.id, name: dbUser.name, email: dbUser.email }] : [];
 
   return (
     <div className="lx-single-panel prazo-panel">
@@ -601,6 +731,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             </button>
           ) : (
             <>
+              {dbUser?.id && (
+                <div className="prazo-inbox-filters" role="group" aria-label="Recorte do quadro">
+                  {([[true, 'Meus prazos'], [false, 'Todos']] as const).map(([meus, label]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={soMeus === meus}
+                      className={`prazo-inbox-filter ${soMeus === meus ? 'prazo-inbox-filter--active' : ''}`}
+                      onClick={() => setSoMeus(meus)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button className="lx-btn-tool" onClick={() => setImportOpen(true)}>
                 <Upload size={16} /> Importar planilha
               </button>
@@ -707,20 +852,36 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               </button>
             </div>
             <div className="prazo-inbox-areas">
+              <span className="prazo-inbox-areas-label">Área:</span>
+              {minhasAreas.length > 0 ? (
+                <button
+                  type="button"
+                  className={`prazo-inbox-area prazo-inbox-area--minhas ${intArea === 'minhas' ? 'prazo-inbox-area--active' : ''}`}
+                  onClick={() => { setIntArea('minhas'); setColAberta(null); }}
+                  title={minhasAreas.map(k => AREAS.find(a => a.key === k)?.label).join(', ')}
+                >
+                  ★ Minhas áreas ({baseAreas.filter(g => naArea(g, 'minhas')).length})
+                </button>
+              ) : (
+                // Sem áreas escolhidas, o primeiro chip é o convite (sem banner separado)
+                <button type="button" className="prazo-inbox-area prazo-inbox-area--convite" onClick={abrirEscolhaAreas}>
+                  ★ Escolher minhas áreas
+                </button>
+              )}
               <button
                 type="button"
                 className={`prazo-inbox-area ${intArea === '' ? 'prazo-inbox-area--active' : ''}`}
                 onClick={() => { setIntArea(''); setColAberta(null); }}
               >
-                Todas ({gruposBuscados.length})
+                Todas ({baseAreas.length})
               </button>
               {AREAS.map(a => {
-                const n = gruposBuscados.filter(g => areaDireito(g.rep) === a.key).length;
-                if (n === 0) return null;
+                const n = baseAreas.filter(g => areaDe.get(g) === a.key).length;
                 return (
                   <button
                     key={a.key}
                     type="button"
+                    disabled={n === 0 && intArea !== a.key}
                     className={`prazo-inbox-area ${intArea === a.key ? 'prazo-inbox-area--active' : ''}`}
                     onClick={() => { setIntArea(intArea === a.key ? '' : a.key); setColAberta(null); }}
                   >
@@ -728,7 +889,69 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                   </button>
                 );
               })}
+              {minhasAreas.length > 0 && !escolhendoAreas && (
+                <button type="button" className="prazo-inbox-areas-editar" onClick={abrirEscolhaAreas}>
+                  <Pencil size={12} /> escolher minhas áreas
+                </button>
+              )}
+              <div className="prazo-inbox-agrupar" role="group" aria-label="Organizar colunas por">
+                <span className="prazo-inbox-areas-label">Organizar por:</span>
+                {([['ato', 'Tipo de ato'], ['area', 'Área'], ['tribunal', 'Tribunal']] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={agruparPor === k}
+                    className={`prazo-inbox-area ${agruparPor === k ? 'prazo-inbox-area--active' : ''}`}
+                    onClick={() => { setAgruparPor(k); setColAberta(null); }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
+            <div className="prazo-inbox-areas prazo-inbox-areas--tribunal">
+              <span className="prazo-inbox-areas-label">Tribunal:</span>
+              <button
+                type="button"
+                className={`prazo-inbox-area ${intTribunal === '' ? 'prazo-inbox-area--active' : ''}`}
+                onClick={() => { setIntTribunal(''); setColAberta(null); }}
+              >
+                Todos ({baseTribunais.length})
+              </button>
+              {tribunaisChips.map(t => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`prazo-inbox-area ${intTribunal === t.key ? 'prazo-inbox-area--active' : ''}`}
+                  onClick={() => { setIntTribunal(intTribunal === t.key ? '' : t.key); setColAberta(null); }}
+                >
+                  {t.label} ({t.n})
+                </button>
+              ))}
+            </div>
+            {escolhendoAreas && (
+              <div className="prazo-areas-painel">
+                <span className="prazo-areas-painel-titulo">Quais áreas você tria?</span>
+                <div className="prazo-areas-painel-opcoes">
+                  {AREAS.map(a => (
+                    <label key={a.key} className="prazo-areas-painel-opcao">
+                      <input
+                        type="checkbox"
+                        checked={rascunhoAreas.includes(a.key)}
+                        onChange={e => setRascunhoAreas(prev => e.target.checked ? [...prev, a.key] : prev.filter(k => k !== a.key))}
+                      />
+                      {a.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="prazo-areas-painel-acoes">
+                  <button type="button" className="lx-btn-tool" onClick={() => setEscolhendoAreas(false)} disabled={salvandoAreas}>Cancelar</button>
+                  <button type="button" className="lx-btn-primary" onClick={salvarAreas} disabled={salvandoAreas}>
+                    {salvandoAreas ? <Loader2 className="lx-spin" size={14} /> : <Check size={14} />} Salvar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {intLoading ? (
@@ -759,13 +982,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                   </button>
                 </>
               ) : (
-                <p>Confira o número digitado ou limpe os filtros de área.</p>
+                <p>Confira o número digitado ou limpe os filtros de área e tribunal.</p>
               )}
             </div>
           ) : (
-            <div className={colAberta ? 'prazo-int-detail' : 'prazo-int-board'}>
-              {(colAberta ? INT_COLUMNS.filter(c => c.key === colAberta) : INT_COLUMNS).map(col => {
-                const colGrupos = gruposFiltrados.filter(g => tipoBucket(g.rep) === col.key);
+            <div
+              className={colAberta ? 'prazo-int-detail' : 'prazo-int-board'}
+              // o CSS fixa 5 colunas (tipos de ato); por área/tribunal, o número varia com o recorte
+              style={!colAberta && agruparPor !== 'ato' ? { gridTemplateColumns: `repeat(${colunasInt.length}, minmax(280px, 1fr))` } : undefined}
+            >
+              {(colAberta ? colunasInt.filter(c => c.key === colAberta) : colunasInt).map(col => {
+                const colGrupos = gruposFiltrados.filter(g => colunaDe(g) === col.key);
                 // Detalhe (colAberta): todos os cards lado a lado; quadro: só os primeiros
                 const visiveis = colAberta ? colGrupos : colGrupos.slice(0, INT_CARDS_VISIVEIS);
                 return (
@@ -830,7 +1057,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                     </button>
                   )}
                   <div className="prazo-int-tags">
-                    {i.tribunal && <span className="prazo-int-tag">{i.tribunal}</span>}
+                    {/* Área e tribunal em pílulas; somem quando a própria coluna já diz */}
+                    {agruparPor !== 'area' && (
+                      <span className="prazo-int-area">{AREAS.find(a => a.key === areaDe.get(g))?.label}</span>
+                    )}
+                    {agruparPor !== 'tribunal' && i.tribunal && <span className="prazo-int-area prazo-int-trib">{i.tribunal}</span>}
                     {(i.tipoDocumento || i.tipoComunicacao) && (
                       <span className={`prazo-int-tipo prazo-int-tipo--${tipoBucket(i)}`}>
                         {i.tipoDocumento || i.tipoComunicacao}
@@ -932,6 +1163,15 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         </div>
       ) : loading ? (
         <div className="prazo-loading"><Loader2 className="lx-spin" size={32} /></div>
+      ) : totalPrazos === 0 && soMeus && totalTodos > 0 ? (
+        <div className="prazo-empty-all">
+          <CalendarClock size={48} className="prazo-empty-icon" />
+          <h3>Nenhum prazo no seu nome</h3>
+          <p>Os prazos que você gerar na triagem aparecem aqui.</p>
+          <div className="prazo-empty-actions">
+            <button className="lx-btn-tool" onClick={() => setSoMeus(false)}>Ver todos os prazos ({totalTodos})</button>
+          </div>
+        </div>
       ) : totalPrazos === 0 ? (
         <div className="prazo-empty-all">
           <CalendarClock size={48} className="prazo-empty-icon" />
@@ -1053,8 +1293,20 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               </div>
               <div className="prazo-field">
                 <label htmlFor="prazo-resp">Responsável</label>
-                <input id="prazo-resp" type="text" value={form.responsibleName} placeholder="Ex: Dr. Ana"
-                  onChange={e => setForm(f => ({ ...f, responsibleName: e.target.value }))} />
+                <select
+                  id="prazo-resp"
+                  value={form.responsibleId}
+                  onChange={e => {
+                    const m = opcoesEquipe.find(u => u.id === e.target.value);
+                    setForm(f => ({ ...f, responsibleId: e.target.value, responsibleName: m ? m.name || m.email : '' }));
+                  }}
+                >
+                  {/* Prazo antigo com responsável só em texto (ex.: importado): mantém o nome até alguém trocar */}
+                  <option value="">
+                    {!form.responsibleId && form.responsibleName ? `${form.responsibleName} (sem cadastro)` : 'Sem responsável'}
+                  </option>
+                  {opcoesEquipe.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                </select>
               </div>
               <div className="prazo-field">
                 <label htmlFor="prazo-type">Tipo</label>

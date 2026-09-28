@@ -5,5 +5,9 @@
     { "numero": "12981", "uf": "MT" },
     { "numero": "12981-O", "uf": "MT" }
   ],
+  "advogados": [
+    { "nome": "JESUS VIEIRA DE OLIVEIRA", "oab": "9309", "uf": "MT" },
+    { "nome": "ANDREI TEIXEIRA COSTA TAKAKI", "oab": "12981", "uf": "MT" }
+  ],
   "diasBackfill": 14
 }

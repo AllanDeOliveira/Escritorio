@@ -34,6 +34,14 @@ function nomeRevisor(req) {
     return req.currentUser?.name || req.currentUser?.email || 'desconhecido';
 }
 
+// A fila de uma área é compartilhada: quando a intimação já saiu de NOVA, outra
+// pessoa chegou antes. 409 com o nome dela; 404 se o id nem existe.
+async function jaTratada(res, id) {
+    const i = await prisma.intimacao.findUnique({ where: { id }, select: { revisadoPor: true } });
+    if (!i) return res.status(404).json({ success: false, error: 'Intimação não encontrada.' });
+    return res.status(409).json({ success: false, error: `Esta intimação já foi tratada por ${i.revisadoPor || 'outra pessoa'}.` });
+}
+
 // GET /api/intimacoes?status=NOVA — lista + contadores
 // Contadores por ATO único = (processo + data + texto). O DJEN publica a mesma
 // comunicação uma vez por destinatário, e o front agrupa essas cópias. Agrupar
@@ -100,34 +108,47 @@ router.post('/:id/gerar-prazo', async (req, res) => {
         const { id } = req.params;
         const body = req.body || {};
 
-        const intimacao = await prisma.intimacao.findUnique({ where: { id } });
-        if (!intimacao) return res.status(404).json({ success: false, error: 'Intimação não encontrada.' });
-        if (intimacao.status === 'GERADA') return res.status(400).json({ success: false, error: 'Esta intimação já gerou um prazo.' });
-
         const errors = [];
         if (!body.title || !String(body.title).trim()) errors.push('title é obrigatório');
         if (!body.fatalDate || isNaN(Date.parse(body.fatalDate))) errors.push('fatalDate é obrigatória e deve ser válida');
         if (errors.length) return res.status(400).json({ success: false, error: 'Dados inválidos', details: errors });
 
-        const prazo = await prisma.prazo.create({
-            data: {
-                title: String(body.title).trim(),
-                caseReference: (body.caseReference && String(body.caseReference).trim()) || intimacao.numeroProcesso || null,
-                responsibleName: (body.responsibleName && String(body.responsibleName).trim()) || null,
-                type: body.type || 'JUDICIAL',
-                fatalDate: parseDateOnly(body.fatalDate),
-                internalDate: body.internalDate ? parseDateOnly(body.internalDate) : undefined,
-                description: (body.description && String(body.description).trim()) || null,
-                createdById: req.currentUser?.id || undefined,
-            },
-        });
+        // Sem responsável escolhido, o prazo fica com quem fez a triagem
+        const responsibleId = body.responsibleId ? String(body.responsibleId) : req.currentUser?.id || null;
+        if (body.responsibleId && !(await prisma.user.findUnique({ where: { id: responsibleId } }))) {
+            return res.status(400).json({ success: false, error: 'Responsável não encontrado.' });
+        }
 
-        // Marca também as cópias do mesmo ato (grupoIds vindas do front)
         const grupoIds = Array.isArray(body.grupoIds) ? body.grupoIds.filter((x) => typeof x === 'string') : [];
-        await prisma.intimacao.updateMany({
-            where: { id: { in: [id, ...grupoIds] } },
-            data: { status: 'GERADA', prazoId: prazo.id, revisadoPor: nomeRevisor(req), revisadoEm: new Date() },
+        const revisao = { revisadoPor: nomeRevisor(req), revisadoEm: new Date() };
+
+        // Reivindica o ato ANTES de criar o prazo: o UPDATE condicional trava a linha,
+        // então cliques simultâneos da mesma fila esperam e caem em count 0 → 409.
+        const prazo = await prisma.$transaction(async (tx) => {
+            const claim = await tx.intimacao.updateMany({ where: { id, status: 'NOVA' }, data: { status: 'GERADA', ...revisao } });
+            if (claim.count === 0) return null;
+            const intimacao = await tx.intimacao.findUnique({ where: { id }, select: { numeroProcesso: true } });
+            const criado = await tx.prazo.create({
+                data: {
+                    title: String(body.title).trim(),
+                    caseReference: (body.caseReference && String(body.caseReference).trim()) || intimacao.numeroProcesso || null,
+                    responsibleName: (body.responsibleName && String(body.responsibleName).trim()) || null,
+                    responsibleId,
+                    type: body.type || 'JUDICIAL',
+                    fatalDate: parseDateOnly(body.fatalDate),
+                    internalDate: body.internalDate ? parseDateOnly(body.internalDate) : undefined,
+                    description: (body.description && String(body.description).trim()) || null,
+                    createdById: req.currentUser?.id || undefined,
+                },
+            });
+            // Marca também as cópias do mesmo ato (grupoIds vindas do front)
+            await tx.intimacao.updateMany({
+                where: { id: { in: [id, ...grupoIds] } },
+                data: { status: 'GERADA', prazoId: criado.id, ...revisao },
+            });
+            return criado;
         });
+        if (!prazo) return jaTratada(res, id);
 
         res.status(201).json({ success: true, prazo });
     } catch (error) {
@@ -142,11 +163,13 @@ router.post('/:id/descartar', async (req, res) => {
     try {
         const { id } = req.params;
         const grupoIds = Array.isArray(req.body?.grupoIds) ? req.body.grupoIds.filter((x) => typeof x === 'string') : [];
+        // Só descarta o que ainda está NOVA: com tela desatualizada, não pode
+        // descartar um ato que outra pessoa já transformou em prazo.
         const r = await prisma.intimacao.updateMany({
-            where: { id: { in: [id, ...grupoIds] } },
+            where: { id: { in: [id, ...grupoIds] }, status: 'NOVA' },
             data: { status: 'DESCARTADA', revisadoPor: nomeRevisor(req), revisadoEm: new Date() },
         });
-        if (r.count === 0) return res.status(404).json({ success: false, error: 'Intimação não encontrada.' });
+        if (r.count === 0) return jaTratada(res, id);
         res.json({ success: true, atualizadas: r.count });
     } catch (error) {
         logger.error('[descartarIntimacao] Erro:', error);

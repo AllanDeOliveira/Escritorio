@@ -5,7 +5,11 @@ const prisma = require('../infra/prismaClient');
 
 const API_BASE = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 const CONFIG_PATH = path.join(__dirname, '../../config/djen.json');
-const DEFAULT_CONFIG = { oabs: [{ numero: '9309', uf: 'MT' }], diasBackfill: 14 };
+const DEFAULT_CONFIG = {
+    oabs: [{ numero: '9309', uf: 'MT' }],
+    advogados: [{ nome: 'JESUS VIEIRA DE OLIVEIRA', oab: '9309', uf: 'MT' }],
+    diasBackfill: 14,
+};
 
 function lerConfig() {
     try {
@@ -62,6 +66,19 @@ function extrairCliente(item) {
     return m ? m[1].trim() : null;
 }
 
+/**
+ * A busca por número da API só casa a OAB escrita de forma idêntica, e cada
+ * tribunal escreve do seu jeito ("9309-O", "9309/O", "9309-A", "12981/O-O"...).
+ * A busca por nome pega todas as grafias, mas traz homônimos do país inteiro:
+ * vale só a publicação em que algum advogado tem a nossa OAB (mesmos dígitos + UF).
+ */
+function ehDoAdvogado(item, adv) {
+    const advs = Array.isArray(item.destinatarioadvogados) ? item.destinatarioadvogados : [];
+    return advs.some((d) =>
+        String(d.advogado?.numero_oab || '').replace(/\D/g, '') === String(adv.oab)
+        && String(d.advogado?.uf_oab || '').toUpperCase() === String(adv.uf).toUpperCase());
+}
+
 function extrairAdvogado(item) {
     try {
         const advs = Array.isArray(item.destinatarioadvogados) ? item.destinatarioadvogados : [];
@@ -101,15 +118,31 @@ async function executarSync({ dias } = {}) {
     const fmt = (d) => d.toISOString().slice(0, 10);
     const resultado = { criadas: 0, jaExistiam: 0, total: 0, janela: `${fmt(inicio)} a ${fmt(hoje)}`, oabs: [], erros: [] };
 
-    for (const oab of cfg.oabs || []) {
+    // Por OAB (grafias conhecidas) e por nome do advogado (qualquer grafia que o
+    // tribunal use). A dedupe por djenId junta o que as duas buscas repetem.
+    const consultas = [
+        ...(cfg.oabs || []).map((oab) => ({
+            rotulo: `OAB ${oab.numero}/${oab.uf}`,
+            params: { numeroOab: String(oab.numero), ufOab: String(oab.uf) },
+            origem: `${oab.numero}/${oab.uf}`,
+            aceita: () => true,
+        })),
+        ...(cfg.advogados || []).map((adv) => ({
+            rotulo: `advogado ${adv.nome}`,
+            params: { nomeAdvogado: String(adv.nome) },
+            origem: `${adv.oab}/${adv.uf} (por nome)`,
+            aceita: (item) => ehDoAdvogado(item, adv),
+        })),
+    ];
+
+    for (const consulta of consultas) {
         let pagina = 1;
         let coletadas = 0;
         let count = Infinity;
 
         while (coletadas < count && pagina <= 30) {
             const body = await fetchPagina({
-                numeroOab: String(oab.numero),
-                ufOab: String(oab.uf),
+                ...consulta.params,
                 dataDisponibilizacaoInicio: fmt(inicio),
                 dataDisponibilizacaoFim: fmt(hoje),
                 pagina: String(pagina),
@@ -117,7 +150,7 @@ async function executarSync({ dias } = {}) {
             });
 
             if (!body) {
-                resultado.erros.push(`OAB ${oab.numero}/${oab.uf}: API indisponível (página ${pagina})`);
+                resultado.erros.push(`${consulta.rotulo}: API indisponível (página ${pagina})`);
                 break;
             }
 
@@ -126,6 +159,7 @@ async function executarSync({ dias } = {}) {
             if (items.length === 0) break;
 
             for (const item of items) {
+                if (!consulta.aceita(item)) continue; // homônimo de outra OAB/UF
                 resultado.total++;
                 const djenId = String(item.id);
                 const existe = await prisma.intimacao.findUnique({ where: { djenId } });
@@ -155,7 +189,7 @@ async function executarSync({ dias } = {}) {
                         dataDisponibilizacao: item.data_disponibilizacao ? new Date(`${item.data_disponibilizacao}T00:00:00`) : null,
                         clienteExtraido: extrairCliente(item),
                         advogadoNome: extrairAdvogado(item),
-                        oabConsulta: `${oab.numero}/${oab.uf}`,
+                        oabConsulta: consulta.origem,
                     },
                 });
                 resultado.criadas++;
@@ -166,7 +200,7 @@ async function executarSync({ dias } = {}) {
             await sleep(800); // gentileza com a API entre páginas
         }
 
-        resultado.oabs.push(`${oab.numero}/${oab.uf}`);
+        resultado.oabs.push(consulta.rotulo);
     }
 
     logger.info(`[DJEN] sync concluído: ${resultado.criadas} novas, ${resultado.jaExistiam} já existiam (janela ${resultado.janela})`);
@@ -244,5 +278,5 @@ async function syncIntimacoesSafe(opts = {}) {
 
 module.exports = {
     syncIntimacoes, syncIntimacoesSafe, isSyncStale, heartbeatPatch,
-    lerConfig, extrairCliente, extrairAdvogado,
+    lerConfig, extrairCliente, extrairAdvogado, ehDoAdvogado,
 };

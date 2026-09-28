@@ -22,6 +22,7 @@ model User {
   email          String            @unique
   name           String?
   role           String            @default("member") // admin | member
+  areas          String[]          @default([]) // áreas que a pessoa tria (chaves de AREAS no PrazosTab.tsx)
   organizationId String?
   createdAt      DateTime          @default(now())
   documents      DocumentHistory[]

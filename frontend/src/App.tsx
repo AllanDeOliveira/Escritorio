@@ -908,7 +908,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} />
+          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} onDbUserChange={setDbUser} />
         )}
 
         {/* ── Aba: Modelos ─────────────────────────────────────────────────── */}

@@ -110,6 +110,10 @@ Tabelas que existem e nunca recebem uma linha: `Client` (0 usos), `Event` (0 uso
   momento do sync exige **mover/duplicar a classificação para o servidor**.
 - **Falta:** classificação server-side + mapa área→advogado + preencher `responsibleId`.
 - **Pronto quando:** prazo nasce atribuído, e existe uma visão "meus prazos".
+- **✅ Feito (2026-09-25), por outro caminho:** a triagem é que se divide por área. Cada pessoa
+  escolhe as próprias áreas (`User.areas`), a caixa abre em "Minhas áreas" e o prazo nasce com quem
+  o gerou. A classificação continua no front — não foi preciso movê-la para o servidor.
+  Ver [spec](superpowers/specs/2026-09-25-distribuicao-por-area-design.md).
 
 ### F. Agenda de audiências
 **Esforço:** M · **Depende de:** nada

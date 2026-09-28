@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, buscaMatch, formatarNumeroCnj,
+  agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, colunasPorArea, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
   relativeLabel, nomeProprio,
   type Intimacao,
 } from './PrazosTab';
@@ -71,8 +71,70 @@ describe('areaDireito (espelho das regras do backend)', () => {
     expect(areaDireito(int({}))).toBe('outras');
   });
 
+  // Trechos reais do cabeçalho de partes do teor (DJEN)
+  it('banco como PARTE no teor → bancário', () => {
+    const civel = { nomeClasse: 'PROCEDIMENTO COMUM CíVEL', orgao: '2ª VARA CÍVEL DE CÁCERES', tribunal: 'TJMT' };
+    expect(areaDireito(int({ ...civel, texto: 'DECISÃO Processo: 1013291-78.2025.8.11.0006. AUTOR: EMILIA DE CAMPOS ARRUDA REQUERIDO: BANCO AGIBANK S.A Visto.' }))).toBe('bancario');
+    expect(areaDireito(int({ nomeClasse: 'CUMPRIMENTO DE SENTENçA', orgao: 'VARA ÚNICA DE RIO BRANCO', tribunal: 'TJMT', texto: 'PROCESSO N. 1000673-36.2020.8.11.0052 EXEQUENTE: JOSE SEVERINO DA SILVA EXECUTADO: BANCO AGIBANK S.A SENTENÇA' }))).toBe('bancario');
+    // CEF na Justiça Federal: bancário vence a regra "TRF → previdenciário"
+    expect(areaDireito(int({ nomeClasse: 'RECURSO INOMINADO CíVEL', orgao: '3ª Relatoria da 1ª Turma Recursal da SJMT', tribunal: 'TRF1', texto: 'RECORRENTE: SINDALVA MARTINS DE OLIVEIRA Advogado do(a) RECORRENTE: JESUS VIEIRA DE OLIVEIRA - MT9309-A RECORRIDO: CAIXA ECONOMICA FEDERAL - CEF' }))).toBe('bancario');
+  });
+
+  it('banco apenas CITADO no corpo não vira bancário', () => {
+    expect(areaDireito(int({ nomeClasse: 'CUMPRIMENTO DE SENTENçA CONTRA A FAZENDA PúBLICA', orgao: '1ª VARA ESP. DA FAZENDA PÚBLICA DE CUIABÁ', tribunal: 'TJMT', texto: 'EXEQUENTE: MARIA DA SILVA EXECUTADO: ESTADO DE MATO GROSSO. Expeça-se alvará para depósito na conta do Banco do Brasil.' }))).toBe('fazenda');
+    expect(areaDireito(int({ nomeClasse: 'PROCEDIMENTO COMUM CíVEL', orgao: '2ª VARA CÍVEL DE CÁCERES', tribunal: 'TJMT', texto: 'Tema nº 1.414/STJ, que versa sobre a validade dos contratos de cartão de crédito consignado (RCM)' }))).toBe('civel');
+  });
+
+  it('só procura a parte no cabeçalho (início do teor)', () => {
+    const texto = `${'x'.repeat(3000)} REQUERIDO: BANCO BRADESCO S.A.`;
+    expect(areaDireito(int({ nomeClasse: 'PROCEDIMENTO COMUM CíVEL', tribunal: 'TJMT', texto }))).toBe('civel');
+  });
+
+  it('trabalhista vence bancário (banco como reclamado na Justiça do Trabalho)', () => {
+    expect(areaDireito(int({ tribunal: 'TRT23', nomeClasse: 'AçãO TRABALHISTA - RITO ORDINáRIO', texto: 'RECLAMANTE: JOAO RECLAMADO: BANCO DO BRASIL SA' }))).toBe('trabalhista');
+  });
+
   it('mantém as mesmas seis áreas do backend (sem criminal)', () => {
     expect(AREAS.map(a => a.key)).toEqual(['fazenda', 'previdenciario', 'bancario', 'trabalhista', 'civel', 'outras']);
+  });
+});
+
+describe('colunasPorArea (quadro "Organizar por: Área")', () => {
+  it('só as áreas presentes no recorte, na ordem fixa de AREAS', () => {
+    expect(colunasPorArea(['civel', 'fazenda', 'civel', 'bancario']).map(c => c.key)).toEqual(['fazenda', 'bancario', 'civel']);
+  });
+
+  it('usa o rótulo da área como título da coluna', () => {
+    expect(colunasPorArea(['previdenciario'])).toEqual([{ key: 'previdenciario', label: 'Previdenciário' }]);
+  });
+
+  it('recorte vazio → nenhuma coluna', () => {
+    expect(colunasPorArea([])).toEqual([]);
+  });
+});
+
+describe('tribunaisPresentes (filtro e colunas por tribunal)', () => {
+  it('um item por tribunal presente, do mais frequente ao menos', () => {
+    expect(tribunaisPresentes(['TJMT', 'TRF1', 'TJMT', 'TRT23', 'TRF1', 'TJMT'])).toEqual([
+      { key: 'TJMT', label: 'TJMT', n: 3 },
+      { key: 'TRF1', label: 'TRF1', n: 2 },
+      { key: 'TRT23', label: 'TRT23', n: 1 },
+    ]);
+  });
+
+  it('empate em ordem alfabética', () => {
+    expect(tribunaisPresentes(['TJSP', 'STJ']).map(t => t.key)).toEqual(['STJ', 'TJSP']);
+  });
+
+  it('tribunal vazio vira "Sem tribunal" (nunca some da contagem)', () => {
+    expect(tribunaisPresentes([null, '', 'TJMT'])).toEqual([
+      { key: 'SEM', label: 'Sem tribunal', n: 2 },
+      { key: 'TJMT', label: 'TJMT', n: 1 },
+    ]);
+  });
+
+  it('recorte vazio → nenhum tribunal', () => {
+    expect(tribunaisPresentes([])).toEqual([]);
   });
 });
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { extrairCliente, extrairAdvogado, isSyncStale, heartbeatPatch } = require('./djenService');
+const { extrairCliente, extrairAdvogado, isSyncStale, heartbeatPatch, ehDoAdvogado } = require('./djenService');
 
 describe('extrairCliente', () => {
   it('usa o destinatário do polo ativo quando disponível', () => {
@@ -104,5 +104,35 @@ describe('heartbeatPatch', () => {
   it('trunca erro longo para caber na coluna', () => {
     const p = heartbeatPatch({ criadas: 0, erros: ['x'.repeat(900)] }, agora);
     expect(p.djenLastError.length).toBe(500);
+  });
+});
+
+describe('ehDoAdvogado (busca por nome: filtra homônimos pela OAB)', () => {
+  const jesus = { nome: 'JESUS VIEIRA DE OLIVEIRA', oab: '9309', uf: 'MT' };
+  const andrei = { nome: 'ANDREI TEIXEIRA COSTA TAKAKI', oab: '12981', uf: 'MT' };
+  const item = (numero_oab, uf_oab = 'MT', nome = 'QUALQUER') => ({ destinatarioadvogados: [{ advogado: { nome, numero_oab, uf_oab } }] });
+
+  it('aceita as grafias reais de cada tribunal (mesmos dígitos + UF)', () => {
+    expect(ehDoAdvogado(item('9309/O'), jesus)).toBe(true);    // TRF1 1º grau
+    expect(ehDoAdvogado(item('9309-A'), jesus)).toBe(true);    // TJMT 2º grau
+    expect(ehDoAdvogado(item('9309O'), jesus)).toBe(true);     // STJ
+    expect(ehDoAdvogado(item('12981/O-O'), andrei)).toBe(true); // TJMT
+  });
+
+  it('rejeita homônimo com OAB de outro número ou de outra UF', () => {
+    expect(ehDoAdvogado(item('19309-O'), jesus)).toBe(false);
+    expect(ehDoAdvogado(item('9309-O', 'SP'), jesus)).toBe(false);
+  });
+
+  it('acha o advogado mesmo quando não é o primeiro da lista', () => {
+    const it2 = { destinatarioadvogados: [
+      { advogado: { nome: 'OUTRO', numero_oab: '555', uf_oab: 'MT' } },
+      { advogado: { nome: 'JESUS', numero_oab: '9309/O', uf_oab: 'MT' } },
+    ] };
+    expect(ehDoAdvogado(it2, jesus)).toBe(true);
+  });
+
+  it('sem advogados estruturados → não é nosso', () => {
+    expect(ehDoAdvogado({}, jesus)).toBe(false);
   });
 });
