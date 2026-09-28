@@ -20,7 +20,7 @@ const includeRelations = {
     lawsuit: { select: { id: true, caseNumber: true, actionType: true } },
     client: { select: { id: true, name: true } },
     // intimação de origem: tribunal e tipo de ato viram etiquetas no card do quadro
-    intimacoes: { select: { tribunal: true, tipoDocumento: true, tipoComunicacao: true }, take: 1 },
+    intimacoes: { select: { tribunal: true, tipoDocumento: true, tipoComunicacao: true, nomeClasse: true, orgao: true }, take: 1 },
 };
 
 // Meia-noite de hoje, para comparar apenas por dia (não por hora)
@@ -194,7 +194,13 @@ router.get('/', async (req, res) => {
             orderBy: { fatalDate: 'asc' },
         });
 
-        res.json({ success: true, prazos: prazos.map(enrich) });
+        // Prazos criados pelo robô do PJe: tribunal/órgão/tipo do expediente (para os filtros do quadro)
+        const expedientes = await prisma.expedientePje.findMany({
+            where: { prazoId: { in: prazos.map((p) => p.id) } },
+            select: { prazoId: true, tribunal: true, orgao: true, tipo: true },
+        });
+        const origemPje = new Map(expedientes.map((e) => [e.prazoId, { tribunal: e.tribunal, orgao: e.orgao, tipo: e.tipo }]));
+        res.json({ success: true, prazos: prazos.map((p) => ({ ...enrich(p), origemPje: origemPje.get(p.id) || null })) });
     } catch (error) {
         logger.error('[listPrazos] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao listar prazos.' });

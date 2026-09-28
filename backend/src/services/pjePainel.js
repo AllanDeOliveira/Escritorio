@@ -14,11 +14,30 @@ const logger = require('../infra/logger');
 const prisma = require('../infra/prismaClient');
 const { loginCertificado } = require('./pjeSso');
 
-// ponytail: lista fixa; vira config quando entrar um terceiro tribunal
+// Cada grau é um PJe separado (login e painel próprios). A sigla vira o filtro
+// "Tribunal" do quadro e compõe a chave única do expediente.
+// `urls` em ordem de preferência: se uma cair (o TJMT oscila muito), tenta a próxima.
+// TJMT 1º grau: o host intranet é o mesmo sistema e respondeu ~3x mais rápido.
+// TJMT 2º grau: o intranet derruba a sessão logo após o login (set/2026) — fica de reserva.
 const TRIBUNAIS = [
-    { sigla: 'TJMT', url: 'https://pje.tjmt.jus.br/pje' },
-    { sigla: 'TRF1', url: 'https://pje1g.trf1.jus.br/pje' },
+    { sigla: 'TJMT', urls: ['https://pje-intranet.tjmt.jus.br/pje', 'https://pje.tjmt.jus.br/pje'] },
+    { sigla: 'TJMT 2º GRAU', urls: ['https://pje2.tjmt.jus.br/pje2', 'https://pje2-intranet.tjmt.jus.br/pje2'] },
+    { sigla: 'TRF1', urls: ['https://pje1g.trf1.jus.br/pje'] },
+    { sigla: 'TRF1 2º GRAU', urls: ['https://pje2g.trf1.jus.br/pje'] },
 ];
+
+async function lerTribunal(t) {
+    let erro;
+    for (const url of t.urls) {
+        try {
+            return await lerExpedientes(url);
+        } catch (e) {
+            erro = e;
+            logger.warn(`[PJe] ${t.sigla} via ${new URL(url).hostname} falhou: ${e.message}`);
+        }
+    }
+    throw erro;
+}
 
 // ── HTML ───────────────────────────────────────────────────────────────────
 const DIACRITICO = { acute: '\u0301', grave: '\u0300', circ: '\u0302', tilde: '\u0303', uml: '\u0308', cedil: '\u0327' };
@@ -115,7 +134,13 @@ const ALVOS_PERMITIDOS = [
 const alvoPermitido = (alvo) => ALVOS_PERMITIDOS.some((re) => re.test(alvo || ''));
 
 async function lerExpedientes(pjeUrl) {
-    const { cliente, paginaInicial } = await loginCertificado({ pjeUrl });
+    const login = await loginCertificado({ pjeUrl });
+    const { cliente } = login;
+    let paginaInicial = login.paginaInicial;
+    // Alguns PJe abrem antes o Quadro de Avisos (ex.: TRF1 2º grau) — vai direto ao painel
+    if (!/advogado\.seam/.test(paginaInicial.url)) {
+        paginaInicial = await cliente.ir(`${pjeUrl}/Painel/painel_usuario/advogado.seam`);
+    }
     if (!/advogado\.seam/.test(paginaInicial.url)) throw new Error(`Não caiu no Painel do Advogado (${paginaInicial.url})`);
     let viewState = (paginaInicial.texto.match(/name="javax\.faces\.ViewState"[^>]*value="([^"]*)"/) || [])[1];
     const paginas = [paginaInicial.texto]; // formulários podem vir de qualquer resposta anterior
@@ -146,7 +171,10 @@ async function lerExpedientes(pjeUrl) {
     const htmlSituacao = await clicar(situacao.form, situacao.params);
     for (const jur of linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.total > 0)) {
         const htmlJur = await clicar(jur.form, jur.params);
-        for (const caixa of linksA4j(htmlJur).filter((l) => l.params.ajaxSingle?.endsWith(':cxExItem') && l.total > 0)) {
+        // A árvore mantém abertas as jurisdições anteriores: só as caixas DESTA (…:trPend:<id>:…)
+        const doNo = jur.params.ajaxSingle.replace(/::jNp$/, ':');
+        const caixas = linksA4j(htmlJur).filter((l) => l.params.ajaxSingle?.endsWith(':cxExItem') && l.params.ajaxSingle.startsWith(doNo) && l.total > 0);
+        for (const caixa of caixas) {
             const antes = porId.size;
             let html = await clicar(caixa.form, caixa.params);
             let { total, itens } = parseLista(html);
@@ -168,6 +196,76 @@ async function lerExpedientes(pjeUrl) {
     return [...porId.values()];
 }
 
+// ── Expediente ↔ intimação / prazo ─────────────────────────────────────────
+const soDigitos = (s) => String(s || '').replace(/\D/g, '');
+const formatarCnj = (d) => (d && d.length === 20
+    ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}`
+    : d);
+
+// Vários expedientes no mesmo processo → o de expedição mais próxima da disponibilização no DJEN
+function melhorExpediente(intimacao, candidatos) {
+    const ref = intimacao.dataDisponibilizacao ? new Date(intimacao.dataDisponibilizacao).getTime() : Date.now();
+    const dist = (e) => Math.abs((e.dataExpedicao ? new Date(e.dataExpedicao).getTime() : 0) - ref);
+    return [...candidatos].sort((a, b) => dist(a) - dist(b))[0] || null;
+}
+
+/**
+ * Leva ao quadro, sem triagem manual, todo expediente com data limite do PJe:
+ *  - cria o Prazo (fatalDate = data limite do PJe) e marca o expediente com o prazoId;
+ *  - tira da caixa ("Novas" → "Distribuídas") as intimações do DJEN que correspondem a ele;
+ *  - se o PJe mudar a data limite de um prazo ainda pendente, acompanha.
+ * Prazo excluído no quadro não volta: o prazoId fica no expediente.
+ */
+async function gerarPrazosDoPje() {
+    let criados = 0; let atualizados = 0;
+
+    const novos = await prisma.expedientePje.findMany({ where: { dataLimite: { not: null }, prazoId: null } });
+    for (const e of novos) {
+        const prazo = await prisma.prazo.create({
+            data: {
+                title: e.destinatario || formatarCnj(e.numeroProcesso) || `Expediente ${e.idExpediente}`,
+                caseReference: formatarCnj(e.numeroProcesso),
+                type: 'JUDICIAL',
+                source: 'PJE',
+                fatalDate: e.dataLimite,
+                description: [e.tipo, e.prazoDias && `prazo ${e.prazoDias} dias`, e.tribunal, e.orgao, `expediente ${e.idExpediente} (PJe)`]
+                    .filter(Boolean).join(' · '),
+            },
+        });
+        await prisma.expedientePje.update({ where: { id: e.id }, data: { prazoId: prazo.id } });
+        criados++;
+
+        // Intimações novas do mesmo processo cujo melhor expediente é este
+        const doProcesso = await prisma.expedientePje.findMany({ where: { numeroProcesso: e.numeroProcesso } });
+        const intimacoes = await prisma.intimacao.findMany({
+            where: { status: 'NOVA', numeroProcesso: { in: [e.numeroProcesso, formatarCnj(e.numeroProcesso)] } },
+        });
+        const ids = intimacoes.filter((i) => melhorExpediente(i, doProcesso)?.id === e.id).map((i) => i.id);
+        if (ids.length) {
+            await prisma.intimacao.updateMany({
+                where: { id: { in: ids }, status: 'NOVA' },
+                data: { status: 'GERADA', prazoId: prazo.id, revisadoPor: 'Robô PJe', revisadoEm: new Date() },
+            });
+        }
+    }
+
+    // Data limite mudou no PJe (ex.: suspensão) → acompanha enquanto o prazo estiver pendente
+    const vinculados = await prisma.expedientePje.findMany({ where: { dataLimite: { not: null }, prazoId: { not: null } } });
+    const prazos = await prisma.prazo.findMany({
+        where: { id: { in: vinculados.map((e) => e.prazoId) }, status: 'PENDENTE' },
+        select: { id: true, fatalDate: true },
+    });
+    const limitePorPrazo = new Map(vinculados.map((e) => [e.prazoId, e.dataLimite]));
+    for (const p of prazos) {
+        const limite = limitePorPrazo.get(p.id);
+        if (limite && limite.getTime() !== p.fatalDate.getTime()) {
+            await prisma.prazo.update({ where: { id: p.id }, data: { fatalDate: limite } });
+            atualizados++;
+        }
+    }
+    return { criados, atualizados };
+}
+
 // ── Sincronização ──────────────────────────────────────────────────────────
 let emAndamento = false;
 
@@ -180,10 +278,11 @@ async function syncExpedientesPje() {
     if (emAndamento) return { skipped: true, motivo: 'já em andamento' };
     emAndamento = true;
     const resultado = [];
+    let prazos;
     try {
         for (const t of TRIBUNAIS) {
             try {
-                const itens = await lerExpedientes(t.url);
+                const itens = await lerTribunal(t);
                 const agora = new Date();
                 for (const { idExpediente, ...dados } of itens) {
                     await prisma.expedientePje.upsert({
@@ -198,10 +297,16 @@ async function syncExpedientesPje() {
                 resultado.push({ tribunal: t.sigla, erro: e.message });
             }
         }
+        // Mesmo com um tribunal fora do ar, o que foi lido já vai para o quadro
+        prazos = await gerarPrazosDoPje();
+        logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.atualizados} data(s) atualizada(s)`);
     } finally {
         emAndamento = false;
     }
-    return { skipped: false, resultado };
+    return { skipped: false, resultado, prazos };
 }
 
-module.exports = { syncExpedientesPje, lerExpedientes, parseLista, linksA4j, decodificar, configurado, alvoPermitido };
+module.exports = {
+    syncExpedientesPje, gerarPrazosDoPje, lerExpedientes, parseLista, linksA4j, decodificar, configurado, alvoPermitido,
+    soDigitos, formatarCnj, melhorExpediente,
+};

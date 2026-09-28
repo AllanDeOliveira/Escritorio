@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseLista, linksA4j, alvoPermitido, decodificar } = require('./pjePainel');
+const { parseLista, linksA4j, alvoPermitido, decodificar, melhorExpediente, formatarCnj } = require('./pjePainel');
 
 // Estrutura real do painel (TRF1, set/2026), com dados fictícios
 const linha = (miolo) => `<tr class="rich-table-row rich-table-firstrow"><td>${miolo}</td></tr>`;
@@ -74,5 +74,23 @@ describe('linksA4j', () => {
         expect(decodificar('Ci&ecirc;ncia &amp; Manifesta&ccedil;&atilde;o')).toBe('Ciência & Manifestação');
         const html = `<a onclick="A4J.AJAX.Submit('f:38:\\x2D1::j_id191',event,{'parameters':{'ajaxSingle':'x:38:\\x2D1::j_id191:cxExItem'}})">Caixa de entrada</a><span>29</span>`;
         expect(linksA4j(html)[0]).toMatchObject({ form: 'f:38:-1::j_id191', total: 29 });
+    });
+});
+
+describe('expediente ↔ intimação', () => {
+    it('escolhe o expediente de expedição mais próxima da disponibilização', () => {
+        const exps = [
+            { id: 'antigo', dataExpedicao: new Date(2026, 7, 1) },
+            { id: 'certo', dataExpedicao: new Date(2026, 8, 25) },
+            { id: 'sem-data', dataExpedicao: null },
+        ];
+        expect(melhorExpediente({ dataDisponibilizacao: new Date(2026, 8, 26) }, exps).id).toBe('certo');
+        expect(melhorExpediente({ dataDisponibilizacao: new Date(2026, 8, 26) }, [])).toBeNull();
+    });
+
+    it('formata o número CNJ igual ao DJEN', () => {
+        expect(formatarCnj('00005605720084013601')).toBe('0000560-57.2008.4.01.3601');
+        expect(formatarCnj('123')).toBe('123');
+        expect(formatarCnj(null)).toBeNull();
     });
 });

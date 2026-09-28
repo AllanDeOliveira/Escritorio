@@ -79,16 +79,23 @@ function totp(segredoBase32, agoraMs = Date.now()) {
 }
 
 // ── HTTP com cookies por host ──────────────────────────────────────────────
-// ponytail: jar por hostname, ignora path/expiração — basta para uma sessão de login curta
+// ponytail: jar por hostname, ignora path/domain — basta para uma sessão de login curta.
+// Expiração NÃO pode ser ignorada: o PJe apaga OAuth_Token_Request_State/JSESSIONID com
+// Max-Age=0 e, se reenviarmos o cookie vazio, o 2º grau derruba a sessão e volta ao login.
 function criarCliente() {
     const jar = new Map();
     const cookieDe = (host) => [...(jar.get(host) || new Map())].map(([k, v]) => `${k}=${v}`).join('; ');
     const guardar = (host, res) => {
         const m = jar.get(host) || new Map();
         for (const c of res.headers.getSetCookie()) {
-            const [par] = c.split(';');
+            const [par, ...attrs] = c.split(';');
             const i = par.indexOf('=');
-            m.set(par.slice(0, i).trim(), par.slice(i + 1).trim());
+            const nome = par.slice(0, i).trim();
+            const valor = par.slice(i + 1).trim();
+            const expira = attrs.map((a) => a.trim().toLowerCase());
+            const apagado = !valor || expira.includes('max-age=0')
+                || expira.some((a) => a.startsWith('expires=') && Date.parse(a.slice(8)) < Date.now());
+            if (apagado) m.delete(nome); else m.set(nome, valor);
         }
         jar.set(host, m);
     };
@@ -127,44 +134,59 @@ async function loginCertificado({
     const { chavePem, cadeia } = lerPfx(pfx, senhaPfx);
     const cliente = criarCliente();
 
-    // 1. Página de login do SSO (via redirect do PJe)
-    const pagina = await cliente.ir(`${pjeUrl}/login.seam`);
-    const action = pagina.texto.match(/id="loginForm"[^>]*action="([^"]+)"/);
-    const desafio = pagina.texto.match(/autenticar\('([^']*)',\s*'([^']*)'\)/);
-    if (!action || !desafio) throw new Error(`Tela de login do SSO não reconhecida (${pagina.url})`);
-    const mensagem = desafio[2];
-    const token = crypto.randomUUID();
+    const telaDeLogin = (p) => /id="loginForm"/.test(p.texto) && /autenticar\(/.test(p.texto);
+    let ultimoOtp = null;
 
-    // 2. O que o PJeOffice faz: envia a assinatura do desafio ao SSO
-    const servidor = `${new URL(pagina.url).origin}/auth/realms/pje`;
-    const envio = await cliente.ir(`${servidor}/pjeoffice-rest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            certChain: pkiPathBase64(cadeia),
-            uuid: token,
-            mensagem,
-            assinatura: assinarDesafio(mensagem, chavePem),
-        }),
-    });
-    if (envio.status >= 400) throw new Error(`SSO recusou a assinatura (HTTP ${envio.status}): ${envio.texto.slice(0, 300)}`);
+    // Uma rodada do que o navegador + PJeOffice fazem a partir da tela de login do SSO
+    async function entrar(pagina) {
+        const action = pagina.texto.match(/id="loginForm"[^>]*action="([^"]+)"/);
+        const desafio = pagina.texto.match(/autenticar\('([^']*)',\s*'([^']*)'\)/);
+        if (!action || !desafio) throw new Error(`Tela de login do SSO não reconhecida (${pagina.url})`);
+        const mensagem = desafio[2];
+        const token = crypto.randomUUID();
 
-    // 3. Submete o formulário como o navegador faria após o PJeOffice responder
-    let final = await cliente.ir(desescapar(action[1]), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ username: '', password: '', 'pjeoffice-code': token, phrase: '' }).toString(),
-    });
+        // 2. O que o PJeOffice faz: envia a assinatura do desafio ao SSO
+        const servidor = `${new URL(pagina.url).origin}/auth/realms/pje`;
+        const envio = await cliente.ir(`${servidor}/pjeoffice-rest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                certChain: pkiPathBase64(cadeia),
+                uuid: token,
+                mensagem,
+                assinatura: assinarDesafio(mensagem, chavePem),
+            }),
+        });
+        if (envio.status >= 400) throw new Error(`SSO recusou a assinatura (HTTP ${envio.status}): ${envio.texto.slice(0, 300)}`);
 
-    // 4. Segundo fator
-    const formOtp = final.texto.match(/id="kc-otp-login-form"[^>]*action="([^"]+)"/);
-    if (formOtp) {
-        if (!segredoTotp) throw new Error('SSO pediu 2FA e PJE_TOTP_SECRET não está configurado');
-        final = await cliente.ir(desescapar(formOtp[1]), {
+        // 3. Submete o formulário como o navegador faria após o PJeOffice responder
+        let final = await cliente.ir(desescapar(action[1]), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ otp: totp(segredoTotp), login: 'Validar' }).toString(),
+            body: new URLSearchParams({ username: '', password: '', 'pjeoffice-code': token, phrase: '' }).toString(),
         });
+
+        // 4. Segundo fator (o SSO recusa o mesmo código duas vezes: espera a próxima janela de 30 s)
+        const formOtp = final.texto.match(/id="kc-otp-login-form"[^>]*action="([^"]+)"/);
+        if (formOtp) {
+            if (!segredoTotp) throw new Error('SSO pediu 2FA e PJE_TOTP_SECRET não está configurado');
+            while (totp(segredoTotp) === ultimoOtp) await new Promise((r) => setTimeout(r, 1000));
+            ultimoOtp = totp(segredoTotp);
+            final = await cliente.ir(desescapar(formOtp[1]), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ otp: ultimoOtp, login: 'Validar' }).toString(),
+            });
+        }
+        return { final, servidor };
+    }
+
+    // 1. Página de login do SSO (via redirect do PJe). O TJMT 2º grau devolve a tela de
+    // login uma segunda vez depois do primeiro acesso (o robô de peticionamento também
+    // clica duas vezes) — então repete a rodada, no máximo mais uma vez.
+    let { final, servidor } = await entrar(await cliente.ir(`${pjeUrl}/login.seam`));
+    if (new URL(final.url).hostname === new URL(servidor).hostname && telaDeLogin(final)) {
+        ({ final, servidor } = await entrar(final));
     }
     const host = new URL(final.url).hostname;
     if (host === new URL(servidor).hostname) {

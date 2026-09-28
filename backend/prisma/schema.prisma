@@ -372,6 +372,10 @@ model ExpedientePje {
 
   vistoEm DateTime @default(now()) // última leitura em que o expediente apareceu no painel
 
+  // Prazo criado automaticamente no quadro. Sem FK de propósito: se alguém excluir
+  // o prazo, o id continua aqui e o robô NÃO recria (a exclusão foi decisão humana).
+  prazoId String?
+
   @@unique([tribunal, idExpediente])
   @@index([numeroProcesso])
   @@map("expedientes_pje")

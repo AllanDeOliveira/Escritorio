@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus, Check, Pencil, Trash2, X, CalendarClock, Loader2, Upload, Download,
   Inbox, RefreshCw, ExternalLink, RotateCcw, ChevronLeft, ChevronRight, Search,
-  Send, ChevronDown, Users, Clock, MoreHorizontal, SlidersHorizontal, ArrowRight,
+  ChevronDown, Users, Clock, MoreHorizontal, SlidersHorizontal, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 import './PrazosTab.css';
 
@@ -36,7 +36,9 @@ interface Prazo {
   bucket: string;
   prioridade?: string | null;
   // intimação de origem (quando o prazo nasceu da caixa)
-  intimacoes?: { tribunal?: string | null; tipoDocumento?: string | null; tipoComunicacao?: string | null }[];
+  intimacoes?: { tribunal?: string | null; tipoDocumento?: string | null; tipoComunicacao?: string | null; nomeClasse?: string | null; orgao?: string | null }[];
+  // Prazo criado pelo robô do PJe: tribunal/órgão do expediente (quando não há intimação ligada)
+  origemPje?: { tribunal: string; orgao?: string | null; tipo?: string | null } | null;
 }
 
 type Groups = Record<string, Prazo[]>;
@@ -68,6 +70,8 @@ export interface Intimacao {
     dataCiencia: string | null;
     dataLimite: string | null;
   } | null;
+  // O processo já tem prazo criado pelo robô do PJe no quadro (possível duplicidade)
+  prazoPjeProcesso?: { total: number; proximoLimite: string } | null;
 }
 
 // Resumo do prazo gerado a partir da intimação (aba "Distribuídas")
@@ -112,7 +116,7 @@ export function nomeMes(mes: string): string {
 // Classifica pelo tipoDocumento do DJEN. Substrings escolhidas sem acento de
 // propósito ("senten" pega Sentença; "decis" pega Decisão e suspensão;
 // "intima" pega Intimação e pauta) — dispensa normalização de diacríticos.
-export function tipoBucket(i: Intimacao): IntColKey {
+export function tipoBucket(i: Pick<Intimacao, 'tipoDocumento' | 'tipoComunicacao'>): IntColKey {
   const t = (i.tipoDocumento || i.tipoComunicacao || '').toLowerCase();
   if (t.includes('senten')) return 'sentenca';
   if (t.includes('decis')) return 'decisao';
@@ -136,6 +140,11 @@ export const AREAS = [
 ] as const;
 
 export type AreaKey = (typeof AREAS)[number]['key'];
+
+// Órgão julgador como chave de filtro: ignora caixa e espaços duplicados ('SEM' se vazio)
+function chaveOrgao(s?: string | null): string {
+  return (s || '').trim().replace(/\s+/g, ' ').toUpperCase() || 'SEM';
+}
 
 // Tribunal de uma intimação como chave de filtro ('SEM' quando o DJEN não informa)
 function chaveTribunal(t?: string | null): string {
@@ -354,6 +363,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [intArea, setIntArea] = useState<AreaKey | '' | 'minhas'>('');
   // Filtro por tribunal na caixa ('' = todos; chave de chaveTribunal)
   const [intTribunal, setIntTribunal] = useState('');
+  const [intOrgao, setIntOrgao] = useState('');
   // Busca por número do processo ou cliente
   const [intBusca, setIntBusca] = useState('');
 
@@ -367,18 +377,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Quadro: colunas por pessoa (distribuição) ou por urgência
   // "Enviar para": intimação com o seletor aberto, pessoa e prazo limite escolhidos
-  const [envio, setEnvio] = useState<{ g: IntGroup; pessoaId: string; fatal: string } | null>(null);
+  const [envio, setEnvio] = useState<{ g: IntGroup; fatal: string } | null>(null);
   const [enviando, setEnviando] = useState(false);
   // Seleção em lote na caixa (ids do representante de cada grupo)
   const [selecionados, setSelecionados] = useState<string[]>([]);
-  const [lote, setLote] = useState({ pessoaId: '', fatal: '' });
+  const [lote, setLote] = useState({ fatal: '' });
   // Menu aberto: ⋯ de um card (id da intimação), 'lote' ou 'quadro'
   const [menu, setMenu] = useState<string | null>(null);
-  // Intimação sendo arrastada para a faixa "Arraste para"
-  const arrastandoInt = useRef<IntGroup | null>(null);
   // Quadro: busca e filtro de prioridade
   const [buscaQuadro, setBuscaQuadro] = useState('');
-  const [prioFiltro, setPrioFiltro] = useState('');
+  // Filtros do quadro (aba "Filtros"): chave do filtro → valor escolhido ('' = todos)
+  const [filtrosQuadro, setFiltrosQuadro] = useState<Record<string, string>>({});
 
   // Fecha menus ao clicar fora
   useEffect(() => {
@@ -509,10 +518,13 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         const ok = d.resultado.filter((t: any) => !t.erro);
         const falhas = d.resultado.filter((t: any) => t.erro).map((t: any) => t.tribunal);
         showToast(
-          `${ok.map((t: any) => `${t.tribunal}: ${t.expedientes}`).join(' · ') || 'Nenhum tribunal respondeu'}${falhas.length ? ` · falhou: ${falhas.join(', ')}` : ''}`,
+          `${ok.map((t: any) => `${t.tribunal}: ${t.expedientes}`).join(' · ') || 'Nenhum tribunal respondeu'}`
+            + ` · ${d.prazos?.criados ?? 0} prazo(s) novo(s) no quadro`
+            + `${falhas.length ? ` · falhou: ${falhas.join(', ')}` : ''}`,
           falhas.length ? 'error' : 'success',
         );
         carregarIntimacoes(intFilter);
+        carregar();
       } else {
         showToast(d.error || 'Falha ao ler o PJe.', 'error');
       }
@@ -531,64 +543,53 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     description: [i.tipoDocumento || i.tipoComunicacao, i.nomeClasse, i.tribunal, i.orgao].filter(Boolean).join(' · '),
   });
 
-  // Distribui um ato: vira prazo no quadro da pessoa (409 = outra pessoa tratou antes)
-  const enviarGrupo = async (g: IntGroup, pessoaId: string, fatal: string) => {
-    const m = opcoesEquipe.find(u => u.id === pessoaId);
+  // Gera o prazo de um ato no quadro (409 = alguém tratou antes). Sem responsável: o quadro é por data.
+  const gerarPrazoGrupo = async (g: IntGroup, fatal: string) => {
     const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/gerar-prazo`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({
-        ...dadosDaIntimacao(g.rep),
-        responsibleId: pessoaId,
-        responsibleName: m ? m.name || m.email : null,
-        fatalDate: fatal,
-        grupoIds: g.ids.filter(id => id !== g.rep.id),
-      }),
+      body: JSON.stringify({ ...dadosDaIntimacao(g.rep), fatalDate: fatal, grupoIds: g.ids.filter(id => id !== g.rep.id) }),
     });
     const d = await r.json();
-    return { ok: !!d.success, erro: d.error as string | undefined, nome: m?.name || m?.email || 'a pessoa' };
+    return { ok: !!d.success, erro: d.error as string | undefined };
   };
 
-  const enviarIntimacao = async () => {
-    if (!envio?.pessoaId || !envio.fatal) return;
+  const gerarPrazoIntimacao = async () => {
+    if (!envio?.fatal) return;
     setEnviando(true);
     try {
-      const res = await enviarGrupo(envio.g, envio.pessoaId, envio.fatal);
-      showToast(res.ok ? `Prazo enviado para ${res.nome}.` : res.erro || 'Erro ao enviar.', res.ok ? 'success' : 'error');
+      const res = await gerarPrazoGrupo(envio.g, envio.fatal);
+      showToast(res.ok ? 'Prazo gerado no quadro.' : res.erro || 'Erro ao gerar prazo.', res.ok ? 'success' : 'error');
       setEnvio(null);
       carregarIntimacoes(intFilter);
       if (res.ok) carregar();
     } catch {
-      showToast('Erro de conexão ao enviar.', 'error');
+      showToast('Erro de conexão ao gerar prazo.', 'error');
     } finally {
       setEnviando(false);
     }
   };
 
-  const enviarLote = async () => {
-    const alvo = grupos.filter(g => selecionados.includes(g.rep.id));
+  const gerarPrazosLote = async () => {
+    const selecionadosG = grupos.filter(g => selecionados.includes(g.rep.id));
+    // Processos que já têm prazo do PJe no quadro ficam de fora (evita duplicar)
+    const alvo = selecionadosG.filter(g => !g.rep.prazoPjeProcesso);
+    const pulados = selecionadosG.length - alvo.length;
     // Data do PJe de cada ato vence; a digitada só cobre quem não tem expediente no PJe
-    if (!lote.pessoaId || alvo.some(g => !limitePje(g.rep) && !lote.fatal)) return;
+    if (alvo.some(g => !limitePje(g.rep) && !lote.fatal)) return;
     setEnviando(true);
-    let ok = 0; let nome = '';
+    let ok = 0;
     // ponytail: uma chamada por ato; endpoint em lote se passar de algumas dezenas por vez
     for (const g of alvo) {
-      try { const res = await enviarGrupo(g, lote.pessoaId, limitePje(g.rep) || lote.fatal); nome = res.nome; if (res.ok) ok++; } catch { /* conta como falha */ }
+      try { if ((await gerarPrazoGrupo(g, limitePje(g.rep) || lote.fatal)).ok) ok++; } catch { /* conta como falha */ }
     }
     setEnviando(false);
     setMenu(null);
-    setLote({ pessoaId: '', fatal: '' });
-    showToast(ok === alvo.length ? `${ok} enviada(s) para ${nome}.` : `${ok} de ${alvo.length} enviadas — as demais já tinham sido tratadas.`, ok === alvo.length ? 'success' : 'error');
+    setLote({ fatal: '' });
+    const obsPulados = pulados ? ` · ${pulados} pulada(s): já têm prazo do PJe` : '';
+    showToast(ok === alvo.length ? `${ok} prazo(s) gerado(s) no quadro.${obsPulados}` : `${ok} de ${alvo.length} gerados — os demais já tinham sido tratados.${obsPulados}`, ok === alvo.length ? 'success' : 'error');
     carregarIntimacoes(intFilter);
     carregar();
-  };
-
-  // Soltar um card da caixa no avatar da faixa lateral abre o envio já com a pessoa
-  const soltarNaPessoa = (pessoaId: string) => {
-    setDragOverCol(null);
-    const g = arrastandoInt.current;
-    arrastandoInt.current = null;
-    if (g) setEnvio({ g, pessoaId, fatal: limitePje(g.rep) });
   };
 
   const descartarSelecionados = () => {
@@ -858,30 +859,39 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const count = (k: string) => groups[k]?.length || 0;
   const grupos = useMemo(() => agruparIntimacoes(intimacoes), [intimacoes]);
   // Selecionadas sem data limite do PJe — só elas dependem da data digitada no lote
-  const faltamPje = grupos.filter(g => selecionados.includes(g.rep.id) && !limitePje(g.rep)).length;
+  const faltamPje = grupos.filter(g => selecionados.includes(g.rep.id) && !g.rep.prazoPjeProcesso && !limitePje(g.rep)).length;
   // Área calculada uma vez por carga, não a cada chip/tecla (a regra lê o cabeçalho do teor)
   const areaDe = useMemo(() => new Map(grupos.map(g => [g, areaDireito(g.rep)])), [grupos]);
   const naArea = (g: IntGroup, filtro: AreaKey | '' | 'minhas') =>
     !filtro || (filtro === 'minhas' ? minhasAreas.includes(areaDe.get(g)!) : areaDe.get(g) === filtro);
   const gruposBuscados = intBusca.trim() ? grupos.filter(g => buscaMatch(g.rep, intBusca)) : grupos;
-  // Área e tribunal se combinam; a contagem de cada filtro já respeita o outro
+  // Área, tribunal e órgão se combinam; a contagem de cada filtro já respeita os outros
   const naTribunal = (g: IntGroup) => !intTribunal || chaveTribunal(g.rep.tribunal) === intTribunal;
-  const baseAreas = gruposBuscados.filter(naTribunal);
-  const baseTribunais = gruposBuscados.filter(g => naArea(g, intArea));
+  const naOrgao = (g: IntGroup) => !intOrgao || chaveOrgao(g.rep.orgao) === intOrgao;
+  const baseAreas = gruposBuscados.filter(g => naTribunal(g) && naOrgao(g));
+  const baseTribunais = gruposBuscados.filter(g => naArea(g, intArea) && naOrgao(g));
+  const baseOrgaos = gruposBuscados.filter(g => naArea(g, intArea) && naTribunal(g));
   const gruposFiltrados = baseTribunais.filter(naTribunal);
   const tribunaisOpcoes = tribunaisPresentes(baseTribunais.map(g => g.rep.tribunal));
-  // O tribunal escolhido continua na lista mesmo se sumir do recorte (para dar para voltar a "Todos")
+  // O valor escolhido continua na lista mesmo se sumir do recorte (para dar para voltar a "Todos")
   if (intTribunal && !tribunaisOpcoes.some(t => t.key === intTribunal)) {
     tribunaisOpcoes.push({ key: intTribunal, label: intTribunal === 'SEM' ? 'Sem tribunal' : intTribunal, n: 0 });
   }
+  const nPorOrgao = new Map<string, number>();
+  baseOrgaos.forEach(g => { const k = chaveOrgao(g.rep.orgao); nPorOrgao.set(k, (nPorOrgao.get(k) || 0) + 1); });
+  if (intOrgao && !nPorOrgao.has(intOrgao)) nPorOrgao.set(intOrgao, 0);
+  const rotuloOrgao = (k: string) => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k));
+  const orgaosOpcoes = [...nPorOrgao.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([key, n]) => ({ key, label: rotuloOrgao(key), n }));
+  const rotuloArea = (k: string) => (k === 'minhas' ? '★ Minhas áreas' : AREAS.find(a => a.key === k)?.label || k);
+  const nFiltrosInt = (intArea ? 1 : 0) + (intTribunal ? 1 : 0) + (intOrgao ? 1 : 0);
 
   // Seletor de responsável: sem a lista da equipe, ao menos o próprio usuário
   const opcoesEquipe: Membro[] = equipe.length ? equipe : dbUser?.id ? [{ id: dbUser.id, name: dbUser.name, email: dbUser.email }] : [];
   // Colunas do "Por pessoa" e destinos do "Enviar para": quem o admin pôs no quadro.
   // Enquanto ninguém foi marcado, vale a equipe toda (comportamento anterior).
   const marcados = opcoesEquipe.filter(u => u.noQuadro);
-  const membrosQuadro = marcados.length ? marcados : opcoesEquipe;
-  const carga = useMemo(() => cargaPorPessoa(Object.values(todosGroups).flat()), [todosGroups]);
   // Cor fixa por posição na equipe (4 tons que se repetem): avatar, coluna e contagem
   const CORES_PESSOA = ['#b8902e', '#2563eb', '#16a34a', '#7c3aed'];
   const idxPessoa = (id?: string | null) => opcoesEquipe.findIndex(u => u.id === id);
@@ -891,7 +901,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     const n = m ? m.name || m.email : nome;
     return <span className={`prazo-av prazo-av--${idx < 0 ? 'x' : idx % 4} ${cls}`} title={n || undefined}>{iniciais(n)}</span>;
   };
-  const primeiroNome = (u: Membro) => (u.name || u.email).split(/[\s@]+/)[0];
 
   // Paginação por coluna
   const PAGINA = 20;
@@ -909,10 +918,49 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     return { ...c, itens, visiveis: itens.slice(0, limite(`i:${c.key}`)) };
   });
 
-  // Quadro: busca e prioridade valem para todas as colunas
-  const filtraPrazo = (p: Prazo) =>
-    (!prioFiltro || p.prioridade === prioFiltro) &&
-    (!buscaQuadro.trim() || buscaMatch({ numeroProcesso: p.caseReference, clienteExtraido: p.title }, buscaQuadro));
+  // Quadro: busca + filtros combináveis (aba "Filtros") valem para todas as colunas.
+  // Tipo/área/tribunal/órgão vêm da intimação ligada ou, nos prazos do robô, do expediente do PJe.
+  const origemDe = (p: Prazo) => {
+    const o = p.intimacoes?.[0];
+    return {
+      tribunal: o?.tribunal || p.origemPje?.tribunal,
+      orgao: o?.orgao || p.origemPje?.orgao,
+      classe: o?.nomeClasse,
+      tipo: o?.tipoDocumento || o?.tipoComunicacao || p.origemPje?.tipo,
+    };
+  };
+  type FiltroQuadro = { key: string; label: string; de: (p: Prazo) => string; rotulo: (k: string) => string; ordem?: readonly string[]; largo?: boolean };
+  const FILTROS_QUADRO: FiltroQuadro[] = [
+    { key: 'tipo', label: 'Tipo', de: p => tipoBucket({ tipoDocumento: origemDe(p).tipo }), rotulo: k => INT_COLUMNS.find(c => c.key === k)?.label || k, ordem: INT_COLUMNS.map(c => c.key) },
+    {
+      key: 'area', label: 'Área', rotulo: k => AREAS.find(a => a.key === k)?.label || k, ordem: AREAS.map(a => a.key),
+      // ponytail: sem o teor (pesado para o quadro inteiro) — banco como parte só é detectado pela classe/órgão
+      de: p => { const o = origemDe(p); return areaDireito({ nomeClasse: o.classe, orgao: o.orgao, tribunal: o.tribunal, texto: '' }); },
+    },
+    { key: 'tribunal', label: 'Tribunal', de: p => chaveTribunal(origemDe(p).tribunal), rotulo: k => (k === 'SEM' ? 'Sem tribunal' : k) },
+    { key: 'prioridade', label: 'Prioridade', de: p => p.prioridade || 'SEM', rotulo: k => PRIORIDADES.find(x => x.key === k)?.label || 'Sem prioridade', ordem: [...PRIORIDADES.map(x => x.key), 'SEM'] },
+    { key: 'orgao', label: 'Juizado / órgão', de: p => chaveOrgao(origemDe(p).orgao), rotulo: k => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k)), largo: true },
+  ];
+  const passaFiltros = (p: Prazo, exceto?: string) =>
+    FILTROS_QUADRO.every(f => f.key === exceto || !filtrosQuadro[f.key] || f.de(p) === filtrosQuadro[f.key]);
+  const naBuscaQuadro = (p: Prazo) =>
+    !buscaQuadro.trim() || buscaMatch({ numeroProcesso: p.caseReference, clienteExtraido: p.title }, buscaQuadro);
+  const filtraPrazo = (p: Prazo) => naBuscaQuadro(p) && passaFiltros(p);
+  const basePrazos = COLUMNS.flatMap(c => groups[c.key] || []).filter(naBuscaQuadro);
+  // Opções de um filtro com contagem que já respeita os demais filtros (igual à caixa)
+  const opcoesFiltro = (f: FiltroQuadro) => {
+    const n = new Map<string, number>();
+    basePrazos.filter(p => passaFiltros(p, f.key)).forEach(p => { const k = f.de(p); n.set(k, (n.get(k) || 0) + 1); });
+    const atual = filtrosQuadro[f.key];
+    if (atual && !n.has(atual)) n.set(atual, 0);
+    const pos = (k: string) => f.ordem!.indexOf(k);
+    return [...n.entries()]
+      .sort((a, b) => (f.ordem ? pos(a[0]) - pos(b[0]) : b[1] - a[1] || f.rotulo(a[0]).localeCompare(f.rotulo(b[0]))))
+      .map(([key, qtd]) => ({ key, label: f.rotulo(key), n: qtd }));
+  };
+  const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]);
+  const nFiltros = filtrosAtivos.length + (soMeus ? 1 : 0);
+  const setFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => ({ ...fs, [key]: valor }));
 
   // Colunas do quadro: urgência (vencido / hoje / semana / futuro / concluído)
   type ColQuadro = { key: string; label: string; cor: string; empty: string; itens: Prazo[]; porPrioridade?: boolean };
@@ -958,7 +1006,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         <div className="prazo-card-foot">
           <div className="prazo-card-tags">
             {tipo && <span className="prazo-tag prazo-tag--tipo">{tipo}</span>}
-            {origem?.tribunal && <span className="prazo-tag">{origem.tribunal}</span>}
+            {(origem?.tribunal || p.origemPje?.tribunal) && <span className="prazo-tag">{origem?.tribunal || p.origemPje?.tribunal}</span>}
           </div>
           {(p.responsibleId || p.responsibleName) && (
             p.responsibleId && idxPessoa(p.responsibleId) >= 0
@@ -983,7 +1031,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   return (
     <div className="lx-single-panel prazo-panel">
       <div className="prazo-abas" role="tablist" aria-label="Controle de prazos">
-        {([['inbox', 'Caixa de intimações', intCounts.nova, 'prazo-aba-badge'], ['board', 'Quadro de prazos', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta']] as const).map(([k, label, n, cls]) => (
+        {([['board', 'Quadro de prazos', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta'], ['inbox', 'Caixa de intimações', intCounts.nova, 'prazo-aba-badge']] as const).map(([k, label, n, cls]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} className={`prazo-aba ${view === k ? 'prazo-aba--ativa' : ''}`} onClick={() => setView(k)}>
             {label}
             {n > 0 && <span className={cls}>{n}</span>}
@@ -1018,11 +1066,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                   {intMes === mesAtual() ? 'Todos' : 'Mês atual'}
                 </button>
               </div>
-              <button type="button" className="prazo-btn prazo-btn--ghost" onClick={sincronizarPje} disabled={syncingPje}
-                title="Lê o Painel do Advogado (certificado digital) e traz o prazo e a data limite calculados pelo PJe">
-                {syncingPje ? <Loader2 className="lx-spin" size={14} /> : <CalendarClock size={14} />}
-                {syncingPje ? 'Lendo o PJe…' : 'Buscar prazos no PJe'}
-              </button>
               <button type="button" className="prazo-btn prazo-btn--navy" onClick={sincronizarDjen} disabled={syncing}>
                 {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
                 {syncing ? 'Consultando DJEN…' : 'Buscar novas no DJEN'}
@@ -1045,41 +1088,71 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               )}
               <span className="prazo-divisor" />
               <div className="prazo-chips">
-                {minhasAreas.length > 0 ? (
+                {intArea && (
+                  <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntArea('')}>
+                    Área: {rotuloArea(intArea)} <X size={12} />
+                  </button>
+                )}
+                {intTribunal && (
+                  <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntTribunal('')}>
+                    Tribunal: {intTribunal === 'SEM' ? 'Sem tribunal' : intTribunal} <X size={12} />
+                  </button>
+                )}
+                {intOrgao && (
+                  <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntOrgao('')}>
+                    Órgão: {rotuloOrgao(intOrgao)} <X size={12} />
+                  </button>
+                )}
+                <div className="prazo-menu-wrap">
                   <button
                     type="button"
-                    aria-pressed={intArea === 'minhas'}
-                    className={`prazo-chip ${intArea === 'minhas' ? 'prazo-chip--on' : ''}`}
-                    onClick={() => setIntArea('minhas')}
-                    title={minhasAreas.map(k => AREAS.find(a => a.key === k)?.label).join(', ')}
+                    className={`prazo-btn prazo-btn--ghost prazo-btn--sm ${nFiltrosInt ? 'prazo-filtro--on' : ''}`}
+                    aria-expanded={menu === 'filtros-caixa'}
+                    onClick={() => setMenu(menu === 'filtros-caixa' ? null : 'filtros-caixa')}
                   >
-                    ★ Minhas áreas <span className="prazo-chip-n">{baseAreas.filter(g => naArea(g, 'minhas')).length}</span>
+                    <SlidersHorizontal size={14} /> Filtros
+                    {nFiltrosInt > 0 && <span className="prazo-chip-n">{nFiltrosInt}</span>}
+                    <ChevronDown size={12} />
                   </button>
-                ) : (
-                  <button type="button" className="prazo-chip prazo-chip--convite" onClick={abrirEscolhaAreas}>★ Escolher minhas áreas</button>
-                )}
-                <button type="button" aria-pressed={intArea === ''} className={`prazo-chip ${intArea === '' ? 'prazo-chip--on' : ''}`} onClick={() => setIntArea('')}>
-                  Todas <span className="prazo-chip-n">{baseAreas.length}</span>
-                </button>
-                {AREAS.map(a => {
-                  const n = baseAreas.filter(g => areaDe.get(g) === a.key).length;
-                  if (n === 0 && intArea !== a.key) return null;
-                  return (
-                    <button key={a.key} type="button" aria-pressed={intArea === a.key} className={`prazo-chip ${intArea === a.key ? 'prazo-chip--on' : ''}`} onClick={() => setIntArea(intArea === a.key ? '' : a.key)}>
-                      {a.label} <span className="prazo-chip-n">{n}</span>
-                    </button>
-                  );
-                })}
-                <label className={`prazo-btn prazo-btn--ghost prazo-btn--sm prazo-prio-filtro ${intTribunal ? 'prazo-filtro--on' : ''}`}>
-                  Tribunal
-                  <select value={intTribunal} onChange={e => setIntTribunal(e.target.value)} aria-label="Filtrar por tribunal">
-                    <option value="">Todos ({baseTribunais.length})</option>
-                    {tribunaisOpcoes.map(t => <option key={t.key} value={t.key}>{t.label} ({t.n})</option>)}
-                  </select>
-                </label>
-                {minhasAreas.length > 0 && !escolhendoAreas && (
-                  <button type="button" className="prazo-icon-btn" onClick={abrirEscolhaAreas} title="Escolher minhas áreas"><Pencil size={13} /></button>
-                )}
+                  {menu === 'filtros-caixa' && (
+                    <div className="prazo-menu prazo-fp" role="dialog" aria-label="Filtros da caixa de intimações">
+                      <div className="prazo-fp-topo">
+                        <span className="prazo-fp-titulo"><SlidersHorizontal size={14} /> Filtros</span>
+                        {nFiltrosInt > 0 && (
+                          <button type="button" className="prazo-fp-limpar" onClick={() => { setIntArea(''); setIntTribunal(''); setIntOrgao(''); }}>Limpar</button>
+                        )}
+                      </div>
+                      <label className={`prazo-fp-campo ${intArea ? 'prazo-fp-campo--on' : ''}`}>
+                        <span className="prazo-fp-rotulo">Área</span>
+                        <select value={intArea} onChange={e => setIntArea(e.target.value as AreaKey | '' | 'minhas')}>
+                          <option value="">Todas ({baseAreas.length})</option>
+                          {minhasAreas.length > 0 && <option value="minhas">★ Minhas áreas ({baseAreas.filter(g => naArea(g, 'minhas')).length})</option>}
+                          {AREAS.map(a => {
+                            const n = baseAreas.filter(g => areaDe.get(g) === a.key).length;
+                            return (n > 0 || intArea === a.key) && <option key={a.key} value={a.key}>{a.label} ({n})</option>;
+                          })}
+                        </select>
+                      </label>
+                      <label className={`prazo-fp-campo ${intTribunal ? 'prazo-fp-campo--on' : ''}`}>
+                        <span className="prazo-fp-rotulo">Tribunal</span>
+                        <select value={intTribunal} onChange={e => setIntTribunal(e.target.value)}>
+                          <option value="">Todos ({baseTribunais.length})</option>
+                          {tribunaisOpcoes.map(t => <option key={t.key} value={t.key}>{t.label} ({t.n})</option>)}
+                        </select>
+                      </label>
+                      <label className={`prazo-fp-campo prazo-fp-campo--largo ${intOrgao ? 'prazo-fp-campo--on' : ''}`}>
+                        <span className="prazo-fp-rotulo">Juizado / órgão</span>
+                        <select value={intOrgao} onChange={e => setIntOrgao(e.target.value)}>
+                          <option value="">Todos ({baseOrgaos.length})</option>
+                          {orgaosOpcoes.map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
+                        </select>
+                      </label>
+                      <button type="button" className="prazo-fp-link" onClick={() => { setMenu(null); abrirEscolhaAreas(); }}>
+                        ★ {minhasAreas.length > 0 ? 'Editar minhas áreas' : 'Escolher minhas áreas'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1198,9 +1271,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                           <div
                             key={i.id}
                             className={`prazo-int-card ${sel ? 'prazo-int-card--sel' : ''} ${aberto ? 'prazo-int-card--envio' : ''}`}
-                            draggable={intFilter === 'NOVA'}
-                            onDragStart={() => { arrastandoInt.current = g; }}
-                            onDragEnd={() => setDragOverCol(null)}
                           >
                             <div className="prazo-int-head">
                               {intFilter === 'NOVA' && (
@@ -1270,6 +1340,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                               );
                             })()}
 
+                            {intFilter === 'NOVA' && i.prazoPjeProcesso && (
+                              <div className="prazo-int-duplicado" role="note">
+                                <AlertTriangle size={13} />
+                                <span>
+                                  Já existe prazo do PJe para este processo
+                                  {i.prazoPjeProcesso.total > 1 ? ` (${i.prazoPjeProcesso.total} prazos, o próximo` : ' (limite'}
+                                  {' '}<strong>{formatDate(i.prazoPjeProcesso.proximoLimite)}</strong>)
+                                </span>
+                              </div>
+                            )}
+
                             <div className="prazo-int-meta">
                               <div className="prazo-int-tags">
                                 {i.tribunal && <span className="prazo-int-trib">{i.tribunal}</span>}
@@ -1325,23 +1406,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                                       </div>
                                     )}
                                   </div>
-                                  <div className="prazo-int-envio">
-                                    <span className="prazo-int-rapido" title="Enviar rápido">
-                                      {membrosQuadro.slice(0, 4).map(u => (
-                                        <button key={u.id} type="button" className="prazo-int-rapido-btn" title={`Enviar para ${u.name || u.email}`} onClick={() => setEnvio({ g, pessoaId: u.id, fatal: limitePje(g.rep) })}>
-                                          {avatar(u.id)}
-                                        </button>
-                                      ))}
-                                    </span>
+                                  {/* Processo já tem prazo do PJe no quadro: gerar outro seria duplicar */}
+                                  {!i.prazoPjeProcesso && (
                                     <button
                                       type="button"
                                       className="prazo-btn prazo-btn--navy prazo-btn--sm"
                                       aria-expanded={aberto}
-                                      onClick={() => setEnvio(aberto ? null : { g, pessoaId: '', fatal: limitePje(g.rep) })}
+                                      onClick={() => setEnvio(aberto ? null : { g, fatal: limitePje(g.rep) })}
                                     >
-                                      <Send size={13} /> Enviar para <ChevronDown size={12} />
+                                      <CalendarClock size={13} /> Gerar prazo <ChevronDown size={12} />
                                     </button>
-                                  </div>
+                                  )}
                                 </>
                               ) : (
                                 <>
@@ -1372,48 +1447,28 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                               )}
                             </div>
 
-                            {aberto && envio && (() => {
-                              const escolhido = membrosQuadro.find(u => u.id === envio.pessoaId);
-                              return (
-                                <div className="prazo-envio">
-                                  <div className="prazo-envio-titulo">Enviar para o quadro de</div>
-                                  <div className="prazo-envio-pessoas">
-                                    {membrosQuadro.map(u => {
-                                      const c = carga.get(u.id);
-                                      const on = u.id === envio.pessoaId;
-                                      return (
-                                        <button key={u.id} type="button" aria-pressed={on} className={`prazo-envio-pessoa ${on ? 'prazo-envio-pessoa--sel' : ''}`} onClick={() => setEnvio({ ...envio, pessoaId: u.id })}>
-                                          {avatar(u.id)}
-                                          <span className="prazo-envio-nome">
-                                            {u.name || u.email}
-                                            <small>{c?.abertos || 0} prazos abertos · {c?.vencidos || 0} vencidos</small>
-                                          </span>
-                                          {on && <Check size={15} />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="prazo-envio-fatal">
-                                    <CalendarClock size={13} />
-                                    <label htmlFor={`envio-fatal-${i.id}`}>Prazo limite</label>
-                                    <input id={`envio-fatal-${i.id}`} type="date" value={envio.fatal} onChange={e => setEnvio({ ...envio, fatal: e.target.value })} />
-                                  </div>
-                                  <div className="prazo-envio-acoes">
-                                    <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => setEnvio(null)} disabled={enviando}>Cancelar</button>
-                                    <button
-                                      type="button"
-                                      className="prazo-btn prazo-btn--navy prazo-btn--sm"
-                                      onClick={enviarIntimacao}
-                                      disabled={!escolhido || !envio.fatal || enviando}
-                                      title={!escolhido ? 'Escolha a pessoa' : !envio.fatal ? 'Defina o prazo limite' : undefined}
-                                    >
-                                      {escolhido ? `Enviar para ${primeiroNome(escolhido)}` : 'Enviar'}
-                                      {enviando ? <Loader2 className="lx-spin" size={13} /> : <ArrowRight size={13} />}
-                                    </button>
-                                  </div>
+                            {aberto && envio && (
+                              <div className="prazo-envio">
+                                <div className="prazo-envio-fatal">
+                                  <CalendarClock size={13} />
+                                  <label htmlFor={`envio-fatal-${i.id}`}>{limitePje(g.rep) ? 'Prazo limite (do PJe)' : 'Prazo limite'}</label>
+                                  <input id={`envio-fatal-${i.id}`} type="date" value={envio.fatal} onChange={e => setEnvio({ ...envio, fatal: e.target.value })} />
                                 </div>
-                              );
-                            })()}
+                                <div className="prazo-envio-acoes">
+                                  <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => setEnvio(null)} disabled={enviando}>Cancelar</button>
+                                  <button
+                                    type="button"
+                                    className="prazo-btn prazo-btn--navy prazo-btn--sm"
+                                    onClick={gerarPrazoIntimacao}
+                                    disabled={!envio.fatal || enviando}
+                                    title={!envio.fatal ? 'Defina o prazo limite' : undefined}
+                                  >
+                                    Gerar prazo
+                                    {enviando ? <Loader2 className="lx-spin" size={13} /> : <ArrowRight size={13} />}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -1423,32 +1478,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 ))}
               </div>
 
-              {intFilter === 'NOVA' && membrosQuadro.length > 0 && (
-                <aside className="prazo-rail" aria-label="Arraste o card para a pessoa">
-                  <div className="prazo-rail-titulo">Arraste para</div>
-                  {membrosQuadro.map(u => {
-                    const c = carga.get(u.id);
-                    return (
-                      <div
-                        key={u.id}
-                        className={`prazo-rail-alvo ${dragOverCol === `r:${u.id}` ? 'prazo-rail-alvo--over' : ''}`}
-                        onDragOver={e => { e.preventDefault(); setDragOverCol(`r:${u.id}`); }}
-                        onDragLeave={() => setDragOverCol(null)}
-                        onDrop={() => soltarNaPessoa(u.id)}
-                        title={`Solte aqui para enviar a ${u.name || u.email}`}
-                      >
-                        <span className="prazo-rail-av">
-                          {avatar(u.id, null, 'prazo-av--lg')}
-                          <span className="prazo-rail-badge">{c?.abertos || 0}</span>
-                        </span>
-                        <span className="prazo-rail-nome">{primeiroNome(u)}</span>
-                        <span className="prazo-rail-venc">{c?.vencidos || 0} venc.</span>
-                      </div>
-                    );
-                  })}
-                  <div className="prazo-rail-dica">Solte o card no avatar da pessoa</div>
-                </aside>
-              )}
             </div>
           )}
 
@@ -1459,39 +1488,20 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               <button type="button" className="prazo-lote-btn" onClick={descartarSelecionados}>Descartar</button>
               <div className="prazo-menu-wrap">
                 <button type="button" className="prazo-lote-enviar" aria-expanded={menu === 'lote'} onClick={() => setMenu(menu === 'lote' ? null : 'lote')}>
-                  Enviar {selecionados.length} para
-                  <span className="prazo-lote-avs">{membrosQuadro.slice(0, 4).map(u => <span key={u.id}>{avatar(u.id)}</span>)}</span>
-                  <ChevronDown size={13} />
+                  <CalendarClock size={13} /> Gerar {selecionados.length} prazo{selecionados.length > 1 ? 's' : ''} <ChevronDown size={13} />
                 </button>
                 {menu === 'lote' && (
                   <div className="prazo-menu prazo-menu--cima prazo-envio">
-                    <div className="prazo-envio-titulo">Enviar {selecionados.length} para o quadro de</div>
-                    <div className="prazo-envio-pessoas">
-                      {membrosQuadro.map(u => {
-                        const c = carga.get(u.id);
-                        const on = u.id === lote.pessoaId;
-                        return (
-                          <button key={u.id} type="button" aria-pressed={on} className={`prazo-envio-pessoa ${on ? 'prazo-envio-pessoa--sel' : ''}`} onClick={() => setLote(l => ({ ...l, pessoaId: u.id }))}>
-                            {avatar(u.id)}
-                            <span className="prazo-envio-nome">
-                              {u.name || u.email}
-                              <small>{c?.abertos || 0} prazos abertos · {c?.vencidos || 0} vencidos</small>
-                            </span>
-                            {on && <Check size={15} />}
-                          </button>
-                        );
-                      })}
-                    </div>
                     <div className="prazo-envio-fatal">
                       <CalendarClock size={13} />
                       <label htmlFor="lote-fatal">
                         {faltamPje === 0 ? 'Todas com prazo do PJe' : `Prazo limite (${faltamPje} sem data do PJe)`}
                       </label>
-                      <input id="lote-fatal" type="date" value={lote.fatal} onChange={e => setLote(l => ({ ...l, fatal: e.target.value }))} />
+                      {faltamPje > 0 && <input id="lote-fatal" type="date" value={lote.fatal} onChange={e => setLote({ fatal: e.target.value })} />}
                     </div>
                     <div className="prazo-envio-acoes">
-                      <button type="button" className="prazo-btn prazo-btn--navy prazo-btn--sm" onClick={enviarLote} disabled={!lote.pessoaId || (faltamPje > 0 && !lote.fatal) || enviando}>
-                        {enviando ? <Loader2 className="lx-spin" size={13} /> : <Send size={13} />} Enviar {selecionados.length}
+                      <button type="button" className="prazo-btn prazo-btn--navy prazo-btn--sm" onClick={gerarPrazosLote} disabled={(faltamPje > 0 && !lote.fatal) || enviando}>
+                        {enviando ? <Loader2 className="lx-spin" size={13} /> : <CalendarClock size={13} />} Gerar {selecionados.length}
                       </button>
                     </div>
                   </div>
@@ -1523,13 +1533,54 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 <input value={buscaQuadro} onChange={e => setBuscaQuadro(e.target.value)} placeholder="Buscar processo ou cliente…" aria-label="Buscar prazo por processo ou cliente" />
                 {buscaQuadro && <button type="button" className="prazo-busca-limpar" onClick={() => setBuscaQuadro('')} title="Limpar busca"><X size={14} /></button>}
               </div>
-              <label className="prazo-btn prazo-btn--ghost prazo-prio-filtro">
-                <SlidersHorizontal size={14} /> Prioridade
-                <select value={prioFiltro} onChange={e => setPrioFiltro(e.target.value)} aria-label="Filtrar por prioridade">
-                  <option value="">Todas</option>
-                  {PRIORIDADES.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
-                </select>
-              </label>
+              {soMeus && (
+                <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setSoMeus(false)}>
+                  Só meus prazos <X size={12} />
+                </button>
+              )}
+              {filtrosAtivos.map(f => (
+                <button key={f.key} type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setFiltro(f.key, '')}>
+                  {f.label}: {f.rotulo(filtrosQuadro[f.key])} <X size={12} />
+                </button>
+              ))}
+              <div className="prazo-menu-wrap">
+                <button
+                  type="button"
+                  className={`prazo-btn prazo-btn--ghost ${nFiltros ? 'prazo-filtro--on' : ''}`}
+                  aria-expanded={menu === 'filtros'}
+                  onClick={() => setMenu(menu === 'filtros' ? null : 'filtros')}
+                >
+                  <SlidersHorizontal size={14} /> Filtros
+                  {nFiltros > 0 && <span className="prazo-chip-n">{nFiltros}</span>}
+                  <ChevronDown size={12} />
+                </button>
+                {menu === 'filtros' && (
+                  <div className="prazo-menu prazo-menu--direita prazo-fp" role="dialog" aria-label="Filtros do quadro">
+                    <div className="prazo-fp-topo">
+                      <span className="prazo-fp-titulo"><SlidersHorizontal size={14} /> Filtros</span>
+                      {nFiltros > 0 && (
+                        <button type="button" className="prazo-fp-limpar" onClick={() => { setFiltrosQuadro({}); setSoMeus(false); }}>Limpar</button>
+                      )}
+                    </div>
+                    {FILTROS_QUADRO.map(f => (
+                      <label key={f.key} className={`prazo-fp-campo ${f.largo ? 'prazo-fp-campo--largo' : ''} ${filtrosQuadro[f.key] ? 'prazo-fp-campo--on' : ''}`}>
+                        <span className="prazo-fp-rotulo">{f.label}</span>
+                        <select value={filtrosQuadro[f.key] || ''} onChange={e => setFiltro(f.key, e.target.value)}>
+                          <option value="">Todos</option>
+                          {opcoesFiltro(f).map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
+                        </select>
+                      </label>
+                    ))}
+                    {dbUser?.id && (
+                      <label className={`prazo-fp-toggle ${soMeus ? 'prazo-fp-toggle--on' : ''}`}>
+                        <input type="checkbox" checked={soMeus} onChange={e => setSoMeus(e.target.checked)} />
+                        <span>Só meus prazos</span>
+                        <small>os que estão no meu nome</small>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="prazo-menu-wrap">
                 <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--icon" title="Mais ações" aria-expanded={menu === 'quadro'} onClick={() => setMenu(menu === 'quadro' ? null : 'quadro')}>
                   <MoreHorizontal size={16} />
@@ -1539,11 +1590,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                     <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setImportOpen(true); }}>
                       <Upload size={14} /> Importar planilha
                     </button>
-                    {dbUser?.id && (
-                      <button type="button" role="menuitemcheckbox" aria-checked={soMeus} className="prazo-menu-item" onClick={() => { setMenu(null); setSoMeus(!soMeus); }}>
-                        {soMeus ? <Check size={14} /> : <span className="prazo-menu-vazio" />} Só meus prazos
-                      </button>
-                    )}
                     {isAdmin && (
                       <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setPerfisOpen(true); }}>
                         <Users size={14} /> Perfis no quadro
@@ -1552,6 +1598,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                   </div>
                 )}
               </div>
+              <button type="button" className="prazo-btn prazo-btn--ghost" onClick={sincronizarPje} disabled={syncingPje}
+                title="Lê o Painel do Advogado (certificado digital) e traz o prazo e a data limite calculados pelo PJe">
+                {syncingPje ? <Loader2 className="lx-spin" size={14} /> : <CalendarClock size={14} />}
+                {syncingPje ? 'Lendo o PJe…' : 'Buscar prazos no PJe'}
+              </button>
               <button type="button" className="prazo-btn prazo-btn--navy" onClick={abrirNovo}><Plus size={15} /> Novo prazo</button>
             </div>
           </div>

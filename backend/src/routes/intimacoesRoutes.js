@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
-const { syncExpedientesPje } = require('../services/pjePainel');
+const { syncExpedientesPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
 
 const INT_STATUS = ['NOVA', 'GERADA', 'DESCARTADA'];
 
@@ -31,22 +31,28 @@ function parseDateOnly(value) {
     return new Date(value);
 }
 
-// Liga cada intimação (DJEN) ao expediente do Painel do PJe do mesmo processo.
-// Vários expedientes por processo → o de expedição mais próxima da disponibilização.
+// Liga cada intimação (DJEN) ao expediente do Painel do PJe (regra em pjePainel.melhorExpediente).
 // É do expediente que vem a data limite oficial (calculada pelo PJe, não por nós).
-const soDigitos = (s) => String(s || '').replace(/\D/g, '');
 async function anexarExpedientesPje(intimacoes) {
     const numeros = [...new Set(intimacoes.map((i) => soDigitos(i.numeroProcesso)).filter(Boolean))];
     if (!numeros.length) return intimacoes;
     const expedientes = await prisma.expedientePje.findMany({ where: { numeroProcesso: { in: numeros } } });
     const porProcesso = new Map();
     for (const e of expedientes) porProcesso.set(e.numeroProcesso, [...(porProcesso.get(e.numeroProcesso) || []), e]);
+    // Prazos do robô que ainda existem no quadro (o prazoId fica no expediente mesmo após exclusão)
+    const prazos = await prisma.prazo.findMany({
+        where: { id: { in: expedientes.map((e) => e.prazoId).filter(Boolean) } },
+        select: { id: true, fatalDate: true, status: true },
+    });
+    const prazoPorId = new Map(prazos.map((p) => [p.id, p]));
     return intimacoes.map((i) => {
         const candidatos = porProcesso.get(soDigitos(i.numeroProcesso)) || [];
-        const ref = i.dataDisponibilizacao ? new Date(i.dataDisponibilizacao).getTime() : Date.now();
-        const dist = (e) => Math.abs((e.dataExpedicao ? e.dataExpedicao.getTime() : 0) - ref);
-        const expedientePje = candidatos.sort((a, b) => dist(a) - dist(b))[0] || null;
-        return { ...i, expedientePje };
+        // Aviso de possível duplicidade: o processo já tem prazo do PJe no quadro
+        const noQuadro = candidatos.map((e) => prazoPorId.get(e.prazoId)).filter(Boolean);
+        const prazoPjeProcesso = noQuadro.length
+            ? { total: noQuadro.length, proximoLimite: noQuadro.map((p) => p.fatalDate).sort((a, b) => a - b)[0] }
+            : null;
+        return { ...i, expedientePje: melhorExpediente(i, candidatos), prazoPjeProcesso };
     });
 }
 
@@ -133,7 +139,7 @@ router.post('/sync-pje', async (_req, res) => {
                 : `PJe não sincronizado: ${r.motivo}`;
             return res.status(409).json({ success: false, error });
         }
-        res.json({ success: true, resultado: r.resultado });
+        res.json({ success: true, resultado: r.resultado, prazos: r.prazos });
     } catch (error) {
         logger.error('[syncPje] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao ler o Painel do PJe.' });
