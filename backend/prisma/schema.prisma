@@ -7,16 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
-
-  @@map("organizacoes")
-}
-
 model User {
   id             String            @id @default(uuid())
   email          String            @unique
@@ -24,178 +14,10 @@ model User {
   role           String            @default("member") // admin | member
   areas          String[]          @default([]) // áreas que a pessoa tria (chaves de AREAS no PrazosTab.tsx)
   noQuadro       Boolean           @default(false) // tem coluna no quadro de prazos "Por pessoa" (admin define)
-  organizationId String?
   createdAt      DateTime          @default(now())
-  documents      DocumentHistory[]
-  models         KnowledgeModel[]
-  organization   Organization?     @relation(fields: [organizationId], references: [id])
   prazos         Prazo[]
 
   @@map("usuarios")
-}
-
-model DataSource {
-  id        String       @id @default(uuid())
-  name      String       @unique
-  createdAt DateTime     @default(now())
-  processes Process[]
-  payloads  RawPayload[]
-
-  @@map("fontes_dados")
-}
-
-model Court {
-  id            String        @id @default(uuid())
-  acronym       String        @unique
-  name          String
-  judgingBodies JudgingBody[]
-  processes     Process[]
-
-  @@map("tribunais")
-}
-
-model JudgingBody {
-  id        String    @id @default(uuid())
-  name      String
-  courtId   String
-  court     Court     @relation(fields: [courtId], references: [id])
-  processes Process[]
-
-  @@map("orgaos_julgadores")
-}
-
-model Process {
-  id            String            @id @default(uuid())
-  cnjNumber     String            @unique
-  filingDate    DateTime?
-  classId       String?
-  className     String?
-  subjectCode   String? // código do assunto TPU (assuntos[0].codigo do DataJud) — matéria jurídica real
-  subjectName   String? // nome do assunto TPU (assuntos[0].nome) — usado para agrupar teses
-  dataSourceId  String
-  courtId       String?
-  judgingBodyId String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  movements     Movement[]
-  judgingBody   JudgingBody?      @relation(fields: [judgingBodyId], references: [id])
-  court         Court?            @relation(fields: [courtId], references: [id])
-  dataSource    DataSource        @relation(fields: [dataSourceId], references: [id])
-  snapshots     ProcessSnapshot[]
-  payloads      RawPayload[]
-
-  @@map("processos_judiciais")
-}
-
-model Movement {
-  id          String   @id @default(uuid())
-  processId   String
-  date        DateTime
-  code        String?
-  description String
-  createdAt   DateTime @default(now())
-  process     Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
-
-  @@map("movimentacoes")
-}
-
-model ProcessSnapshot {
-  id         String   @id @default(uuid())
-  processId  String
-  status     String
-  capturedAt DateTime @default(now())
-  process    Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
-
-  @@map("snapshots_processo")
-}
-
-model RawPayload {
-  id           String     @id @default(uuid())
-  processId    String
-  dataSourceId String
-  payload      String
-  capturedAt   DateTime   @default(now())
-  dataSource   DataSource @relation(fields: [dataSourceId], references: [id])
-  process      Process    @relation(fields: [processId], references: [id], onDelete: Cascade)
-
-  @@map("payloads_brutos")
-}
-
-model LegalThesis {
-  id          String      @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime    @default(now())
-  precedents  Precedent[]
-
-  @@map("teses_juridicas")
-}
-
-model Precedent {
-  id        String      @id @default(uuid())
-  thesisId  String
-  cnjNumber String
-  summary   String?
-  thesis    LegalThesis @relation(fields: [thesisId], references: [id], onDelete: Cascade)
-
-  @@map("precedentes")
-}
-
-model DocumentHistory {
-  id          String   @id @default(uuid())
-  title       String?
-  clientName  String?
-  caseNumber  String?
-  content     String
-  timeline    String?
-  auditData   String?
-  analytics   String?
-  fontesWeb   String?
-  matrizDuelo String?
-  userId      String?
-  createdAt   DateTime @default(now())
-  user        User?    @relation(fields: [userId], references: [id])
-  isFavorite  Boolean  @default(false)
-
-  @@map("historico_documentos")
-}
-
-model MonitoringArea {
-  id            String            @id @default(uuid())
-  name          String
-  courtAcronym  String
-  subjectCode   String?
-  filters       Json?
-  active        Boolean           @default(true)
-  lastScannedAt DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  analyses      AreaAnalysis[]
-  outcomes      OutcomeAnalysis[]
-
-  @@map("areas_monitoramento")
-}
-
-model AreaAnalysis {
-  id               String         @id @default(uuid())
-  monitoringAreaId String
-  analysis         String
-  createdAt        DateTime       @default(now())
-  monitoringArea   MonitoringArea @relation(fields: [monitoringAreaId], references: [id], onDelete: Cascade)
-
-  @@map("analises_area")
-}
-
-model OutcomeAnalysis {
-  id               String         @id @default(uuid())
-  monitoringAreaId String
-  teseName         String
-  results          String
-  statistics       String
-  createdAt        DateTime       @default(now())
-  monitoringArea   MonitoringArea @relation(fields: [monitoringAreaId], references: [id], onDelete: Cascade)
-
-  @@map("analises_resultado")
 }
 
 model SystemSettings {
@@ -244,38 +66,9 @@ model Lawsuit {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   client        Client?    @relation(fields: [clientId], references: [id])
-  Petitions     Petition[]
   prazos        Prazo[]
 
   @@map("acoes_judiciais")
-}
-
-model Petition {
-  id        String   @id @default(uuid())
-  title     String
-  content   String
-  status    String   @default("RASCUNHO")
-  lawsuitId String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  lawsuit   Lawsuit  @relation(fields: [lawsuitId], references: [id])
-
-  @@map("peticoes")
-}
-
-model Event {
-  id        String   @id @default(uuid())
-  title     String
-  type      String
-  urgency   String
-  date      String
-  time      String?
-  notes     String?
-  lawsuitId String?
-  clientId  String?
-  createdAt DateTime @default(now())
-
-  @@map("eventos")
 }
 
 model Prazo {
@@ -379,14 +172,4 @@ model ExpedientePje {
   @@unique([tribunal, idExpediente])
   @@index([numeroProcesso])
   @@map("expedientes_pje")
-}
-
-model KnowledgeModel {
-  id        String   @id @default(uuid())
-  nome      String   @unique
-  userId    String?
-  createdAt DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id])
-
-  @@map("modelos_conhecimento")
 }

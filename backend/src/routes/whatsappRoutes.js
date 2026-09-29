@@ -78,11 +78,11 @@ router.post('/test-message', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     logger.error('ERRO NO TESTE IA:', err);
-    res.status(500).json({ error: `Erro na IA: ${err.message}` });
+    res.status(500).json({ error: 'Erro ao gerar a mensagem com a IA.' });
   }
 });
 
-const { runDailyNotifications, runMonthlyNotifications } = require('../services/notificationService');
+const { runDailyNotifications } = require('../services/notificationService');
 
 router.post('/send-hearings', async (req, res) => {
   try {
@@ -90,17 +90,7 @@ router.post('/send-hearings', async (req, res) => {
     res.json({ success: true, message: 'Processamento de audiências iniciado com sucesso.' });
   } catch (err) {
     logger.error('ERRO AO ENVIAR AUDIÊNCIAS:', err);
-    res.status(500).json({ error: `Erro ao processar planilha: ${err.message}` });
-  }
-});
-
-router.post('/send-monthly', async (req, res) => {
-  try {
-    await runMonthlyNotifications();
-    res.json({ success: true, message: 'Relatório mensal solicitado com sucesso.' });
-  } catch (err) {
-    logger.error('ERRO AO ENVIAR MENSAL:', err);
-    res.status(500).json({ error: `Erro no relatório mensal: ${err.message}` });
+    res.status(500).json({ error: 'Erro ao enviar as notificações.' });
   }
 });
 

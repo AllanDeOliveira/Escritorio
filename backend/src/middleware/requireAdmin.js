@@ -1,28 +1,21 @@
 const prisma = require('../infra/prismaClient');
 const logger = require('../infra/logger');
+const auth = require('../infra/auth');
 
-/**
- * Proteção "leve": confia no e-mail enviado pelo cliente no header x-user-email
- * e confere o role no banco. Não verifica um token assinado, então é spoofável
- * por quem souber o e-mail de um admin — não é autenticação de verdade.
- * Fechar essa lacuna requer validar o ID Token do Firebase no backend
- * (Firebase Admin SDK), pendente de credencial de service account.
- */
+/** Como requireUser (ID token do Firebase verificado), mas exige role === 'admin'. */
 async function requireAdmin(req, res, next) {
-    const email = req.headers['x-user-email'];
-
-    if (!email) {
-        return res.status(401).json({ success: false, error: 'Identificação do usuário ausente' });
-    }
-
     try {
-        const user = await prisma.user.findUnique({ where: { email } });
+        const r = await auth.emailDoToken(req);
+        if (r.error) return res.status(r.status).json({ success: false, error: r.error });
+
+        const user = await prisma.user.findUnique({ where: { email: r.email } });
 
         if (!user || user.role !== 'admin') {
             return res.status(403).json({ success: false, error: 'Acesso restrito a administradores' });
         }
 
         req.adminUser = user;
+        req.currentUser = user;
         next();
     } catch (err) {
         logger.error('Erro ao verificar permissão de admin:', err);

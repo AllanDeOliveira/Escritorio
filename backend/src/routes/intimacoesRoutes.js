@@ -115,7 +115,8 @@ router.get('/', async (req, res) => {
 // POST /api/intimacoes/sync — busca novas comunicações no DJEN ({ dias } opcional)
 router.post('/sync', async (req, res) => {
     try {
-        const dias = req.body?.dias ? Number(req.body.dias) : undefined;
+        // Teto de 30 dias: cada dia a mais é mais página na API do DJEN.
+        const dias = req.body?.dias ? Math.min(30, Math.max(1, Math.trunc(Number(req.body.dias)) || 1)) : undefined;
         const resultado = await syncIntimacoesSafe({ dias });
         // O cron pode estar rodando: não enfileira, avisa (o front já mostra o toast de erro).
         if (resultado.skipped) {
@@ -130,9 +131,19 @@ router.post('/sync', async (req, res) => {
 
 // POST /api/intimacoes/sync-pje — lê o Painel do Advogado (certificado A1) e
 // atualiza prazos/datas limite oficiais. Só leitura no PJe (ver pjePainel.js).
+// Login com certificado A1 + 2FA do advogado: logins em sequência podem bloquear a
+// conta no tribunal. O cron já roda às 06:40 e 12:40; manual, no máximo 1 a cada 10 min.
+const PJE_INTERVALO_MS = 10 * 60 * 1000;
+let pjeUltimaManual = 0;
+
 router.post('/sync-pje', async (_req, res) => {
     try {
+        const espera = pjeUltimaManual + PJE_INTERVALO_MS - Date.now();
+        if (espera > 0) {
+            return res.status(429).json({ success: false, error: `O PJe foi consultado há pouco. Tente de novo em ${Math.ceil(espera / 60000)} min.` });
+        }
         const r = await syncExpedientesPje();
+        if (!r.skipped) pjeUltimaManual = Date.now();
         if (r.skipped) {
             const error = r.motivo === 'já em andamento'
                 ? 'Alguém já está buscando os prazos no PJe. Aguarde uns 2 minutos e recarregue a caixa.'

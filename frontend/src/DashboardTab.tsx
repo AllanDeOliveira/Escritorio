@@ -1,8 +1,7 @@
 import {
-  AlertTriangle, CalendarClock, Inbox, Gavel, ChevronRight, Loader2, RefreshCw, Activity,
+  AlertTriangle, CalendarClock, Inbox, ChevronRight, Loader2, RefreshCw, Activity,
   CheckCircle2, CloudOff,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import './DashboardTab.css';
 
 export interface PrazoBucketed { bucket: string }
@@ -17,14 +16,6 @@ export function resumoDePrazos(prazos: PrazoBucketed[]): { vencido: number; hoje
     else if (p.bucket === 'semana') r.semana++;
   }
   return r;
-}
-
-export interface CasoRecente {
-  id: string;
-  clientName?: string | null;
-  caseNumber?: string | null;
-  title?: string | null;
-  createdAt?: string | null;
 }
 
 export interface Resumo { vencido: number; hoje: number; semana: number; novas: number }
@@ -47,22 +38,16 @@ export interface PrazoLite {
 
 interface DashboardTabProps {
   resumo: Resumo | null;
-  recentes: CasoRecente[];
   loading: boolean;
   erro: boolean;
   nomeUsuario: string;
   onRefresh: () => void;
-  onNavigate: (tab: string, opts?: { view?: 'board' | 'inbox'; caseId?: string }) => void;
+  onNavigate: (tab: string, opts?: { view?: 'board' | 'inbox' }) => void;
   sync: SyncStatus | null;
   onSyncNow: () => void;
   syncing: boolean;
   prazosHoje: PrazoLite[];
   prazosSemana: PrazoLite[];
-}
-
-function formatDate(iso?: string | null): string {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
 function formatHora(iso: string): string {
@@ -80,13 +65,13 @@ export function tempoDesde(iso: string | null, agora: Date = new Date()): string
 }
 
 export default function DashboardTab({
-  resumo, recentes, loading, erro, nomeUsuario, onRefresh, onNavigate,
+  resumo, loading, erro, nomeUsuario, onRefresh, onNavigate,
   sync, onSyncNow, syncing, prazosHoje, prazosSemana,
 }: DashboardTabProps) {
   const primeiroNome = nomeUsuario?.split(' ')[0] || 'Doutor(a)';
   const critico = resumo ? resumo.vencido + resumo.hoje : 0;
 
-  // Lista do digest — reusa a marcação dos "últimos processos".
+  // Lista do digest de prazos.
   const listaPrazos = (itens: PrazoLite[], titulo: string, cls: string) => itens.length > 0 && (
     <div className="dash-recentes">
       <div className={`dash-recentes-head ${cls}`}><CalendarClock size={16} /> {titulo} ({itens.length})</div>
@@ -106,12 +91,7 @@ export default function DashboardTab({
   );
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="lx-single-panel dash-panel"
-    >
+    <div className="lx-single-panel dash-panel lx-fade-up">
       <div className="dash-content">
         <div className="dash-greeting">
           <span className="dash-greeting-hi">Bem-vindo de volta, {primeiroNome}</span>
@@ -204,30 +184,9 @@ export default function DashboardTab({
             {/* Digest da rotina matinal: quais prazos, não só quantos. */}
             {listaPrazos(prazosHoje, 'Vencem hoje', 'dash-recentes-head--hoje')}
             {listaPrazos(prazosSemana, 'Esta semana', 'dash-recentes-head--semana')}
-
-            <div className="dash-recentes">
-              <div className="dash-recentes-head"><Gavel size={16} /> Últimos processos</div>
-              {recentes.length === 0 ? (
-                <div className="dash-recentes-empty">Nenhum processo no arquivo ainda.</div>
-              ) : (
-                <ul className="dash-recentes-list">
-                  {recentes.map(c => (
-                    <li key={c.id}>
-                      <button className="dash-recente" onClick={() => onNavigate('dossier', { caseId: c.id })}>
-                        <CalendarClock size={14} className="dash-recente-ic" />
-                        <span className="dash-recente-nome">{c.clientName || c.title || 'Caso sem nome'}</span>
-                        {c.caseNumber && <span className="dash-recente-proc">{c.caseNumber}</span>}
-                        <span className="dash-recente-data">{formatDate(c.createdAt)}</span>
-                        <ChevronRight size={15} className="dash-banner-seta" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
           </>
         ) : null}
       </div>
-    </motion.div>
+    </div>
   );
 }

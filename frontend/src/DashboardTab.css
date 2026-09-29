@@ -190,12 +190,6 @@
   color: var(--text-secondary);
   padding-left: 0.15rem;
 }
-.dash-recentes-empty {
-  padding: 1rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  text-align: center;
-}
 .dash-recentes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .dash-recente {
   display: flex;
@@ -212,7 +206,6 @@
   color: var(--text-primary);
 }
 .dash-recente:hover { background: var(--bg-card-hover); }
-.dash-recente-ic { color: var(--gold); flex-shrink: 0; }
 .dash-recente-nome { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
 .dash-recente-proc { font-size: 0.78rem; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-recente-data { font-size: 0.8rem; color: var(--text-secondary); flex-shrink: 0; }

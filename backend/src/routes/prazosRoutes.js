@@ -360,7 +360,8 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Dados inválidos', details: errors });
         }
 
-        const { title, description, type, prioridade, fatalDate, internalDate, responsibleName, caseReference, responsibleId, lawsuitId, clientId, createdById } = req.body;
+        const { title, description, type, prioridade, fatalDate, internalDate, responsibleName, caseReference, responsibleId, lawsuitId, clientId } = req.body;
+        const createdById = req.currentUser?.id; // autor é quem está logado, nunca o corpo
 
         const prazo = await prisma.prazo.create({
             data: {
@@ -418,10 +419,10 @@ router.put('/:id', async (req, res) => {
         if (body.responsibleName !== undefined) data.responsibleName = body.responsibleName;
         if (body.caseReference !== undefined) data.caseReference = body.caseReference;
         if (body.responsibleId !== undefined) data.responsibleId = body.responsibleId;
-        // Auditoria de movimentação: quando o cliente informa quem moveu, grava
-        // o nome e o momento. Usado ao arrastar o card entre colunas.
+        // Auditoria de movimentação: o cliente só sinaliza que foi um arraste
+        // (lastMovedBy preenchido); quem moveu é sempre o usuário autenticado.
         if (body.lastMovedBy !== undefined && body.lastMovedBy !== null && String(body.lastMovedBy).trim() !== '') {
-            data.lastMovedBy = String(body.lastMovedBy).trim();
+            data.lastMovedBy = req.currentUser?.name || req.currentUser?.email || String(body.lastMovedBy).trim();
             data.lastMovedAt = new Date();
         }
         if (body.lawsuitId !== undefined) data.lawsuitId = body.lawsuitId;

@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 export default function NameCaptureModal({ onSubmit }: { onSubmit: (name: string) => void }) {
   const [name, setName] = useState('');
   return (
     <div className="lx-modal-overlay" style={{ zIndex: 99999, backdropFilter: 'blur(10px)', background: 'rgba(0,0,0,0.6)' }}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+      <div
+        className="lx-pop-in"
         style={{
           padding: '3rem 2.5rem',
           textAlign: 'center',
@@ -92,7 +89,7 @@ export default function NameCaptureModal({ onSubmit }: { onSubmit: (name: string
         >
           Salvar e Entrar
         </button>
-      </motion.div>
+      </div>
     </div>
   );
 }

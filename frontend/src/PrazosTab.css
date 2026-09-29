@@ -209,7 +209,6 @@
 .prazo-chip-n { font-size: 11px; color: var(--pz-texto-3); }
 .prazo-chip--on { background: var(--pz-gold-tint); border-color: var(--pz-gold-borda); color: var(--text-primary); font-weight: 700; }
 .prazo-chip--on .prazo-chip-n { color: var(--pz-gold-txt); }
-.prazo-chip--convite { border-style: dashed; border-color: var(--pz-gold-borda); color: var(--pz-gold-txt); }
 
 /* Painel "Quais áreas você tria?" */
 .prazo-areas-painel {
@@ -524,8 +523,6 @@
 }
 .prazo-menu-item:hover { background: var(--bg-input); }
 .prazo-menu-item--perigo { color: #dc2626; }
-.prazo-menu-vazio { display: inline-block; width: 14px; }
-
 
 /* Barra flutuante da seleção em lote */
 .prazo-lote {
@@ -629,21 +626,6 @@
 .prazo-tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: var(--bg-input); color: var(--text-secondary); }
 .prazo-tag--tipo { font-weight: 700; background: var(--pz-gold-tint); color: var(--pz-gold-txt); }
 .prazo-card-resp { font-size: 11.5px; font-weight: 600; color: var(--pz-gold-txt); }
-
-/* Filtro de prioridade: select nativo com cara de botão */
-.prazo-prio-filtro { padding: 0 6px 0 12px; }
-.prazo-prio-filtro select {
-  height: 22px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 99px;
-  background: var(--bg-input);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}
 
 .prazo-filtro--on { border-color: var(--pz-gold-borda); background: var(--pz-gold-tint); color: var(--text-primary); }
 .prazo-filtro--on select { background: var(--bg-card); color: var(--pz-gold-txt); }

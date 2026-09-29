@@ -6,18 +6,7 @@ const CONFIG_DIR = path.join(__dirname, '..', '..', 'config');
 if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
 const CONFIG_FILE = path.join(CONFIG_DIR, 'escritorio.json');
 
-const CONFIG_DEFAULT = {
-    nomeEscritorio: '',
-    subtitulo: 'Advocacia e Consultoria Jurídica',
-    nomeAdvogado: '',
-    oab: '',
-    cidade: '',
-    estado: '',
-    endereco: '',
-    cep: '',
-    telefone: '',
-    email: '',
-};
+const CONFIG_DEFAULT = { nomeEscritorio: '' };
 
 let cachedConfig = null;
 

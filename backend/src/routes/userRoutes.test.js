@@ -5,8 +5,16 @@ const require = createRequire(import.meta.url);
 const express = require('express');
 const router = require('./userRoutes');
 const prisma = require('../infra/prismaClient');
+const auth = require('../infra/auth');
+// Stub do Firebase: o "token" é o próprio e-mail; 'nao-verificado:' simula e-mail não verificado.
+auth.verificarToken = async (t) => {
+  if (t === 'invalido') throw new Error('token inválido');
+  const naoVerif = t.startsWith('nao-verificado:');
+  return { email: naoVerif ? t.slice(15) : t, email_verified: !naoVerif };
+};
+const bearer = (email) => ({ authorization: `Bearer ${email}` });
 
-const EMAIL = '__test_userroutes__@example.com';
+const EMAIL = '__test_userroutes__@jvo.adv.br';
 
 let server;
 let base;
@@ -14,7 +22,7 @@ let base;
 const req = (method, path, body, email = EMAIL) =>
   fetch(`${base}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(email ? { 'x-user-email': email } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(email ? bearer(email) : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
@@ -66,5 +74,27 @@ describe('userRoutes — equipe e minhas áreas (integração)', () => {
   it('PUT /api/users/me/areas sem lista → 400', async () => {
     const r = await req('PUT', '/api/users/me/areas', { areas: 'bancario' });
     expect(r.status).toBe(400);
+  });
+
+  it('POST /api/users/sync sem token → 401 e não cria ninguém', async () => {
+    const intruso = '__test_intruso__@jvo.adv.br';
+    const r = await fetch(`${base}/api/users/sync`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: intruso }),
+    });
+    expect(r.status).toBe(401);
+    expect(await prisma.user.findUnique({ where: { email: intruso } })).toBeNull();
+  });
+
+  it('POST /api/users/sync de fora do domínio → 403', async () => {
+    const r = await req('POST', '/api/users/sync', {}, 'intruso@gmail.com');
+    expect(r.status).toBe(403);
+  });
+
+  it('POST /api/users/sync usa o e-mail do token, não o do corpo', async () => {
+    const outro = '__test_outro__@jvo.adv.br';
+    const d = await (await req('POST', '/api/users/sync', { email: outro })).json();
+    expect(d.user.email).toBe(EMAIL);
+    expect(await prisma.user.findUnique({ where: { email: outro } })).toBeNull();
   });
 });

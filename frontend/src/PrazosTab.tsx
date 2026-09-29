@@ -5,9 +5,12 @@ import {
   ChevronDown, Users, Clock, MoreHorizontal, SlidersHorizontal, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 import './PrazosTab.css';
+import { apiFetch } from './firebase';
 
 const API = import.meta.env.VITE_LEGACY_API_URL || 'http://localhost:3001';
 const API_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
+// `link` vem da API do DJEN: só vira href se for http(s) (nada de javascript:).
+const linkSeguro = (u?: string | null) => (u && /^https?:\/\//i.test(u) ? u : undefined);
 
 const TYPES = ['JUDICIAL', 'ADMINISTRATIVO', 'INTERNO'];
 
@@ -406,7 +409,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const carregarMni = useCallback(async () => {
     setMniLoading(true);
     try {
-      const r = await fetch(`${API}/api/mni/avisos`, { headers: authHeaders });
+      const r = await apiFetch(`${API}/api/mni/avisos`);
       const d = await r.json();
       // não configurado ou falha de login: painel simplesmente não aparece
       setMniAvisos(d.success && d.configurado ? d.avisos : null);
@@ -425,7 +428,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     }
   }, [view, carregarMni]);
 
-  const authHeaders = { 'x-user-email': currentUser?.email || '' };
   const defaultMover = dbUser?.name || currentUser?.displayName || currentUser?.email || '';
 
   // Quem participa da distribuição abre no próprio recorte (caixa e quadro).
@@ -437,7 +439,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Equipe para o seletor de responsável (quem já entrou uma vez no sistema)
   useEffect(() => {
-    fetch(`${API}/api/users`, { headers: authHeaders })
+    apiFetch(`${API}/api/users`)
       .then(r => r.json())
       .then(d => { if (d.success) setEquipe(d.users); })
       .catch(() => { /* seletor cai para só o usuário logado */ });
@@ -447,7 +449,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/prazos`, { headers: authHeaders });
+      const r = await apiFetch(`${API}/api/prazos`);
       const d = await r.json();
       if (d.success) {
         const g: Groups = { vencido: [], hoje: [], semana: [], futuro: [], concluido: [] };
@@ -467,7 +469,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const carregarIntimacoes = useCallback(async (filter: 'NOVA' | 'GERADA' | 'DESCARTADA' = 'NOVA') => {
     setIntLoading(true);
     try {
-      const r = await fetch(`${API}/api/intimacoes?status=${filter}${intMes ? `&mes=${intMes}` : ''}`, { headers: authHeaders });
+      const r = await apiFetch(`${API}/api/intimacoes?status=${filter}${intMes ? `&mes=${intMes}` : ''}`);
       const d = await r.json();
       if (d.success) {
         setIntimacoes(d.intimacoes);
@@ -488,9 +490,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const sincronizarDjen = async () => {
     setSyncing(true);
     try {
-      const r = await fetch(`${API}/api/intimacoes/sync`, {
+      const r = await apiFetch(`${API}/api/intimacoes/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const d = await r.json();
@@ -512,7 +514,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const sincronizarPje = async () => {
     setSyncingPje(true);
     try {
-      const r = await fetch(`${API}/api/intimacoes/sync-pje`, { method: 'POST', headers: { ...authHeaders } });
+      const r = await apiFetch(`${API}/api/intimacoes/sync-pje`, { method: 'POST' });
       const d = await r.json();
       if (d.success) {
         const ok = d.resultado.filter((t: any) => !t.erro);
@@ -545,9 +547,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Gera o prazo de um ato no quadro (409 = alguém tratou antes). Sem responsável: o quadro é por data.
   const gerarPrazoGrupo = async (g: IntGroup, fatal: string) => {
-    const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/gerar-prazo`, {
+    const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/gerar-prazo`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...dadosDaIntimacao(g.rep), fatalDate: fatal, grupoIds: g.ids.filter(id => id !== g.rep.id) }),
     });
     const d = await r.json();
@@ -599,9 +601,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       // ponytail: uma chamada por grupo; endpoint em lote se passar de algumas dezenas por vez
       for (const g of alvo) {
         try {
-          const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
+          const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
           });
           if ((await r.json()).success) ok++;
@@ -614,9 +616,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const marcarNoQuadro = async (u: Membro, noQuadro: boolean) => {
     try {
-      const r = await fetch(`${API}/api/users/${u.id}/quadro`, {
+      const r = await apiFetch(`${API}/api/users/${u.id}/quadro`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ noQuadro }),
       });
       const d = await r.json();
@@ -628,9 +630,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const adicionarPerfil = async () => {
     setSalvandoPerfil(true);
     try {
-      const r = await fetch(`${API}/api/users`, {
+      const r = await apiFetch(`${API}/api/users`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(novoPerfil),
       });
       const d = await r.json();
@@ -652,9 +654,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     const plural = g.ids.length > 1 ? ` (${g.ids.length} publicações do mesmo ato)` : '';
     (window as any).showConfirm(`Descartar esta intimação${plural}? (não vira prazo)`, async () => {
       try {
-        const r = await fetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
+        const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
         });
         const d = await r.json();
@@ -670,9 +672,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const salvarAreas = async () => {
     setSalvandoAreas(true);
     try {
-      const r = await fetch(`${API}/api/users/me/areas`, {
+      const r = await apiFetch(`${API}/api/users/me/areas`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ areas: rascunhoAreas }),
       });
       const d = await r.json();
@@ -693,9 +695,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const restaurarIntimacao = async (g: IntGroup) => {
     try {
-      await fetch(`${API}/api/intimacoes/${g.rep.id}/restaurar`, {
+      await apiFetch(`${API}/api/intimacoes/${g.rep.id}/restaurar`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
       });
       showToast('Intimação restaurada.', 'success');
@@ -741,9 +743,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         description: form.description.trim() || null,
       };
       const url = editingId ? `${API}/api/prazos/${editingId}` : `${API}/api/prazos`;
-      const r = await fetch(url, {
+      const r = await apiFetch(url, {
         method: editingId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const d = await r.json();
@@ -764,7 +766,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const excluir = (p: Prazo) => {
     (window as any).showConfirm(`Excluir o prazo "${p.title}"?`, async () => {
       try {
-        await fetch(`${API}/api/prazos/${p.id}`, { method: 'DELETE', headers: authHeaders });
+        await apiFetch(`${API}/api/prazos/${p.id}`, { method: 'DELETE' });
         setModalOpen(false);
         showToast('Prazo excluído.', 'info');
         carregar();
@@ -794,9 +796,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const confirmarMovimentacao = async () => {
     if (!moveModal || !moverName.trim()) return;
     try {
-      const r = await fetch(`${API}/api/prazos/${moveModal.prazo.id}`, {
+      const r = await apiFetch(`${API}/api/prazos/${moveModal.prazo.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: moveModal.targetStatus, lastMovedBy: moverName.trim() }),
       });
       const d = await r.json();
@@ -816,7 +818,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   // ── Importação ───────────────────────────────────────────────────
   const baixarModelo = async () => {
     try {
-      const r = await fetch(`${API}/api/prazos/template`, { headers: authHeaders });
+      const r = await apiFetch(`${API}/api/prazos/template`);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -831,7 +833,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     try {
       const fd = new FormData();
       fd.append('planilha', file);
-      const r = await fetch(`${API}/api/prazos/import`, { method: 'POST', headers: authHeaders, body: fd });
+      const r = await apiFetch(`${API}/api/prazos/import`, { method: 'POST', body: fd });
       const d = await r.json();
       if (d.success) {
         const ign = d.ignoredNoDate ? ` · ${d.ignoredNoDate} sem data ignorada(s)` : '';
@@ -1304,7 +1306,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                                       {pub.oabConsulta && <span className="prazo-int-pub-oab"> · OAB {pub.oabConsulta}</span>}
                                     </span>
                                     {(pub.hash || pub.link) && (
-                                      <a className="prazo-int-pub-link" href={pub.hash ? `${API_DJEN}/${pub.hash}/certidao` : pub.link!} target="_blank" rel="noopener noreferrer" title="Certidão desta publicação (PDF)">
+                                      <a className="prazo-int-pub-link" href={pub.hash ? `${API_DJEN}/${pub.hash}/certidao` : linkSeguro(pub.link)} target="_blank" rel="noopener noreferrer" title="Certidão desta publicação (PDF)">
                                         <ExternalLink size={12} /> certidão
                                       </a>
                                     )}
@@ -1369,7 +1371,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                               {(i.hash || i.link) && (
                                 <a
                                   className="prazo-int-abrir"
-                                  href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : i.link!}
+                                  href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : linkSeguro(i.link)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   title={i.hash ? 'Abrir a certidão oficial da comunicação (PDF)' : 'Abrir no PJe do tribunal'}

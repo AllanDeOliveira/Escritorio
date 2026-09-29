@@ -1,30 +1,24 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  X, Loader2, Download, Edit3,
-  CheckCircle, FileText, BookOpen, Trash2, AlertCircle, AlertTriangle, Clock,
-  ShieldAlert, BarChart3, Gavel, Zap, LogOut, Activity, Menu, ChevronLeft, ChevronRight, Sun, Moon, TrendingUp, Users, CalendarClock
+  X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle, Clock,
+  ShieldAlert, BarChart3, Zap, LogOut, Sun, Moon, Users, CalendarClock
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import WhatsAppCenter from './WhatsAppCenter';
-import { auth, googleProvider } from './firebase';
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { auth, apiFetch } from './firebase';
+import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import AdminPanel from './AdminPanel';
-import { motion, AnimatePresence } from 'framer-motion';
-import Jurimetria from './Jurimetria';
-import ProductivityPanel from './ProductivityPanel';
-import SkeletonPetition from './SkeletonPetition';
 import LoginScreen from './LoginScreen';
 import NameCaptureModal from './NameCaptureModal';
-import ModelosTab, { type ModeloInfo } from './ModelosTab';
-import DossierTab from './DossierTab';
-import GerarTab from './GerarTab';
 import PrazosTab from './PrazosTab';
-import DashboardTab, { resumoDePrazos, type Resumo, type CasoRecente, type SyncStatus, type PrazoLite } from './DashboardTab';
+import DashboardTab, { resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
 
 const API = import.meta.env.VITE_LEGACY_API_URL || 'http://localhost:3001';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<string>(localStorage.getItem('lexgen_active_tab') || 'dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const salva = localStorage.getItem('lexgen_active_tab') || '';
+    return ['dashboard', 'prazos', 'perfil', 'admin', 'whatsapp'].includes(salva) ? salva : 'dashboard';
+  });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [dbUser, setDbUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -68,7 +62,7 @@ function App() {
       setCurrentUser(user);
       if (user && user.email) {
         try {
-          const r = await fetch(`${API}/api/users/sync`, {
+          const r = await apiFetch(`${API}/api/users/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: user.email, name: user.displayName })
@@ -92,7 +86,7 @@ function App() {
   const handleSaveName = async (name: string) => {
     if (!currentUser || !currentUser.email) return;
     try {
-      const r = await fetch(`${API}/api/users/sync`, {
+      const r = await apiFetch(`${API}/api/users/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: currentUser.email, name, forceUpdate: true })
@@ -112,42 +106,6 @@ function App() {
     setCurrentUser(null);
   };
 
-  // ── Gerar ─────────────────────────────────────────────────────────────────
-  const [files, setFiles] = useState<File[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState('');
-  const [metadata, setMetadata] = useState<any>({});
-  const [mapaContradicoes, setMapaContradicoes] = useState<any[]>([]);
-  const [isEditing, setIsEditing] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pdfTemplateRef = useRef<HTMLDivElement>(null);
-
-  // Specific Model for generation
-  const [modeloEspecificoFiles, setModeloEspecificoFiles] = useState<File[]>([]);
-  const modeloEspecificoInputRef = useRef<HTMLInputElement>(null);
-
-  const [analytics, setAnalytics] = useState<{ prob?: string, est?: string }>({});
-  const [auditData, setAuditData] = useState<{ vulnerabilidades?: string[], pontosFortes?: string[], alertaUrgente?: string }>({});
-  const [matrizDuelo, setMatrizDuelo] = useState<any[]>([]);
-  const [showComparator, setShowComparator] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [showPdf, setShowPdf] = useState(false);
-  const [step, setStep] = useState<'upload' | 'review' | 'result'>('upload');
-  // ── Modelos ───────────────────────────────────────────────────────────────
-  const [modelos, setModelos] = useState<ModeloInfo[]>([]);
-  const [loadingModelos, setLoadingModelos] = useState(false);
-  const [isDraggingModelos, setIsDraggingModelos] = useState(false);
-  const [previewModelo, setPreviewModelo] = useState<{ show: boolean, html?: string, url?: string, type?: string, nome?: string }>({ show: false });
-
-
-  const modeloInputRef = useRef<HTMLInputElement>(null);
-
-  // System Status
-  const [systemStatus, setSystemStatus] = useState<{ online: boolean, gemini: string, storage: string }>({ online: true, gemini: 'checking', storage: 'ok' });
-  const [lastCheck, setLastCheck] = useState<Date>(new Date());
 
   const [systemName, setSystemName] = useState("Central JVO");
   const [config, setConfig] = useState<any>(null);
@@ -155,7 +113,7 @@ function App() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const r = await fetch(`${API}/api/config`);
+        const r = await apiFetch(`${API}/api/config`);
         const d = await r.json();
         if (d.success) {
           setConfig(d.config);
@@ -166,43 +124,9 @@ function App() {
     fetchConfig();
   }, []);
 
-  const [activePhrases, setActivePhrases] = useState<string[]>([]);
-  const [loadingPhraseIdx, setLoadingPhraseIdx] = useState(0);
-
-  useEffect(() => {
-    let interval: any;
-    if (loading && activePhrases.length > 0) {
-      interval = setInterval(() => {
-        setLoadingPhraseIdx(prev => {
-          if (prev < activePhrases.length - 1) return prev + 1;
-          return prev; // Pause at the last one instead of looping
-        });
-      }, 3500); // 3.5s per step
-    }
-    return () => clearInterval(interval);
-  }, [loading, activePhrases]);
-
-  async function checkSystemStatus() {
-    try {
-      const r = await fetch(`${API}/api/status`);
-      const d = await r.json();
-      // Forçamos gemini como 'online' para eliminar o aviso de instabilidade
-      setSystemStatus({ ...d, gemini: 'online' });
-      setLastCheck(new Date());
-    } catch (e) {
-      setSystemStatus({ online: false, gemini: 'error', storage: 'error' });
-    }
-  }
-
-  useEffect(() => {
-    checkSystemStatus();
-    const interval = setInterval(checkSystemStatus, 60000); // Check every 1 min
-    return () => clearInterval(interval);
-  }, []);
 
   // ── Resumo do Dashboard (situação do escritório) ─────────────────────────
   const [resumo, setResumo] = useState<Resumo | null>(null);
-  const [recentes, setRecentes] = useState<CasoRecente[]>([]);
   const [resumoLoading, setResumoLoading] = useState(true);
   const [resumoErro, setResumoErro] = useState(false);
   const [sync, setSync] = useState<SyncStatus | null>(null);
@@ -216,13 +140,12 @@ function App() {
     const email = currentUser?.email;
     if (!email) return;
     setResumoLoading(true);
-    const headers = { 'x-user-email': email };
     // Números (prazos + intimações): se qualquer um falhar, resumo fica null e a UI
     // mostra erro — nunca "0 vencidos" falso, que esconderia um prazo perdido.
     try {
       const [pr, intr] = await Promise.all([
-        fetch(`${API}/api/prazos`, { headers }).then(r => r.json()),
-        fetch(`${API}/api/intimacoes?status=NOVA`, { headers }).then(r => r.json()),
+        apiFetch(`${API}/api/prazos`).then(r => r.json()),
+        apiFetch(`${API}/api/intimacoes?status=NOVA`).then(r => r.json()),
       ]);
       if (!pr.success || !intr.success) throw new Error('resumo');
       // O backend já roda enrich() em cada prazo, então `bucket` vem pronto — o
@@ -243,16 +166,6 @@ function App() {
     } finally {
       setResumoLoading(false);
     }
-    // Últimos processos — secundário; falha aqui não derruba os números.
-    try {
-      const h = await fetch(`${API}/api/history`, { headers }).then(r => r.json());
-      if (h.success) {
-        const ord = [...(h.history || [])].sort(
-          (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-        );
-        setRecentes(ord.slice(0, 5));
-      }
-    } catch { /* mantém a lista anterior */ }
   }, [currentUser?.email]);
 
   // Busca no login (o badge da sidebar precisa do resumo em qualquer aba) + refresh a cada 5 min
@@ -275,9 +188,9 @@ function App() {
     if (!email) return;
     setSyncing(true);
     try {
-      await fetch(`${API}/api/intimacoes/sync`, {
+      await apiFetch(`${API}/api/intimacoes/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-email': email },
+        headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
     } catch { /* o estado real aparece no carregarResumo abaixo */ }
@@ -287,388 +200,12 @@ function App() {
     }
   }, [currentUser?.email, carregarResumo]);
 
-  const handleDashboardNavigate = (tab: string, opts?: { view?: 'board' | 'inbox'; caseId?: string }) => {
-    if (tab === 'dossier' && opts?.caseId) { carregarCaso(opts.caseId); return; }
+  const handleDashboardNavigate = (tab: string, opts?: { view?: 'board' | 'inbox' }) => {
     if (tab === 'prazos') setPrazosInitialView(opts?.view || 'board');
     setActiveTab(tab);
   };
 
-  async function carregarModelos() {
-    setLoadingModelos(true);
-    try {
-      const r = await fetch(`${API}/api/modelos?t=${Date.now()}`, { headers: { 'x-user-email': currentUser?.email || '' } });
-      const d = await r.json();
-      if (d.success) {
-        // Sanitização de nomes (UTF-8/Encoding fix)
-        const cleanModels = d.modelos.map((m: any) => {
-          let n = m.nome;
-          try {
-            // Tenta corrigir double-encoding (UTF-8 interpretado como Latin1)
-            const fixed = decodeURIComponent(escape(n));
-            if (fixed !== n && !fixed.includes('\ufffd')) {
-              n = fixed;
-            }
-          } catch (e) {
-            // Se falhar (URI malformed), provavelmente já está correto ou é incurável no frontend
-          }
-          return {
-            ...m,
-            nomeLimpo: n.replace(/\.docx$|\.pdf$/i, '')
-          };
-        });
-        setModelos(cleanModels);
-      }
-    } catch { console.error('Erro ao carregar modelos'); }
-    finally { setLoadingModelos(false); }
-  }
 
-  async function uploadModelos(files: FileList) {
-    if (!files || files.length === 0) return;
-    try {
-      const fd = new FormData();
-      Array.from(files).forEach(f => fd.append('modelos', f));
-      if (dbUser?.id) fd.append('userId', dbUser.id);
-
-      const r = await fetch(`${API}/api/modelos`, { method: 'POST', headers: { 'x-user-email': currentUser?.email || '' }, body: fd });
-      const d = await r.json();
-      if (d.success) {
-        await carregarModelos();
-        showToast(`${files.length} modelo(s) enviado(s) com sucesso!`, 'success');
-      } else {
-        showToast("Erro ao subir modelos: " + (d.error || 'Erro desconhecido'), 'error');
-      }
-    } catch (e: any) {
-      console.error('Erro ao subir modelos', e);
-      showToast("Erro de conexão ao subir modelos. Verifique se o servidor está rodando.", 'error');
-    } finally {
-      if (modeloInputRef.current) modeloInputRef.current.value = '';
-    }
-  }
-
-  async function excluirModelo(nome: string) {
-    (window as any).showConfirm(`Excluir "${nome}"?`, async () => {
-      await fetch(`${API}/api/modelos/${encodeURIComponent(nome)}`, { method: 'DELETE', headers: { 'x-user-email': currentUser?.email || '' } });
-      setModelos(p => p.filter(m => m.nome !== nome));
-    });
-  }
-
-  async function abrirPreview(nome: string) {
-    try {
-      setPreviewModelo({ show: true, nome, type: 'loading' });
-      const r = await fetch(`${API}/api/modelos/preview/${encodeURIComponent(nome)}`, { headers: { 'x-user-email': currentUser?.email || '' } });
-      const d = await r.json();
-      if (d.success) {
-        setPreviewModelo({
-          show: true,
-          nome,
-          html: d.html,
-          url: d.url ? `${API}${d.url}` : undefined,
-          type: d.type
-        });
-      } else {
-        showToast("Erro ao carregar preview: " + d.error, 'error');
-        setPreviewModelo({ show: false });
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao conectar com o servidor", 'error');
-      setPreviewModelo({ show: false });
-    }
-  }
-
-  // ── Histórico de Casos ────────────────────────────────────────────────────
-  const [historyList, setHistoryList] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [evaluatingVersions, setEvaluatingVersions] = useState(false);
-  const [evaluationResult, setEvaluationResult] = useState<string | null>(null);
-
-  const handleToggleFavorite = async (id: string, current: boolean) => {
-    try {
-      const r = await fetch(`${API}/api/history/${id}/favorite`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isFavorite: !current })
-      });
-      const d = await r.json();
-      if (d.success) {
-        setHistoryList(p => p.map(h => h.id === id ? { ...h, isFavorite: !current } : h));
-      } else {
-        showToast("Erro ao favoritar.", 'error');
-      }
-    } catch (e) {
-      showToast("Erro de conexão.", 'error');
-    }
-  };
-
-  const handleEvaluateVersions = async () => {
-    const versions = historyList.filter((h: any) => (h.caseNumber === metadata.processo && h.caseNumber) || (h.clientName === metadata.cliente && !metadata.processo));
-    if (versions.length < 2) return;
-    setEvaluatingVersions(true);
-    setEvaluationResult(null);
-    try {
-      const r = await fetch(`${API}/api/evaluate-versions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ docIds: versions.map((v: any) => v.id) })
-      });
-      const d = await r.json();
-      if (d.success) setEvaluationResult(d.evaluation);
-      else showToast("Erro ao avaliar.", 'error');
-    } catch (e) {
-      showToast("Erro de conexão.", 'error');
-    } finally {
-      setEvaluatingVersions(false);
-    }
-  };
-
-  async function carregarHistorico() {
-    setLoadingHistory(true);
-    try {
-      const r = await fetch(`${API}/api/history`);
-      const d = await r.json();
-      if (d.success) setHistoryList(d.history);
-    } catch (e) { console.error("Erro ao carregar histórico", e); }
-    finally { setLoadingHistory(false); }
-  }
-
-  useEffect(() => {
-    if (activeTab === 'dossier' && !metadata.id) carregarHistorico();
-  }, [activeTab, metadata.id]);
-
-  async function carregarCaso(id: string) {
-    try {
-      const r = await fetch(`${API}/api/history/${id}`);
-      const d = await r.json();
-      if (d.success && d.document) {
-        setResult(d.document.content || '');
-
-        // Helper para tratar dados que podem vir como string JSON ou Objeto (Prisma/DB)
-        const safeParse = (data: any, fallback: any = []) => {
-          if (!data) return fallback;
-          if (typeof data === 'object') return data;
-          try { return JSON.parse(data); } catch (e) { return fallback; }
-        };
-
-        const rawTimeline = safeParse(d.document.timeline);
-        if (Array.isArray(rawTimeline)) {
-          const adapted = rawTimeline.map((item: any) => ({
-            ponto: item.ponto || item.evento || 'Evento Processual',
-            versaoAdversa: item.versaoAdversa || (item.conflito?.versaoAdversa) || item.descricao || 'N/A',
-            versaoDefesa: item.versaoDefesa || (item.conflito?.versaoDefesa) || 'Tese de Inicial',
-            prova: item.prova || (item.conflito?.prova) || 'Análise de Documentos',
-            gravidade: item.gravidade || item.impacto || (
-              /fraude|falsifica|divergente|inexistente|crítico|urgente/i.test(item.evento || item.descricao || '') ? 'CRÍTICO' :
-                /erro|falha|omissão|alto/i.test(item.evento || item.descricao || '') ? 'ALTO' : 'MÉDIO'
-            )
-          }));
-          setMapaContradicoes(adapted);
-        } else {
-          setMapaContradicoes([]);
-        }
-
-        setAuditData(safeParse(d.document.auditData, {}));
-
-        const ana = safeParse(d.document.analytics, {});
-        setAnalytics({
-          prob: ana.prob || ana.probabilidade,
-          est: ana.est || ana.estrategia
-        });
-
-        setMatrizDuelo(safeParse(d.document.matrizDuelo, []));
-
-        setMetadata({
-          id: d.document.id,
-          titulo: d.document.title,
-          cliente: d.document.clientName,
-          processo: d.document.caseNumber,
-          criadoEm: d.document.createdAt
-        });
-        setShowComparator(false);
-        setActiveTab('dossier');
-      }
-    } catch (e) {
-      console.error("Erro ao carregar dossiê:", e);
-      showToast("Erro ao carregar caso salvo.", 'error');
-    }
-  }
-
-  async function salvarEdicaoDossier() {
-    if (!metadata.id) return;
-    try {
-      const r = await fetch(`${API}/api/history/${metadata.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: result })
-      });
-      const d = await r.json();
-      if (d.success) {
-        setIsEditing(false);
-        showToast("Petição atualizada com sucesso no dossiê!", 'success');
-      }
-    } catch (e) { showToast("Erro ao salvar alterações.", 'error'); }
-  }
-
-  async function deletarCaso(ids: string[]) {
-    (window as any).showConfirm(`Tem certeza que deseja apagar este caso (e todas as suas ${ids.length} versões)?`, async () => {
-      try {
-        for (const id of ids) {
-          await fetch(`${API}/api/history/${id}`, { method: 'DELETE' });
-        }
-        carregarHistorico();
-      } catch (e) {
-        showToast("Erro ao excluir caso.", 'error');
-      }
-    });
-  }
-
-
-  const verifyFile = (f: File) => {
-    const ext = f.name.split('.').pop()?.toLowerCase() || '';
-    const valid = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/jpeg', 'image/png'];
-    if (!valid.includes(f.type) && !['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png'].includes(ext)) { setErrorMsg(`Tipo não suportado: ${f.name}`); return false; }
-    if (f.size > 200 * 1024 * 1024) { setErrorMsg(`Arquivo muito grande: ${f.name} (Máx: 200MB)`); return false; }
-    return true;
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setIsDragging(false);
-    const incoming = Array.from(e.dataTransfer.files).filter(verifyFile);
-    setFiles(p => [...p, ...incoming]);
-    const pdf = incoming.find(f => f.type === 'application/pdf');
-    if (pdf) { setPdfUrl(URL.createObjectURL(pdf)); }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const incoming = Array.from(e.target.files).filter(verifyFile);
-      setFiles(p => [...p, ...incoming]);
-      const pdf = incoming.find(f => f.type === 'application/pdf');
-      if (pdf) { setPdfUrl(URL.createObjectURL(pdf)); }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!files.length) { setErrorMsg('Anexe pelo menos um documento.'); return; }
-
-    const newPhrases = [];
-    newPhrases.push(`Iniciando análise de ${files.length} documento(s)...`);
-    files.forEach(f => newPhrases.push(`Lendo dados de: ${f.name}...`));
-    if (modeloEspecificoFiles.length > 0) {
-      newPhrases.push(`Cruzando dados com o modelo principal: ${modeloEspecificoFiles[0].name}...`);
-    } else if (modelos.length > 0) {
-      newPhrases.push(`Analisando ${modelos.length} petição(ões) da Base de Conhecimento...`);
-    }
-    newPhrases.push("Extraindo fundamentação das teses do oponente...");
-    newPhrases.push("Redigindo faticamente e ajustando o tom argumentativo...");
-    newPhrases.push("Realizando polimento final e validação da peça...");
-    newPhrases.push("Aguardando Inteligência Artificial processar documento...");
-
-    setActivePhrases(newPhrases);
-    setLoadingPhraseIdx(0);
-    setLoading(true); setErrorMsg(''); setResult(''); setIsEditing(false); setMapaContradicoes([]); setAnalytics({}); setAuditData({}); setMatrizDuelo([]); setShowComparator(false);
-
-    try {
-      const fd = new FormData();
-      files.forEach(f => fd.append('documentos', f));
-      modeloEspecificoFiles.forEach(f => fd.append('modelo_especifico', f));
-      if (dbUser?.id) fd.append('userId', dbUser.id);
-
-      const r = await fetch(`${API}/api/generate`, { method: 'POST', headers: { 'x-user-email': currentUser?.email || '' }, body: fd });
-      const d = await r.json();
-
-      if (d.success) {
-        setResult(d.text);
-        if (d.metadata) setMetadata(d.metadata);
-        if (d.mapaContradicoes) setMapaContradicoes(d.mapaContradicoes);
-        if (d.probabilidadeExito) setAnalytics({ prob: d.probabilidadeExito, est: d.estrategia });
-        if (d.matrizDuelo) setMatrizDuelo(d.matrizDuelo);
-        if (d.mapaDeRiscos) setAuditData(d.mapaDeRiscos);
-        setStep('result');
-      } else {
-        setErrorMsg(d.error || 'Erro ao gerar a peça final.');
-      }
-    } catch {
-      setErrorMsg('Erro de conexão na geração final.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopy = () => { navigator.clipboard.writeText(result); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-
-  // ── Download DOCX formatado via backend ───────────────────────────────────
-  const [downloadingFormat, setDownloadingFormat] = useState<'docx' | 'pdf' | null>(null);
-
-  const handleDownload = async (format: 'docx' | 'pdf') => {
-    if (!result) return;
-    setDownloadingFormat(format);
-
-    const clientName = (metadata.cliente || 'Caso').replace(/[/\\?%*:|"<>]/g, '-');
-    const caseNumber = (metadata.processo || 'SN').replace(/[/\\?%*:|"<>]/g, '-');
-    const fileName = `${clientName} - ${caseNumber}`;
-
-    if (format === 'pdf') {
-      try {
-        const element = pdfTemplateRef.current;
-        if (!element) return;
-
-        // Temporariamente torna visível para o html2pdf capturar
-        element.style.display = 'block';
-
-        const opt = {
-          margin: 0,
-          filename: `${fileName}.pdf`,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        const html2pdf = (window as any).html2pdf;
-        await html2pdf().from(element).set(opt).save();
-
-        element.style.display = 'none';
-      } catch (e) {
-        console.error("Erro PDF:", e);
-        setErrorMsg("Erro ao gerar PDF de alta qualidade.");
-      } finally {
-        setDownloadingFormat(null);
-      }
-      return;
-    }
-
-    try {
-      const r = await fetch(`${API}/api/download-docx`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: result,
-          metadata: metadata,
-          nomeArquivo: fileName
-        }),
-      });
-      if (!r.ok) {
-        let msg = 'Falha ao gerar o arquivo.';
-        try { const d = await r.json(); if (d.error) msg = d.error; } catch (e) { }
-        throw new Error(msg);
-      }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileName}.docx`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      setErrorMsg(`Erro ao baixar DOCX: ${e.message}`);
-    } finally {
-      setDownloadingFormat(null);
-    }
-  };
-
-  useEffect(() => {
-    carregarModelos();
-  }, []);
 
   if (authLoading) {
     return (
@@ -698,14 +235,6 @@ function App() {
             <BarChart3 size={24} />
             <span className="lx-nav-text">Página Inicial</span>
           </button>
-          <button id="tab-gerar" title="Gerar Impugnação" className={`lx-nav-item ${activeTab === 'gerar' ? 'active' : ''}`} onClick={() => setActiveTab('gerar')}>
-            <FileText size={24} />
-            <span className="lx-nav-text">Gerar Impugnação</span>
-          </button>
-          <button id="tab-dossier" title="Processos" className={`lx-nav-item ${activeTab === 'dossier' ? 'active' : ''}`} onClick={() => setActiveTab('dossier')}>
-            <Gavel size={24} />
-            <span className="lx-nav-text">Processos</span>
-          </button>
           <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} onClick={() => { setPrazosInitialView('board'); setActiveTab('prazos'); }}>
             <CalendarClock size={24} />
             <span className="lx-nav-text">Prazos</span>
@@ -715,26 +244,11 @@ function App() {
               </span>
             )}
           </button>
-          <button id="tab-modelos" title="Base de Conhecimento" className={`lx-nav-item ${activeTab === 'modelos' ? 'active' : ''}`} onClick={() => setActiveTab('modelos')}>
-            <BookOpen size={24} />
-            <span className="lx-nav-text">Base de Conhecimento</span>
-          </button>
-          <button id="tab-jurimetria" title="Jurimetria" className={`lx-nav-item ${activeTab === 'jurimetria' ? 'active' : ''}`} onClick={() => setActiveTab('jurimetria')}>
-            <Activity size={24} />
-            <span className="lx-nav-text">Jurimetria</span>
-          </button>
 
           <button id="tab-perfil" title="Configurações" className={`lx-nav-item ${activeTab === 'perfil' ? 'active' : ''}`} onClick={() => setActiveTab('perfil')}>
             <Users size={24} />
             <span className="lx-nav-text">Perfil</span>
           </button>
-
-          <button id="tab-produtividade" title="Produtividade" className={`lx-nav-item ${activeTab === 'produtividade' ? 'active' : ''}`} onClick={() => setActiveTab('produtividade')}>
-            <TrendingUp size={24} />
-            <span className="lx-nav-text">Produtividade</span>
-          </button>
-
-
 
           {dbUser?.role === 'admin' && (
             <button id="tab-admin" title="Painel Administrador" className={`lx-nav-item app-nav-item-admin ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
@@ -780,12 +294,8 @@ function App() {
       <div className="lx-main">
         <div className="lx-header">
           <h2 className="lx-page-title">
-            {activeTab === 'gerar' && 'Gerador de Peças Processuais'}
             {activeTab === 'dashboard' && 'Painel de Inteligência Jurídica'}
-            {activeTab === 'jurimetria' && 'Jurimetria Preditiva'}
-            {activeTab === 'dossier' && (metadata.id ? `Dossiê: ${metadata.cliente}` : 'Arquivo de Inteligência')}
             {activeTab === 'prazos' && 'Controle de Prazos'}
-            {activeTab === 'modelos' && 'Base de Conhecimento'}
             {activeTab === 'whatsapp' && 'Central do WhatsApp'}
             {activeTab === 'admin' && 'Painel de Administração'}
           </h2>
@@ -826,7 +336,6 @@ function App() {
         {activeTab === 'dashboard' && (
           <DashboardTab
             resumo={resumo}
-            recentes={recentes}
             loading={resumoLoading}
             erro={resumoErro}
             nomeUsuario={dbUser?.name || currentUser?.displayName || ''}
@@ -840,107 +349,12 @@ function App() {
           />
         )}
 
-        {/* ── Aba: Gerar ──────────────────────────────────────────────── */}
-        {activeTab === 'gerar' && (
-          <GerarTab
-            step={step}
-            setStep={setStep}
-            errorMsg={errorMsg}
-            isDragging={isDragging}
-            setIsDragging={setIsDragging}
-            files={files}
-            setFiles={setFiles}
-            fileInputRef={fileInputRef}
-            modeloEspecificoInputRef={modeloEspecificoInputRef}
-            modeloEspecificoFiles={modeloEspecificoFiles}
-            setModeloEspecificoFiles={setModeloEspecificoFiles}
-            modelos={modelos}
-            loading={loading}
-            handleSubmit={handleSubmit}
-            handleDrop={handleDrop}
-            handleFileSelect={handleFileSelect}
-            verifyFile={verifyFile}
-            result={result}
-            setResult={setResult}
-            pdfUrl={pdfUrl}
-            showPdf={showPdf}
-            setShowPdf={setShowPdf}
-            isEditing={isEditing}
-            setIsEditing={setIsEditing}
-            copied={copied}
-            handleCopy={handleCopy}
-            downloadingFormat={downloadingFormat}
-            handleDownload={handleDownload}
-            activePhrases={activePhrases}
-            loadingPhraseIdx={loadingPhraseIdx}
-            analytics={analytics}
-            mapaContradicoes={mapaContradicoes}
-          />
-        )}
-
-        {/* ── Aba: Dossiê & Casos (Unificada) ───────────────────────────── */}
-        {activeTab === 'dossier' && (
-          <DossierTab
-            metadata={metadata}
-            setMetadata={setMetadata}
-            loadingHistory={loadingHistory}
-            historyList={historyList}
-            analytics={analytics}
-            mapaContradicoes={mapaContradicoes}
-            evaluatingVersions={evaluatingVersions}
-            evaluationResult={evaluationResult}
-            setEvaluationResult={setEvaluationResult}
-            isEditing={isEditing}
-            setIsEditing={setIsEditing}
-            result={result}
-            setResult={setResult}
-            copied={copied}
-            downloadingFormat={downloadingFormat}
-            carregarCaso={carregarCaso}
-            deletarCaso={deletarCaso}
-            handleEvaluateVersions={handleEvaluateVersions}
-            handleToggleFavorite={handleToggleFavorite}
-            salvarEdicaoDossier={salvarEdicaoDossier}
-            handleDownload={handleDownload}
-            handleCopy={handleCopy}
-          />
-        )}
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
           <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} onDbUserChange={setDbUser} />
         )}
 
-        {/* ── Aba: Modelos ─────────────────────────────────────────────────── */}
-        {activeTab === 'modelos' && (
-          <ModelosTab
-            modelos={modelos}
-            loadingModelos={loadingModelos}
-            modeloInputRef={modeloInputRef}
-            onUpload={uploadModelos}
-            onDelete={excluirModelo}
-            onPreview={abrirPreview}
-            onUseModel={() => setActiveTab('gerar')}
-          />
-        )}
-
-        {/* ── Aba: Jurimetria ────────────────────────────────────────── */}
-        {activeTab === 'jurimetria' && (
-          <div className="lx-single-panel app-tab-panel-padded">
-            <Jurimetria />
-          </div>
-        )}
-
-        {/* ── Aba: Produtividade ─────────────────────────────────────────────── */}
-        {activeTab === 'produtividade' && (
-          <div className="lx-single-panel app-tab-panel-padded">
-            <ProductivityPanel
-              currentUser={currentUser}
-              dbUser={dbUser}
-              isAdmin={dbUser?.role === 'admin'}
-            />
-          </div>
-        )}
 
         {/* ── Aba: Perfil ─────────────────────────────────────────────── */}
         {activeTab === 'perfil' && (
@@ -1004,9 +418,9 @@ function App() {
                             const val = (document.getElementById('input-change-system-name') as HTMLInputElement).value;
                             if (val) {
                               try {
-                                const r = await fetch(`${API}/api/config`, {
+                                const r = await apiFetch(`${API}/api/config`, {
                                   method: 'POST',
-                                  headers: { 'Content-Type': 'application/json', 'x-user-email': currentUser?.email || '' },
+                                  headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ ...config, nomeEscritorio: val })
                                 });
                                 if ((await r.json()).success) {
@@ -1053,70 +467,10 @@ function App() {
         )}
       </div>
 
-      {/* ── Template Oculto para Exportação PDF ────────────────────────── */}
-      <div ref={pdfTemplateRef} className="pdf-export-container">
-        <div className="pdf-export-header">
-          <img src="/logo.png" alt="Logo" className="pdf-export-logo" />
-          <div className="pdf-export-logo-text">JESUS VIEIRA DE OLIVEIRA</div>
-          <div className="pdf-export-subtitle">Sociedade Individual de Advocacia</div>
-        </div>
-        <div className="pdf-export-body">
-          <div className="pdf-export-content">
-            <ReactMarkdown>{result}</ReactMarkdown>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Modal de Preview de Modelo ────────────────────────────────── */}
-      {previewModelo.show && (
-        <div className="app-preview-overlay">
-          <div className="app-preview-modal">
-            <div className="app-preview-header">
-              <div className="app-preview-header-left">
-                <div className="app-preview-icon-box">
-                  <BookOpen size={20} />
-                </div>
-                <div>
-                  <h3 className="app-preview-title">{previewModelo.nome}</h3>
-                  <span className="app-preview-subtitle">Visualização de Modelo</span>
-                </div>
-              </div>
-              <button onClick={() => setPreviewModelo({ show: false })} title="Fechar visualização" className="app-preview-close-btn">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="app-preview-body">
-              {previewModelo.type === 'loading' ? (
-                <div className="app-preview-loading">
-                  <Loader2 className="lx-spin" size={40} color="#D4AF37" />
-                  <p className="app-preview-loading-text">Convertendo documento...</p>
-                </div>
-              ) : previewModelo.type === 'pdf' ? (
-                <iframe src={previewModelo.url} className="app-preview-iframe" title="PDF Preview" />
-              ) : (
-                <div className="docx-preview-content app-preview-docx-content" dangerouslySetInnerHTML={{ __html: previewModelo.html || '' }} />
-              )}
-            </div>
-
-            <div className="app-preview-footer">
-              <button className="lx-btn-tool app-preview-footer-btn" onClick={() => setPreviewModelo({ show: false })}>
-                Fechar Visualização
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* ── Modal de Confirmação ────────────────────────────────────── */}
-      <AnimatePresence>
         {confirmDialog.isOpen && (
           <div className="lx-modal-overlay app-confirm-overlay">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="app-confirm-modal"
-            >
+            <div className="app-confirm-modal lx-pop-in">
               <div className="app-confirm-icon">
                 <AlertTriangle size={28} />
               </div>
@@ -1141,20 +495,15 @@ function App() {
                   Confirmar
                 </button>
               </div>
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
 
       {/* ── Sistema de Toasts ────────────────────────────────────────── */}
       <div className="lx-toast-container">
-        <AnimatePresence>
           {toasts.map(t => (
-            <motion.div
+            <div
               key={t.id}
-              initial={{ opacity: 0, x: 50, scale: 0.9 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
               className={`lx-toast lx-toast-${t.type}`}
               onClick={() => setToasts(prev => prev.filter(toast => toast.id !== t.id))}
             >
@@ -1165,9 +514,8 @@ function App() {
               </div>
               <div className="lx-toast-content">{t.message}</div>
               <button className="lx-toast-close" title="Fechar notificação"><X size={14} /></button>
-            </motion.div>
+            </div>
           ))}
-        </AnimatePresence>
       </div>
     </div>
   );

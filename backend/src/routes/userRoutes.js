@@ -1,4 +1,5 @@
 const logger = require('../infra/logger');
+const auth = require('../infra/auth');
 const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
@@ -74,13 +75,13 @@ router.put('/:id/quadro', requireAdmin, async (req, res) => {
 });
 
 // Sincroniza o usuário (Cria ou Retorna)
+// O e-mail vem do ID token verificado (conta @jvo.adv.br), nunca do corpo.
 router.post('/sync', async (req, res) => {
     try {
-        const { email, name, forceUpdate } = req.body;
-        
-        if (!email) {
-            return res.status(400).json({ success: false, error: 'Email é obrigatório' });
-        }
+        const r = await auth.emailDoToken(req);
+        if (r.error) return res.status(r.status).json({ success: false, error: r.error });
+        const { email } = r;
+        const { name, forceUpdate } = req.body;
 
         // Verifica se o usuário existe
         let user = await prisma.user.findUnique({
@@ -95,7 +96,6 @@ router.post('/sync', async (req, res) => {
                 data: {
                     email,
                     name: name || null, // Se vier sem nome, ficará null
-                    // organizationId não é obrigatório no schema agora
                 }
             });
             isNew = true;

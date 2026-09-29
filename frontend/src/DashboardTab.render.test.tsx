@@ -3,7 +3,6 @@ import { renderToString } from 'react-dom/server';
 import DashboardTab, { type Resumo, type SyncStatus } from './DashboardTab';
 
 const props = {
-  recentes: [],
   loading: false,
   erro: false,
   nomeUsuario: 'Ana Souza',

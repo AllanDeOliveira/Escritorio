@@ -1,40 +1,29 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: central_jvo_postgres
     restart: always
     environment:
-      POSTGRES_USER: lexgen
-      POSTGRES_PASSWORD: lexgen_password
-      POSTGRES_DB: lexgen_db
+      # Credenciais do .env da raiz (sem default: o compose recusa subir sem elas)
+      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  redis:
-    image: redis:7-alpine
-    container_name: central_jvo_redis
-    restart: always
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
   pgadmin:
-    image: dpage/pgadmin4
+    image: dpage/pgadmin4:9
     container_name: central_jvo_pgadmin
     restart: always
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:?defina PGADMIN_EMAIL no .env}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?defina PGADMIN_PASSWORD no .env}
     ports:
-      - "5050:80"
+      - "127.0.0.1:5050:80"
     depends_on:
       - postgres
 
 volumes:
   postgres_data:
-  redis_data:

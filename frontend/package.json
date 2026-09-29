@@ -12,12 +12,9 @@
   },
   "dependencies": {
     "firebase": "^12.12.1",
-    "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-markdown": "^10.1.0",
-    "react-quill": "^2.0.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

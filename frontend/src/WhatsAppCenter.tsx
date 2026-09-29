@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, QrCode, Settings, CheckCircle2, AlertCircle, Loader2, Save } from 'lucide-react';
+import { apiFetch } from './firebase';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
-  const authHeaders = { 'x-user-email': currentUser?.email || '' };
   const [serverStatus, setServerStatus] = useState('LOADING'); // LOADING, DISCONNECTED, WAITING_QR, CONNECTED
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [groups, setGroups] = useState<Array<{ id: string, name: string }>>([]);
@@ -12,13 +12,12 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [isMonthlyLoading, setIsMonthlyLoading] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [msg, setMsg] = useState('');
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`${API}/api/whatsapp/status`, { headers: authHeaders });
+      const res = await apiFetch(`${API}/api/whatsapp/status`);
       const data = await res.json();
       setServerStatus(data.status);
       setQrCodeData(data.qrCodeUrl);
@@ -34,8 +33,8 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
   const fetchGroupsAndSettings = async () => {
     try {
       const [groupsRes, settingsRes] = await Promise.all([
-        fetch(`${API}/api/whatsapp/groups`, { headers: authHeaders }).then(r => r.json()),
-        fetch(`${API}/api/whatsapp/settings`, { headers: authHeaders }).then(r => r.json())
+        apiFetch(`${API}/api/whatsapp/groups`).then(r => r.json()),
+        apiFetch(`${API}/api/whatsapp/settings`).then(r => r.json())
       ]);
       setGroups(groupsRes || []);
       if (settingsRes && settingsRes.whatsappGroupId) {
@@ -60,9 +59,9 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
     setMsg('');
     try {
       const group = groups.find(g => g.id === selectedGroupId);
-      await fetch(`${API}/api/whatsapp/settings`, {
+      await apiFetch(`${API}/api/whatsapp/settings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           whatsappGroupId: selectedGroupId,
           whatsappGroupName: group ? group.name : ''
@@ -80,9 +79,8 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
     setIsTesting(true);
     setMsg('');
     try {
-      const res = await fetch(`${API}/api/whatsapp/test-message`, {
-        method: 'POST',
-        headers: authHeaders
+      const res = await apiFetch(`${API}/api/whatsapp/test-message`, {
+        method: 'POST'
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -98,9 +96,8 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
     setIsSending(true);
     setMsg('');
     try {
-      const res = await fetch(`${API}/api/whatsapp/send-hearings`, {
-        method: 'POST',
-        headers: authHeaders
+      const res = await apiFetch(`${API}/api/whatsapp/send-hearings`, {
+        method: 'POST'
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -112,29 +109,11 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
     }
   };
 
-  const handleSendMonthly = async () => {
-    setIsMonthlyLoading(true);
-    setMsg('');
-    try {
-      const res = await fetch(`${API}/api/whatsapp/send-monthly`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setMsg('success:Relatório mensal disparado com sucesso no grupo!');
-    } catch (err: any) {
-      setMsg(`error:Erro no relatório mensal: ${err.message}`);
-    } finally {
-      setIsMonthlyLoading(false);
-    }
-  };
-
   const handleDisconnect = async () => {
     (window as any).showConfirm('Tem certeza de que deseja desconectar o WhatsApp do painel? Você precisará ler o QR Code novamente para conectar.', async () => {
       setIsDisconnecting(true);
       try {
-        await fetch(`${API}/api/whatsapp/disconnect`, { method: 'POST', headers: authHeaders });
+        await apiFetch(`${API}/api/whatsapp/disconnect`, { method: 'POST' });
         setMsg('');
         setServerStatus('DISCONNECTED'); // Let the 5s interval re-catch 'WAITING_QR' after reboot
         (window as any).showToast('Sessão encerrada com sucesso.', 'success');
@@ -270,20 +249,10 @@ export default function WhatsAppCenter({ currentUser }: { currentUser: any }) {
               type="button"
               onClick={handleSendHearings}
               className="lx-btn-generate"
-              disabled={isSending || isMonthlyLoading || !selectedGroupId}
+              disabled={isSending || !selectedGroupId}
               style={{ flex: 1, minWidth: '160px', display: 'flex', justifyContent: 'center' }}
             >
               {isSending ? <Loader2 className="lx-spin" size={18} /> : 'Enviar Notificações Hoje'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSendMonthly}
-              className="lx-btn-generate"
-              disabled={isMonthlyLoading || isSending || !selectedGroupId}
-              style={{ flex: 1, minWidth: '160px', backgroundColor: 'var(--secondary)', color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}
-            >
-              {isMonthlyLoading ? <Loader2 className="lx-spin" size={18} /> : 'Disparar Resumo Mensal'}
             </button>
 
             <button

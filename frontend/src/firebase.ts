@@ -14,3 +14,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// fetch para o backend com o ID token do Firebase — o servidor só aceita
+// `Authorization: Bearer <token>` (conta @jvo.adv.br verificada).
+export async function apiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const token = await auth.currentUser?.getIdToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+}
