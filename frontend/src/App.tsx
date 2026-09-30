@@ -3,7 +3,6 @@ import {
   X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle, Clock,
   ShieldAlert, BarChart3, Zap, LogOut, Sun, Moon, Users, CalendarClock
 } from 'lucide-react';
-import WhatsAppCenter from './WhatsAppCenter';
 import { auth, apiFetch } from './firebase';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import AdminPanel from './AdminPanel';
@@ -17,7 +16,7 @@ const API = import.meta.env.VITE_LEGACY_API_URL || 'http://localhost:3001';
 function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     const salva = localStorage.getItem('lexgen_active_tab') || '';
-    return ['dashboard', 'prazos', 'perfil', 'admin', 'whatsapp'].includes(salva) ? salva : 'dashboard';
+    return ['dashboard', 'prazos', 'perfil', 'admin'].includes(salva) ? salva : 'dashboard';
   });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [dbUser, setDbUser] = useState<any>(null);
@@ -296,7 +295,6 @@ function App() {
           <h2 className="lx-page-title">
             {activeTab === 'dashboard' && 'Painel de Inteligência Jurídica'}
             {activeTab === 'prazos' && 'Controle de Prazos'}
-            {activeTab === 'whatsapp' && 'Central do WhatsApp'}
             {activeTab === 'admin' && 'Painel de Administração'}
           </h2>
           <div className="lx-header-actions">
@@ -328,7 +326,7 @@ function App() {
 
         {/* ── Aba: Admin ────────────────────────────────────────────── */}
         {activeTab === 'admin' && dbUser?.role === 'admin' && (
-          <AdminPanel currentUser={currentUser} />
+          <AdminPanel />
         )}
 
 
@@ -459,12 +457,6 @@ function App() {
           </div>
         )}
 
-        {/* ── Aba: WhatsApp ─────────────────────────────────────────────── */}
-        {activeTab === 'whatsapp' && dbUser?.role === 'admin' && (
-          <div className="lx-single-panel">
-            <WhatsAppCenter currentUser={currentUser} />
-          </div>
-        )}
       </div>
 
       {/* ── Modal de Confirmação ────────────────────────────────────── */}

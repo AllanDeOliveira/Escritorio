@@ -10,11 +10,7 @@ const userRoutes = require('./src/routes/userRoutes');
 const { requireAdmin } = require('./src/middleware/requireAdmin');
 const { requireUser } = require('./src/middleware/requireUser');
 
-// WhatsApp Automation Imports
 const cron = require('node-cron');
-const whatsappRoutes = require('./src/routes/whatsappRoutes');
-const { initializeWhatsApp } = require('./src/services/whatsappService');
-const { runDailyNotifications } = require('./src/services/notificationService');
 const { syncIntimacoesSafe } = require('./src/services/djenService');
 const { syncExpedientesPje } = require('./src/services/pjePainel');
 
@@ -70,45 +66,7 @@ app.get('/api/admin/stats', async (req, res) => {
 });
 
 
-// Buscar Configurações de Sistema (WhatsApp, etc)
-app.get('/api/admin/settings', async (req, res) => {
-    try {
-        let settings = await prisma.systemSettings.findFirst();
-        if (!settings) {
-            settings = await prisma.systemSettings.create({ data: { whatsappGroupId: '', whatsappGroupName: '' } });
-        }
-        res.json({ success: true, settings });
-    } catch (e) {
-        logger.error(`${req.method} ${req.path}:`, e);
-        res.status(500).json({ success: false, error: 'Erro interno.' });
-    }
-});
-
-// Atualizar Configurações de Sistema
-app.post('/api/admin/settings', async (req, res) => {
-    try {
-        const { whatsappGroupId, whatsappGroupName } = req.body;
-        let settings = await prisma.systemSettings.findFirst();
-
-        if (settings) {
-            settings = await prisma.systemSettings.update({
-                where: { id: settings.id },
-                data: { whatsappGroupId, whatsappGroupName }
-            });
-        } else {
-            settings = await prisma.systemSettings.create({
-                data: { whatsappGroupId, whatsappGroupName }
-            });
-        }
-        res.json({ success: true, settings });
-    } catch (e) {
-        logger.error(`${req.method} ${req.path}:`, e);
-        res.status(500).json({ success: false, error: 'Erro interno.' });
-    }
-});
-
 // Registar rotas
-app.use('/api/whatsapp', requireAdmin, whatsappRoutes);
 const prazosRoutes = require('./src/routes/prazosRoutes');
 app.use('/api/prazos', requireUser, prazosRoutes);
 const intimacoesRoutes = require('./src/routes/intimacoesRoutes');
@@ -128,21 +86,7 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     logger.info(`Backend Central JVO rodando na porta ${PORT}`);
 
-    // Iniciar o robô do WhatsApp ao levantar o servidor
-    if (process.env.DISABLE_WHATSAPP === 'true' || process.env.RENDER) {
-        logger.info('Ambiente Render/Desativado detectado: Robô do WhatsApp ignorado para evitar falhas do Chromium.');
-    } else {
-        initializeWhatsApp();
-    }
-    // Configurar cron job (Diariamente às 07:00 da manhã)
-    cron.schedule('0 7 * * *', async () => {
-        logger.info('Executando Rotina Diária CRON - Notificações de Audiência...');
-        await runDailyNotifications();
-    });
-
     // Sincronização automática do DJEN — dias úteis, 06:30 em Cuiabá.
-    // Guarda própria (NÃO a do WhatsApp): aquela desliga no Render por causa do
-    // Chromium; este sync é fetch puro e o Render é produção — é onde precisa rodar.
     // Timezone explícito porque o Render roda em UTC e a OAB é MT (UTC-4): sem
     // isso, '30 6' dispararia 02:30 local e o rótulo "sincronizado às 06:30" mentiria.
     if (process.env.DISABLE_DJEN_CRON === 'true') {
@@ -185,11 +129,6 @@ app.listen(PORT, () => {
 const gracefulShutdown = async (signal) => {
     logger.info(`\nRecebido ${signal}. Encerrando Central JVO de forma limpa...`);
     try {
-        const { client: wsClient } = require('./src/services/whatsappService');
-        if (wsClient) {
-            logger.info('Encerrando navegador do WhatsApp...');
-            await wsClient.destroy();
-        }
         if (prisma) {
             await prisma.$disconnect();
             logger.info('Conexão com Banco de Dados encerrada.');

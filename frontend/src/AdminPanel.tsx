@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Users, Activity, ShieldAlert } from 'lucide-react';
+import { Users, ShieldAlert } from 'lucide-react';
 
-import WhatsAppCenter from './WhatsAppCenter';
 import { apiFetch } from './firebase';
 import './AdminPanel.css';
 
-export default function AdminPanel({ currentUser }: { currentUser: any }) {
+export default function AdminPanel() {
   const [users, setUsers] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -36,16 +35,6 @@ export default function AdminPanel({ currentUser }: { currentUser: any }) {
             <div className="lx-stat-value">{loading ? '...' : users}</div>
             <div className="lx-stat-label">Usuários Autorizados</div>
           </div>
-        </div>
-
-        {/* Automação WhatsApp */}
-        <div className="admin-card">
-          <div className="admin-card-header-row">
-             <h3 className="admin-card-title">
-               <Activity size={20} color="#25D366" /> Automação WhatsApp (Avisos e Audiências)
-             </h3>
-          </div>
-          <WhatsAppCenter currentUser={currentUser} />
         </div>
 
       </div>

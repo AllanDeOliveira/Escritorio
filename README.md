@@ -13,7 +13,7 @@ Sistema interno do escritório para **controle de prazos e intimações**. Reún
 
 **Caixa de intimações (DJEN)** — sincroniza as comunicações por OAB, agrupa cópias do mesmo ato, e cada intimação vira prazo ou é descartada, com possibilidade de restaurar.
 
-**Admin** — central de WhatsApp.
+**Admin** — painel de controle.
 
 ---
 
@@ -23,17 +23,16 @@ Dois processos:
 
 | Processo | Comando | Porta | Papel |
 |---|---|---|---|
-| **API** | `npm run dev` (em `backend/`) | 3001 | Express, rotas `/api/*`, cron diário, cliente WhatsApp |
+| **API** | `npm run dev` (em `backend/`) | 3001 | Express, rotas `/api/*`, crons DJEN e PJe |
 | **Frontend** | `npm run dev` (em `frontend/`) | 5173 | Vite |
 
-**Em produção (Render)** o WhatsApp fica desligado, porque o Chromium não sobe lá.
 
 
 ---
 
 ## 🛠️ Stack
 
-**Backend** — Node 20+, Express 5, Prisma 5 + PostgreSQL, `@google/genai`, `whatsapp-web.js` + Puppeteer, `xlsx`, `node-cron`, `pino`. Testes em Vitest.
+**Backend** — Node 20+, Express 5, Prisma 5 + PostgreSQL, `@google/genai`, `xlsx`, `node-cron`, `pino`. Testes em Vitest.
 
 **Frontend** — React 18 + Vite 6 + TypeScript, Firebase Auth (Google). Sem router: navegação por aba, com estado persistido em localStorage.
 
@@ -50,7 +49,6 @@ Dois processos:
 | **DataJud / CNJ** | API pública Elasticsearch. Última movimentação dos processos ativos para o aviso diário no WhatsApp |
 | **DJEN / Comunica PJe** | Intimações por OAB, sem autenticação. As OABs monitoradas ficam em `backend/config/djen.json` |
 | **Google Gemini** | Flash Lite para mensagens de WhatsApp |
-| **WhatsApp** | `whatsapp-web.js` com sessão local. Notificação diária às 07:00, relatório do kanban |
 | **MNI / PJe (TJMT)** | SOAP com certificado A1 (mTLS). Consulta avisos pendentes |
 | **Firebase Auth** | Login com Google no frontend |
 
@@ -64,7 +62,7 @@ O DJEN devolve HTTP 500 "sistema ocupado" com frequência; o cliente já trata c
 
 ## 🔧 Rodando localmente
 
-**Pré-requisitos:** Node 20+, Docker Desktop, Google Chrome instalado (só para o robô de WhatsApp), chaves do Gemini e do DataJud.
+**Pré-requisitos:** Node 20+, Docker Desktop, chaves do Gemini e do DataJud.
 
 ```bash
 docker-compose up -d      # postgres :5433, pgadmin :5050
@@ -90,7 +88,6 @@ MNI_CPF=
 MNI_SENHA=
 MNI_CERT_PATH=
 MNI_CERT_SENHA=
-DISABLE_WHATSAPP=
 LOG_LEVEL=
 ```
 
@@ -121,7 +118,6 @@ Este repositório **não versiona** — e não deve voltar a versionar:
 ```
 backend/.env                  chaves de API e string do banco
 backend/config/escritorio.json
-backend/src/.wwebjs_auth/     sessão ativa do WhatsApp
 backend/prisma/*.db
 ```
 
@@ -147,11 +143,11 @@ backend/
   src/
     infra/                  prisma singleton, Gemini, logger
     middleware/             requireUser, requireAdmin
-    routes/                 prazos, intimacoes, mni, user, whatsapp
-    services/               djen, mni, pje, whatsapp, notification, tribunal
+    routes/                 prazos, intimacoes, mni, user
+    services/               djen, mni, pje, tribunal
 frontend/src/
   App.tsx                   shell e navegação por abas
-  DashboardTab / PrazosTab / AdminPanel / WhatsAppCenter
+  DashboardTab / PrazosTab / AdminPanel
 docker-compose.yml          postgres, pgadmin
 render.yaml                 deploy do backend
 Iniciar_App.bat             sobe backend e frontend numa janela

@@ -22,8 +22,6 @@ model User {
 
 model SystemSettings {
   id                String   @id @default(uuid())
-  whatsappGroupId   String?
-  whatsappGroupName String?
 
   // Heartbeat da sincronização DJEN. djenLastSyncAt só avança numa passada LIMPA
   // (erros.length === 0): a API do DJEN falha sem lançar, então "completou" não é

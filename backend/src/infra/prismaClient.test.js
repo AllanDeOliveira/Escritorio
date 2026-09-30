@@ -26,10 +26,10 @@ describe('prismaClient singleton (legacy Express process)', () => {
   it('returns the same instance to every consumer, mimicking index.js + routes/*.js', () => {
     const fromIndex = require('./prismaClient');
     const fromPrazosRoutes = require('./prismaClient');
-    const fromNotificationService = require('./prismaClient');
+    const fromIntimacoesRoutes = require('./prismaClient');
 
     expect(fromPrazosRoutes).toBe(fromIndex);
-    expect(fromNotificationService).toBe(fromIndex);
+    expect(fromIntimacoesRoutes).toBe(fromIndex);
   });
 
   it('reuses a pre-existing global.prisma instead of opening a second connection pool', () => {
