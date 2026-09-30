@@ -165,9 +165,11 @@ async function lerExpedientes(pjeUrl) {
 
     const situacao = linksA4j(paginaInicial.texto).find((l) => /^Pendentes de ciência ou de resposta/.test(l.rotulo));
     if (!situacao) throw new Error('Aba "Pendentes de ciência ou de resposta" não encontrada');
-    if (!situacao.total) return [];
+    if (!situacao.total) return { itens: [], incompletas: [] };
 
     const porId = new Map();
+    // Caixa que não foi lida até o fim: o tribunal não pode aparecer como "ok"
+    const incompletas = [];
     const htmlSituacao = await clicar(situacao.form, situacao.params);
     for (const jur of linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.total > 0)) {
         const htmlJur = await clicar(jur.form, jur.params);
@@ -186,14 +188,15 @@ async function lerExpedientes(pjeUrl) {
                 });
                 ({ itens } = parseLista(html));
                 if (!itens.length) break;
-                itens.forEach((i) => porId.set(i.idExpediente, i));
+                itens.forEach((i) => porId.set(i.idExpediente, { ...i, orgao: i.orgao || jur.rotulo }));
                 vistos += itens.length;
             }
             const lidos = porId.size - antes;
             (lidos < total ? logger.warn : logger.info).call(logger, `[PJe] ${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total} lido(s)`);
+            if (lidos < total) incompletas.push(`${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total}`);
         }
     }
-    return [...porId.values()];
+    return { itens: [...porId.values()], incompletas };
 }
 
 // ── Expediente ↔ intimação / prazo ─────────────────────────────────────────
@@ -282,7 +285,7 @@ async function syncExpedientesPje() {
     try {
         for (const t of TRIBUNAIS) {
             try {
-                const itens = await lerTribunal(t);
+                const { itens, incompletas } = await lerTribunal(t);
                 const agora = new Date();
                 for (const { idExpediente, ...dados } of itens) {
                     await prisma.expedientePje.upsert({
@@ -291,7 +294,12 @@ async function syncExpedientesPje() {
                         update: { ...dados, vistoEm: agora },
                     });
                 }
-                resultado.push({ tribunal: t.sigla, expedientes: itens.length });
+                resultado.push({
+                    tribunal: t.sigla,
+                    expedientes: itens.length,
+                    // O que foi lido já está salvo acima; o erro só impede o falso "ok"
+                    ...(incompletas.length ? { erro: `leitura incompleta (${incompletas.join('; ')})` } : {}),
+                });
             } catch (e) {
                 logger.error(`[PJe] ${t.sigla} falhou: ${e.message}`);
                 resultado.push({ tribunal: t.sigla, erro: e.message });

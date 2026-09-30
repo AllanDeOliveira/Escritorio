@@ -90,30 +90,18 @@ function extrairAdvogado(item) {
 
 /**
  * Sincroniza comunicações do DJEN para a tabela Intimacao.
- * Janela de busca: `dias` explícito, ou incremental (última data gravada - 2
- * dias de sobreposição; a dedupe por djenId torna a sobreposição inócua), ou
- * o backfill configurado quando a tabela está vazia.
+ * Janela de busca: `dias` explícito, ou sempre os últimos `diasBackfill` dias.
+ * Fixa de propósito: não depende do que o banco já tem, então duas instalações
+ * que sincronizam juntas buscam o mesmo recorte, e um dia em que a API falhou é
+ * rebuscado na próxima passada. A dedupe por djenId torna a sobreposição inócua.
  *
  * Corpo interno: não grava heartbeat. Use `syncIntimacoes` (que envolve esta).
  */
 async function executarSync({ dias } = {}) {
     const cfg = lerConfig();
     const hoje = new Date();
-    let inicio;
-
-    if (dias && Number(dias) > 0) {
-        inicio = new Date(hoje);
-        inicio.setDate(inicio.getDate() - Number(dias));
-    } else {
-        const ultima = await prisma.intimacao.aggregate({ _max: { dataDisponibilizacao: true } });
-        if (ultima._max.dataDisponibilizacao) {
-            inicio = new Date(ultima._max.dataDisponibilizacao);
-            inicio.setDate(inicio.getDate() - 2);
-        } else {
-            inicio = new Date(hoje);
-            inicio.setDate(inicio.getDate() - (cfg.diasBackfill || 14));
-        }
-    }
+    const inicio = new Date(hoje);
+    inicio.setDate(inicio.getDate() - (Number(dias) > 0 ? Number(dias) : (cfg.diasBackfill || 14)));
 
     const fmt = (d) => d.toISOString().slice(0, 10);
     const resultado = { criadas: 0, jaExistiam: 0, total: 0, janela: `${fmt(inicio)} a ${fmt(hoje)}`, oabs: [], erros: [] };

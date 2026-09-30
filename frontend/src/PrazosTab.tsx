@@ -249,16 +249,6 @@ export function cargaPorPessoa(prazos: Pick<Prazo, 'responsibleId' | 'bucket'>[]
   return m;
 }
 
-// Aviso pendente de ciência vindo do MNI/PJe (GET /api/mni/avisos)
-export interface AvisoMni {
-  idAviso?: string | null;
-  tipoComunicacao?: string | null;
-  dataDisponibilizacao?: string | null;
-  numeroProcesso?: string | null;
-  orgaoJulgador?: string | null;
-  destinatario?: string | null;
-}
-
 export function agruparIntimacoes(list: Intimacao[]): IntGroup[] {
   const m = new Map<string, IntGroup>();
   list.forEach(i => {
@@ -372,9 +362,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Distribuição por área: cada pessoa tria as próprias áreas e fica com os prazos que gera
   const minhasAreas: AreaKey[] = dbUser?.areas || [];
-  const [escolhendoAreas, setEscolhendoAreas] = useState(false);
-  const [rascunhoAreas, setRascunhoAreas] = useState<AreaKey[]>([]);
-  const [salvandoAreas, setSalvandoAreas] = useState(false);
   const [soMeus, setSoMeus] = useState(false);
   const [equipe, setEquipe] = useState<Membro[]>([]);
 
@@ -399,34 +386,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     document.addEventListener('mousedown', fechar);
     return () => document.removeEventListener('mousedown', fechar);
   }, [menu]);
-
-  // Pendentes de ciência no PJe via MNI (Fase 4 — somente leitura)
-  const [mniAvisos, setMniAvisos] = useState<AvisoMni[] | null>(null);
-  const [mniAberto, setMniAberto] = useState(false);
-  const [mniLoading, setMniLoading] = useState(false);
-  const mniTentado = useRef(false);
-
-  const carregarMni = useCallback(async () => {
-    setMniLoading(true);
-    try {
-      const r = await apiFetch(`${API}/api/mni/avisos`);
-      const d = await r.json();
-      // não configurado ou falha de login: painel simplesmente não aparece
-      setMniAvisos(d.success && d.configurado ? d.avisos : null);
-    } catch {
-      setMniAvisos(null);
-    } finally {
-      setMniLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.email]);
-
-  useEffect(() => {
-    if (view === 'inbox' && !mniTentado.current) {
-      mniTentado.current = true;
-      carregarMni();
-    }
-  }, [view, carregarMni]);
 
   const defaultMover = dbUser?.name || currentUser?.displayName || currentUser?.email || '';
 
@@ -665,32 +624,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         carregarIntimacoes(intFilter);
       } catch { showToast('Erro ao descartar.', 'error'); }
     });
-  };
-
-  const abrirEscolhaAreas = () => { setRascunhoAreas(minhasAreas); setEscolhendoAreas(true); };
-
-  const salvarAreas = async () => {
-    setSalvandoAreas(true);
-    try {
-      const r = await apiFetch(`${API}/api/users/me/areas`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ areas: rascunhoAreas }),
-      });
-      const d = await r.json();
-      if (d.success) {
-        onDbUserChange?.({ ...dbUser, areas: d.areas });
-        setIntArea(d.areas.length ? 'minhas' : '');
-        setEscolhendoAreas(false);
-        showToast('Suas áreas foram salvas.', 'success');
-      } else {
-        showToast(d.error || 'Erro ao salvar as áreas.', 'error');
-      }
-    } catch {
-      showToast('Erro de conexão ao salvar as áreas.', 'error');
-    } finally {
-      setSalvandoAreas(false);
-    }
   };
 
   const restaurarIntimacao = async (g: IntGroup) => {
@@ -1149,82 +1082,12 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                           {orgaosOpcoes.map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
                         </select>
                       </label>
-                      <button type="button" className="prazo-fp-link" onClick={() => { setMenu(null); abrirEscolhaAreas(); }}>
-                        ★ {minhasAreas.length > 0 ? 'Editar minhas áreas' : 'Escolher minhas áreas'}
-                      </button>
                     </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
-
-          {escolhendoAreas && (
-            <div className="prazo-areas-painel">
-              <span className="prazo-areas-painel-titulo">Quais áreas você tria?</span>
-              <div className="prazo-areas-painel-opcoes">
-                {AREAS.map(a => (
-                  <label key={a.key} className="prazo-areas-painel-opcao">
-                    <input
-                      type="checkbox"
-                      checked={rascunhoAreas.includes(a.key)}
-                      onChange={e => setRascunhoAreas(prev => e.target.checked ? [...prev, a.key] : prev.filter(k => k !== a.key))}
-                    />
-                    {a.label}
-                  </label>
-                ))}
-              </div>
-              <div className="prazo-areas-painel-acoes">
-                <button type="button" className="lx-btn-tool" onClick={() => setEscolhendoAreas(false)} disabled={salvandoAreas}>Cancelar</button>
-                <button type="button" className="lx-btn-primary" onClick={salvarAreas} disabled={salvandoAreas}>
-                  {salvandoAreas ? <Loader2 className="lx-spin" size={14} /> : <Check size={14} />} Salvar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {mniAvisos !== null && mniAvisos.length > 0 && (
-            <div className="prazo-mni">
-              <div className="prazo-mni-head">
-                <button type="button" className="prazo-mni-toggle" onClick={() => setMniAberto(!mniAberto)}>
-                  <ChevronRight size={16} className={`prazo-carteira-seta ${mniAberto ? 'prazo-carteira-seta--aberta' : ''}`} />
-                  <span className="prazo-mni-titulo">
-                    PJe/TJMT: <strong>{mniAvisos.length}</strong> expediente{mniAvisos.length > 1 ? 's' : ''} pendente{mniAvisos.length > 1 ? 's' : ''} de ciência
-                  </span>
-                  {mniAvisos.some(a => a.tipoComunicacao === 'URG') && <span className="prazo-mni-urg">URGENTE na fila</span>}
-                </button>
-                <button type="button" className="prazo-mes-nav" title="Atualizar consulta no PJe" onClick={carregarMni} disabled={mniLoading}>
-                  {mniLoading ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
-                </button>
-              </div>
-              {mniAberto && (
-                <>
-                  <ul className="prazo-mni-lista">
-                    {mniAvisos.map((a, idx) => (
-                      <li key={a.idAviso || idx} className="prazo-mni-item">
-                        <span className={`prazo-mni-tipo ${a.tipoComunicacao === 'URG' ? 'prazo-mni-tipo--urg' : ''}`}>{a.tipoComunicacao || 'INT'}</span>
-                        <button
-                          type="button"
-                          className="prazo-mni-proc"
-                          title="Buscar este processo na caixa"
-                          onClick={() => { setIntBusca(formatarNumeroCnj(a.numeroProcesso)); setIntMes(''); }}
-                        >
-                          {formatarNumeroCnj(a.numeroProcesso)}
-                        </button>
-                        <span className="prazo-mni-orgao">{a.orgaoJulgador || '—'}</span>
-                        <span className="prazo-mni-data">{a.dataDisponibilizacao ? formatDate(a.dataDisponibilizacao) : ''}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="prazo-mni-aviso">
-                    A ciência <strong>não</strong> é dada por aqui — este painel apenas monitora. Para tomar ciência,{' '}
-                    <a href="https://pje.tjmt.jus.br/pje/login.seam" target="_blank" rel="noopener noreferrer">abra o expediente no PJe</a>.
-                    Sem ação, a ciência tácita ocorre em 10 dias corridos.
-                  </div>
-                </>
-              )}
-            </div>
-          )}
 
           {intLoading ? (
             <div className="prazo-loading"><Loader2 className="lx-spin" size={32} /></div>
