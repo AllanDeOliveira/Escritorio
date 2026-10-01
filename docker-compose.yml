@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
       POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
     ports:
-      - "5433:5432" # exposto na rede local: outras máquinas do escritório usam este banco
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

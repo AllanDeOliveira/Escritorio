@@ -46,3 +46,7 @@ backend/pje-*.txt
 
 # graphify (grafo de código gerado, regenerável)
 graphify-out/
+
+# cópias do banco (dados de clientes — nunca versionar)
+*.dump
+backups/

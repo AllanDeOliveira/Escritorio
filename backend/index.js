@@ -83,7 +83,15 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+// Express 5 chama este callback também quando o listen FALHA (ex.: porta em uso),
+// passando o erro. Sem esta checagem o log dizia "rodando" e o processo saía mudo.
+app.listen(PORT, (err) => {
+    if (err) {
+        logger.error(err.code === 'EADDRINUSE'
+            ? `Porta ${PORT} já está em uso — outro backend ainda está rodando? Encerre-o e inicie de novo.`
+            : `Falha ao abrir a porta ${PORT}:`, err);
+        process.exit(1);
+    }
     logger.info(`Backend Central JVO rodando na porta ${PORT}`);
 
     // Sincronização automática do DJEN — dias úteis, 06:30 em Cuiabá.
