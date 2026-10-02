@@ -1,20 +1,19 @@
 import { useState, useEffect } from 'react';
 import { Users, ShieldAlert } from 'lucide-react';
 
-import { apiFetch } from './firebase';
+import { apiFetch, API } from './firebase';
 import './AdminPanel.css';
 
 export default function AdminPanel() {
-  const [users, setUsers] = useState(0);
-  const [loading, setLoading] = useState(true);
+  // null = ainda carregando ou falhou (mostra "—", nunca um "0" falso)
+  const [users, setUsers] = useState<number | null>(null);
+  const [erro, setErro] = useState(false);
 
   useEffect(() => {
-    const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
     apiFetch(`${API}/api/admin/stats`)
       .then(r => r.json())
-      .then(d => { if (d.success) setUsers(d.stats.users); })
-      .catch(err => console.error("Erro ao buscar dados do admin:", err))
-      .finally(() => setLoading(false));
+      .then(d => { if (d.success) setUsers(d.stats.users); else setErro(true); })
+      .catch(err => { console.error("Erro ao buscar dados do admin:", err); setErro(true); });
   }, []);
 
   return (
@@ -32,8 +31,8 @@ export default function AdminPanel() {
         <div className="admin-stats-grid">
           <div className="lx-stat-card">
             <div className="lx-stat-icon-box"><Users size={24} /></div>
-            <div className="lx-stat-value">{loading ? '...' : users}</div>
-            <div className="lx-stat-label">Usuários Autorizados</div>
+            <div className="lx-stat-value">{users ?? (erro ? '—' : '...')}</div>
+            <div className="lx-stat-label">{erro ? 'Não foi possível carregar' : 'Usuários Autorizados'}</div>
           </div>
         </div>
 

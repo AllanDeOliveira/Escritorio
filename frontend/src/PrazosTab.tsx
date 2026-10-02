@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  Plus, Check, Pencil, Trash2, X, CalendarClock, Loader2, Upload, Download,
+  Plus, Check, Trash2, X, CalendarClock, Loader2, Upload, Download,
   Inbox, RefreshCw, ExternalLink, RotateCcw, ChevronLeft, ChevronRight, Search,
-  ChevronDown, Users, Clock, MoreHorizontal, SlidersHorizontal, ArrowRight, AlertTriangle,
+  ChevronDown, Users, MoreHorizontal, SlidersHorizontal, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 import './PrazosTab.css';
-import { apiFetch } from './firebase';
+import { apiFetch, API } from './firebase';
 
-const API = import.meta.env.VITE_LEGACY_API_URL || 'http://localhost:3001';
 const API_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 // `link` vem da API do DJEN: só vira href se for http(s) (nada de javascript:).
 const linkSeguro = (u?: string | null) => (u && /^https?:\/\//i.test(u) ? u : undefined);
@@ -272,8 +271,6 @@ interface PrazosTabProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   // View inicial ao montar (deep-link do dashboard: card de intimações → 'inbox')
   initialView?: 'board' | 'inbox';
-  // Propaga ao App o usuário atualizado (ex.: "minhas áreas" salvas), para não voltar velho ao remontar a aba
-  onDbUserChange?: (user: Record<string, unknown>) => void;
 }
 
 type Membro = { id: string; name?: string | null; email: string; noQuadro?: boolean };
@@ -293,10 +290,15 @@ export function relativeLabel(days: number): string {
   return `em ${days} dias`;
 }
 
-// Data limite do PJe → "AAAA-MM-DD" do input date (gravada como meia-noite local no backend)
+// Data gravada → "AAAA-MM-DD" do input date, no fuso LOCAL (o backend grava meia-noite
+// local; toISOString() é UTC e devolvia o dia anterior em qualquer fuso a oeste de Greenwich)
+function dataLocal(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Data limite do PJe → input date
 function limitePje(i: Intimacao): string {
-  const d = i.expedientePje?.dataLimite ? new Date(i.expedientePje.dataLimite) : null;
-  return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+  return i.expedientePje?.dataLimite ? dataLocal(i.expedientePje.dataLimite) : '';
 }
 
 function formatDate(iso: string): string {
@@ -304,7 +306,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board', onDbUserChange }: PrazosTabProps) {
+export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board' }: PrazosTabProps) {
   const [todosGroups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
@@ -319,9 +321,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   // Cards visíveis por coluna (caixa e quadro); "Mostrar mais" soma uma página
   const [limites, setLimites] = useState<Record<string, number>>({});
 
-  // Prompt "quem movimentou" (aceita o prazo do quadro ou o vinculado a uma intimação)
+  // Confirmação de movimentação (aceita o prazo do quadro ou o vinculado a uma intimação).
+  // Quem moveu é sempre o usuário logado — o backend ignora qualquer nome digitado.
   const [moveModal, setMoveModal] = useState<{ prazo: Pick<Prazo, 'id' | 'title'> & { caseReference?: string | null }; targetStatus: string } | null>(null);
-  const [moverName, setMoverName] = useState('');
 
   // Importação
   const [importOpen, setImportOpen] = useState(false);
@@ -347,7 +349,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     const d = new Date(y, m - 1 + delta, 1);
     setIntMes(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
-  const [intLoading, setIntLoading] = useState(false);
+  const [intLoading, setIntLoading] = useState(true);
+  // Nº da última requisição da caixa: resposta atrasada de um mês anterior não sobrescreve a atual
+  const intReq = useRef(0);
   const [syncing, setSyncing] = useState(false);
   const [syncingPje, setSyncingPje] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -402,8 +406,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       .then(r => r.json())
       .then(d => { if (d.success) setEquipe(d.users); })
       .catch(() => { /* seletor cai para só o usuário logado */ });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.email]);
+
+  // Mudou o filtro da caixa: a seleção em lote não pode agir em cards que sumiram da tela
+  useEffect(() => { setSelecionados([]); }, [intArea, intTribunal, intOrgao, intBusca]);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -426,10 +432,12 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   useEffect(() => { carregar(); }, [carregar]);
 
   const carregarIntimacoes = useCallback(async (filter: 'NOVA' | 'GERADA' | 'DESCARTADA' = 'NOVA') => {
+    const seq = ++intReq.current;
     setIntLoading(true);
     try {
       const r = await apiFetch(`${API}/api/intimacoes?status=${filter}${intMes ? `&mes=${intMes}` : ''}`);
       const d = await r.json();
+      if (seq !== intReq.current) return; // já pediram outro mês/filtro depois desta
       if (d.success) {
         setIntimacoes(d.intimacoes);
         setIntCounts(d.counts);
@@ -437,9 +445,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         setEnvio(null);
       }
     } catch {
-      showToast('Erro ao carregar intimações.', 'error');
+      if (seq === intReq.current) showToast('Erro ao carregar intimações.', 'error');
     } finally {
-      setIntLoading(false);
+      if (seq === intReq.current) setIntLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.email, intMes]);
@@ -512,7 +520,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       body: JSON.stringify({ ...dadosDaIntimacao(g.rep), fatalDate: fatal, grupoIds: g.ids.filter(id => id !== g.rep.id) }),
     });
     const d = await r.json();
-    return { ok: !!d.success, erro: d.error as string | undefined };
+    return { ok: !!d.success, erro: (d.details?.join(' · ') || d.error) as string | undefined };
   };
 
   const gerarPrazoIntimacao = async () => {
@@ -628,12 +636,13 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const restaurarIntimacao = async (g: IntGroup) => {
     try {
-      await apiFetch(`${API}/api/intimacoes/${g.rep.id}/restaurar`, {
+      const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/restaurar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
       });
-      showToast('Intimação restaurada.', 'success');
+      const d = await r.json();
+      showToast(d.success ? 'Intimação restaurada.' : d.error || 'Erro ao restaurar.', d.success ? 'success' : 'error');
       carregarIntimacoes(intFilter);
     } catch { showToast('Erro ao restaurar.', 'error'); }
   };
@@ -651,8 +660,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       responsibleName: p.responsibleName || '', responsibleId: p.responsibleId || '',
       type: p.type || 'JUDICIAL',
       prioridade: p.prioridade || '',
-      fatalDate: p.fatalDate ? new Date(p.fatalDate).toISOString().slice(0, 10) : '',
-      internalDate: p.internalDate ? new Date(p.internalDate).toISOString().slice(0, 10) : '',
+      fatalDate: p.fatalDate ? dataLocal(p.fatalDate) : '',
+      internalDate: p.internalDate ? dataLocal(p.internalDate) : '',
       description: p.description || '',
     });
     setModalOpen(true);
@@ -687,7 +696,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         showToast(editingId ? 'Prazo atualizado!' : 'Prazo criado!', 'success');
         carregar();
       } else {
-        showToast(d.error || 'Erro ao salvar prazo.', 'error');
+        // 400 vem com `details` (ex.: "internalDate não pode ser posterior a fatalDate") — é o que o usuário precisa ler
+        showToast(d.details?.join(' · ') || d.error || 'Erro ao salvar prazo.', 'error');
       }
     } catch {
       showToast('Erro de conexão ao salvar.', 'error');
@@ -699,11 +709,12 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const excluir = (p: Prazo) => {
     (window as any).showConfirm(`Excluir o prazo "${p.title}"?`, async () => {
       try {
-        await apiFetch(`${API}/api/prazos/${p.id}`, { method: 'DELETE' });
+        const r = await apiFetch(`${API}/api/prazos/${p.id}`, { method: 'DELETE' });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error); // sucesso é 204 sem corpo
         setModalOpen(false);
         showToast('Prazo excluído.', 'info');
         carregar();
-      } catch { showToast('Erro ao excluir.', 'error'); }
+      } catch (e) { showToast((e as Error).message || 'Erro ao excluir.', 'error'); }
     });
   };
 
@@ -722,17 +733,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     // Arrastar entre colunas de urgência não muda nada (a coluna é definida pela data).
     if (targetIsDone === d.isDone) return;
     const targetStatus = targetIsDone ? 'CUMPRIDO' : 'PENDENTE';
-    setMoverName(defaultMover);
     setMoveModal({ prazo: d.prazo, targetStatus });
   };
 
   const confirmarMovimentacao = async () => {
-    if (!moveModal || !moverName.trim()) return;
+    if (!moveModal) return;
     try {
       const r = await apiFetch(`${API}/api/prazos/${moveModal.prazo.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: moveModal.targetStatus, lastMovedBy: moverName.trim() }),
+        // lastMovedBy preenchido = "foi um arraste"; o backend grava o usuário autenticado
+        body: JSON.stringify({ status: moveModal.targetStatus, lastMovedBy: defaultMover || 'x' }),
       });
       const d = await r.json();
       if (d.success) {
@@ -752,6 +763,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const baixarModelo = async () => {
     try {
       const r = await apiFetch(`${API}/api/prazos/template`);
+      if (!r.ok) throw new Error(); // senão o JSON de erro viraria um .xlsx corrompido
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -769,8 +781,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       const r = await apiFetch(`${API}/api/prazos/import`, { method: 'POST', body: fd });
       const d = await r.json();
       if (d.success) {
-        const ign = d.ignoredNoDate ? ` · ${d.ignoredNoDate} sem data ignorada(s)` : '';
-        showToast(`${d.imported} prazo(s) importado(s)!${ign}`, d.imported > 0 ? 'success' : 'info');
+        const ign = d.ignoredNoDate ? ` · ${d.ignoredNoDate} sem data/título ignorada(s)` : '';
+        const falhas = d.errors?.length ? ` · ${d.errors.length} linha(s) com erro: ${d.errors.slice(0, 2).join('; ')}` : '';
+        showToast(`${d.imported} prazo(s) importado(s)!${ign}${falhas}`, falhas ? 'error' : d.imported > 0 ? 'success' : 'info');
         setImportOpen(false);
         carregar();
       } else {
@@ -827,8 +840,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   // Colunas do "Por pessoa" e destinos do "Enviar para": quem o admin pôs no quadro.
   // Enquanto ninguém foi marcado, vale a equipe toda (comportamento anterior).
   const marcados = opcoesEquipe.filter(u => u.noQuadro);
-  // Cor fixa por posição na equipe (4 tons que se repetem): avatar, coluna e contagem
-  const CORES_PESSOA = ['#b8902e', '#2563eb', '#16a34a', '#7c3aed'];
+  // Cor fixa por posição na equipe (4 tons que se repetem, em .prazo-av--N no CSS): avatar, coluna e contagem
   const idxPessoa = (id?: string | null) => opcoesEquipe.findIndex(u => u.id === id);
   const avatar = (id?: string | null, nome?: string | null, cls = '') => {
     const idx = idxPessoa(id);
@@ -910,7 +922,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const PRIO_COR: Record<string, string> = { ALTA: '#b91c1c', MEDIA: '#b45309', BAIXA: '#667085', '': '#98a2b3' };
   const rotuloPrio = (k?: string | null) => PRIORIDADES.find(x => x.key === k)?.label;
 
-  const cardPrazo = (p: Prazo, col: ColQuadro) => {
+  const cardPrazo = (p: Prazo) => {
     const origem = p.intimacoes?.[0];
     const tipo = origem?.tipoDocumento || origem?.tipoComunicacao || (p.type ? p.type.charAt(0) + p.type.slice(1).toLowerCase() : '');
     const movido = p.lastMovedBy ? `movido por ${p.lastMovedBy}${p.lastMovedAt ? ` · ${formatDate(p.lastMovedAt)}` : ''}` : undefined;
@@ -919,7 +931,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         key={p.id}
         className={`prazo-card ${p.bucket === 'concluido' ? 'prazo-card--done' : ''}`}
         draggable
-        onDragStart={() => onDragStart(p)}
+        // setData é obrigatório: sem dado no dragstart o Firefox nem inicia o arraste
+        onDragStart={e => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; onDragStart(p); }}
         onClick={() => abrirEdicao(p)}
         onKeyDown={e => { if (e.key === 'Enter') abrirEdicao(p); }}
         role="button"
@@ -1297,7 +1310,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                                           <button
                                             type="button"
                                             className="prazo-btn prazo-btn--navy prazo-btn--sm"
-                                            onClick={() => { setMoverName(defaultMover); setMoveModal({ prazo: i.prazo!, targetStatus: 'CUMPRIDO' }); }}
+                                            onClick={() => setMoveModal({ prazo: i.prazo!, targetStatus: 'CUMPRIDO' })}
                                           >
                                             <Check size={13} /> Concluir
                                           </button>
@@ -1515,11 +1528,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                             {cabecalho && (
                               <div className="prazo-grupo" style={{ '--cor': PRIO_COR[prio] } as React.CSSProperties}>
                                 <i className="prazo-dot" />
-                                {prio ? `Prioridade ${rotuloPrio(prio)!.toLowerCase()}` : 'Sem prioridade'}
+                                {prio ? `Prioridade ${(rotuloPrio(prio) || prio).toLowerCase()}` : 'Sem prioridade'}
                                 <span className="prazo-grupo-n">{col.itens.filter(x => (x.prioridade || '') === prio).length}</span>
                               </div>
                             )}
-                            {cardPrazo(p, col)}
+                            {cardPrazo(p)}
                           </div>
                         );
                       })}
@@ -1634,16 +1647,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 <strong>{moveModal.prazo.title}</strong>
                 {moveModal.prazo.caseReference && ` · ${moveModal.prazo.caseReference}`}
               </p>
-              <div className="prazo-field">
-                <label htmlFor="prazo-mover">Quem está movimentando? *</label>
-                <input id="prazo-mover" type="text" value={moverName} autoFocus placeholder="Seu nome"
-                  onChange={e => setMoverName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && moverName.trim()) confirmarMovimentacao(); }} />
-              </div>
+              <p className="prazo-move-desc">Fica registrado como movimentado por <strong>{defaultMover || 'você'}</strong>.</p>
             </div>
             <div className="prazo-modal-footer">
               <button className="lx-btn-tool" onClick={() => setMoveModal(null)}>Cancelar</button>
-              <button className="lx-btn-primary" onClick={confirmarMovimentacao} disabled={!moverName.trim()}>
+              <button className="lx-btn-primary" onClick={confirmarMovimentacao} autoFocus>
                 <Check size={16} /> Confirmar
               </button>
             </div>

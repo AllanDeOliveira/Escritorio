@@ -139,6 +139,7 @@ function soapPost({ url, envelope, pfx, passphrase, timeoutMs = 60000 }) {
             let body = '';
             res.on('data', (c) => { body += c; });
             res.on('end', () => resolve({ status: res.statusCode, body }));
+            res.on('error', reject); // conexão derrubada no meio do corpo: sem isto a promise pendurava para sempre
         });
         req.on('timeout', () => req.destroy(new Error(`timeout após ${timeoutMs}ms`)));
         req.on('error', reject);

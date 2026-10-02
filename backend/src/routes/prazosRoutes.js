@@ -48,6 +48,14 @@ function parseDateOnly(value) {
     return new Date(value);
 }
 
+// Data de formulário: só "AAAA-MM-DD" que existe de verdade (nada de 2026-02-30 "rolando"
+// para março, nem número/timestamp virando 01/01/1970). O <input type=date> manda assim.
+function dataValida(v) {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+    const d = parseDateOnly(v);
+    return d.getMonth() === Number(v.slice(5, 7)) - 1 && d.getDate() === Number(v.slice(8, 10));
+}
+
 /**
  * Parse tolerante de data vinda da planilha: aceita Date do Excel, "DD/MM/AAAA"
  * e "AAAA-MM-DD". Sempre retorna meia-noite LOCAL (mesma regra do parseDateOnly).
@@ -67,15 +75,20 @@ function parseImportDate(v) {
     if (v instanceof Date && !isNaN(v)) return naFaixa(parseDateOnly(v.toISOString().slice(0, 10)));
     const s = String(v).trim();
     if (!s) return null;
-    // DD/MM/AAAA ou DD.MM.AAAA — ano opcional (assume o ano corrente quando ausente)
-    let m = s.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?$/);
+    // DD/MM/AAAA ou DD.MM.AAAA — ano opcional (assume o ano corrente quando ausente);
+    // ou a mesma data com ano de 4 dígitos dentro de um texto ("Prazo até 10/07/2030").
+    // Texto livre NUNCA vai ao new Date(): o V8 lia "10/07/2030" como M/D/Y e gravava
+    // 07/10/2030 sem avisar. O que não casa aqui é "sem data", não data errada.
+    let m = s.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?$/) || s.match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
     if (m) {
         const year = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : new Date().getFullYear();
-        return naFaixa(new Date(year, Number(m[2]) - 1, Number(m[1])));
+        const d = new Date(year, Number(m[2]) - 1, Number(m[1]));
+        // 31/02 "rola" para março: dia e mês têm que bater com o digitado
+        return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[1]) ? naFaixa(d) : null;
     }
     m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); // AAAA-MM-DD
     if (m) return naFaixa(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-    return naFaixa(new Date(s));
+    return null;
 }
 
 /**
@@ -141,43 +154,52 @@ function enrich(prazo) {
 
 function validateCreate(body) {
     const errors = [];
-    if (!body.title || typeof body.title !== 'string') errors.push('title é obrigatório');
-    if (!body.fatalDate || isNaN(Date.parse(body.fatalDate))) errors.push('fatalDate é obrigatório e deve ser uma data válida');
+    if (typeof body.title !== 'string' || !body.title.trim()) errors.push('title é obrigatório');
+    if (!dataValida(body.fatalDate)) errors.push('fatalDate é obrigatório e deve ser uma data válida (AAAA-MM-DD)');
     if (body.prioridade && !PRAZO_PRIORIDADES.includes(body.prioridade)) errors.push(`prioridade deve ser uma de: ${PRAZO_PRIORIDADES.join(', ')}`);
-    if (body.internalDate && isNaN(Date.parse(body.internalDate))) errors.push('internalDate inválida');
+    if (body.internalDate && !dataValida(body.internalDate)) errors.push('internalDate inválida');
     if (body.type && !PRAZO_TYPES.includes(body.type)) errors.push(`type deve ser um de: ${PRAZO_TYPES.join(', ')}`);
-    if (body.fatalDate && body.internalDate && !isNaN(Date.parse(body.internalDate)) && !isNaN(Date.parse(body.fatalDate))) {
-        if (new Date(body.internalDate) > new Date(body.fatalDate)) {
-            errors.push('internalDate não pode ser posterior a fatalDate');
-        }
+    if (dataValida(body.fatalDate) && body.internalDate && dataValida(body.internalDate) && body.internalDate > body.fatalDate) {
+        errors.push('internalDate não pode ser posterior a fatalDate'); // AAAA-MM-DD compara como string
     }
     return errors;
+}
+
+// Erros do Prisma que são culpa da entrada, não do servidor: viram 400 com motivo
+function erroDeEntrada(error) {
+    if (error.code === 'P2003') return 'Responsável, processo ou cliente informado não existe.';
+    if (error.name === 'PrismaClientValidationError') return 'Dados em formato inválido.';
+    return null;
 }
 
 // GET /api/prazos - lista com filtros
 router.get('/', async (req, res) => {
     try {
         const { status, responsibleId, lawsuitId, clientId, from, to, overdue } = req.query;
+        // Parâmetro repetido (?a=1&a=2) vira array e derrubava o Prisma: só string vale
+        const str = (v) => (typeof v === 'string' && v ? v : undefined);
 
-        if (from && isNaN(Date.parse(from))) {
-            return res.status(400).json({ success: false, error: 'Parâmetro "from" inválido' });
+        if (from && !dataValida(from)) {
+            return res.status(400).json({ success: false, error: 'Parâmetro "from" inválido (AAAA-MM-DD)' });
         }
-        if (to && isNaN(Date.parse(to))) {
-            return res.status(400).json({ success: false, error: 'Parâmetro "to" inválido' });
+        if (to && !dataValida(to)) {
+            return res.status(400).json({ success: false, error: 'Parâmetro "to" inválido (AAAA-MM-DD)' });
         }
 
         const where = {};
-        const statusExplicito = status && PRAZO_STATUS.includes(status) ? status : null;
+        const statusExplicito = typeof status === 'string' && PRAZO_STATUS.includes(status) ? status : null;
         // Cancelado sai do quadro ativo por padrão; ainda acessível via ?status=CANCELADO.
         if (statusExplicito) where.status = statusExplicito;
         else where.status = { not: 'CANCELADO' };
-        if (responsibleId) where.responsibleId = responsibleId;
-        if (lawsuitId) where.lawsuitId = lawsuitId;
-        if (clientId) where.clientId = clientId;
+        if (str(responsibleId)) where.responsibleId = responsibleId;
+        if (str(lawsuitId)) where.lawsuitId = lawsuitId;
+        if (str(clientId)) where.clientId = clientId;
         if (from || to) {
+            // Prazos são meia-noite LOCAL (parseDateOnly); "to" inclui o dia inteiro
+            const fimExclusivo = to ? new Date(parseDateOnly(to).getTime() + 24 * 60 * 60 * 1000) : null;
             where.fatalDate = {
-                ...(from ? { gte: new Date(from) } : {}),
-                ...(to ? { lte: new Date(to) } : {}),
+                ...(from ? { gte: parseDateOnly(from) } : {}),
+                ...(to ? { lt: fimExclusivo } : {}),
             };
         }
         if (overdue === 'true') {
@@ -273,8 +295,22 @@ router.post('/import', upload.single('planilha'), async (req, res) => {
             return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado.' });
         }
 
-        const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
+        // CSV UTF-8 sem BOM (Google Sheets, LibreOffice) era lido como Latin-1: "Título" virava
+        // "TÃ­tulo" e nenhuma coluna casava. Só força UTF-8 quando o arquivo é UTF-8 válido —
+        // o CSV ANSI do Excel continua sendo lido como antes.
+        let codepage;
+        try { new TextDecoder('utf-8', { fatal: true }).decode(req.file.buffer); codepage = 65001; } catch { /* ANSI ou binário */ }
+        let wb;
+        try {
+            // raw: true só vale para CSV/TXT — mantém "10/07/2030" como TEXTO. Sem isso a
+            // biblioteca o convertia em data no padrão americano (7 de outubro) antes do
+            // nosso parser dd/mm ver a célula. Datas reais de .xlsx continuam vindo como Date.
+            wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true, codepage, raw: true });
+        } catch {
+            return res.status(400).json({ success: false, error: 'Não foi possível ler o arquivo. Envie uma planilha .xlsx ou .csv.' });
+        }
         const sheet = wb.Sheets[wb.SheetNames[0]];
+        if (!sheet) return res.status(400).json({ success: false, error: 'A planilha está vazia.' });
         const createdById = req.currentUser?.id || undefined;
 
         // Monta a lista de registros conforme o formato detectado.
@@ -317,19 +353,31 @@ router.post('/import', upload.single('planilha'), async (req, res) => {
         } else {
             // ── Formato do modelo padrão (cabeçalhos fixos) ──────────────────
             const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+            // Cabeçalho sem acento ("Titulo", "Responsavel") também vale
+            const semAcento = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+            const colunas = Object.keys(rows[0] || {});
+            const col = (...nomes) => colunas.find((c) => nomes.includes(semAcento(c)));
+            const cTitulo = col('titulo');
+            const cFatal = col('prazo limite', 'data fatal'); // planilhas antigas usam "Data Fatal"
+            if (!cTitulo || !cFatal) {
+                return res.status(400).json({ success: false, error: 'Formato não reconhecido: a planilha precisa das colunas "Título" e "Prazo Limite" (baixe o modelo) ou do cabeçalho "Publicações Processuais".' });
+            }
+            const cCaso = col('processo/cliente'); const cResp = col('responsavel'); const cTipo = col('tipo');
+            const cInterno = col('prazo interno'); const cObs = col('observacoes');
+            const txt = (row, c) => (c ? String(row[c] || '').trim() : '');
             for (const row of rows) {
-                const title = String(row['Título'] || '').trim();
-                const fatalDate = parseImportDate(row['Prazo Limite'] ?? row['Data Fatal']); // planilhas antigas usam "Data Fatal"
+                const title = txt(row, cTitulo);
+                const fatalDate = parseImportDate(row[cFatal]);
                 if (!title || !fatalDate) { ignoredNoDate++; continue; }
-                const typeRaw = String(row['Tipo'] || '').trim().toUpperCase();
+                const typeRaw = txt(row, cTipo).toUpperCase();
                 records.push({
                     title,
-                    caseReference: String(row['Processo/Cliente'] || '').trim() || null,
-                    responsibleName: String(row['Responsável'] || '').trim() || null,
+                    caseReference: txt(row, cCaso) || null,
+                    responsibleName: txt(row, cResp) || null,
                     type: PRAZO_TYPES.includes(typeRaw) ? typeRaw : 'JUDICIAL',
                     fatalDate,
-                    internalDate: parseImportDate(row['Prazo Interno']) || undefined,
-                    description: String(row['Observações'] || '').trim() || null,
+                    internalDate: (cInterno && parseImportDate(row[cInterno])) || undefined,
+                    description: txt(row, cObs) || null,
                 });
             }
         }
@@ -365,7 +413,7 @@ router.post('/', async (req, res) => {
 
         const prazo = await prisma.prazo.create({
             data: {
-                title,
+                title: title.trim(),
                 description,
                 type: type || 'JUDICIAL',
                 prioridade: prioridade || null,
@@ -383,6 +431,8 @@ router.post('/', async (req, res) => {
 
         res.status(201).json({ success: true, prazo: enrich(prazo) });
     } catch (error) {
+        const motivo = erroDeEntrada(error);
+        if (motivo) return res.status(400).json({ success: false, error: motivo });
         logger.error('[createPrazo] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao criar prazo.' });
     }
@@ -396,16 +446,27 @@ router.put('/:id', async (req, res) => {
         const body = req.body;
 
         const errors = [];
+        if (body.title !== undefined && (typeof body.title !== 'string' || !body.title.trim())) errors.push('title não pode ficar vazio');
         if (body.status !== undefined && !PRAZO_STATUS.includes(body.status)) errors.push(`status deve ser um de: ${PRAZO_STATUS.join(', ')}`);
         if (body.type !== undefined && !PRAZO_TYPES.includes(body.type)) errors.push(`type deve ser um de: ${PRAZO_TYPES.join(', ')}`);
         if (body.prioridade && !PRAZO_PRIORIDADES.includes(body.prioridade)) errors.push(`prioridade deve ser uma de: ${PRAZO_PRIORIDADES.join(', ')}`);
-        if (body.fatalDate !== undefined && isNaN(Date.parse(body.fatalDate))) errors.push('fatalDate inválida');
-        if (body.internalDate && isNaN(Date.parse(body.internalDate))) errors.push('internalDate inválida');
+        if (body.fatalDate !== undefined && !dataValida(body.fatalDate)) errors.push('fatalDate inválida (AAAA-MM-DD)');
+        if (body.internalDate && !dataValida(body.internalDate)) errors.push('internalDate inválida (AAAA-MM-DD)');
         if (errors.length > 0) {
             return res.status(400).json({ success: false, error: 'Dados inválidos', details: errors });
         }
+        // Interno depois do fatal: cruza o valor novo com o que já está gravado (o POST já cruzava)
+        if (body.fatalDate !== undefined || body.internalDate) {
+            const atual = await prisma.prazo.findUnique({ where: { id }, select: { fatalDate: true, internalDate: true } });
+            if (!atual) return res.status(404).json({ success: false, error: 'Prazo não encontrado.' });
+            const fatal = body.fatalDate !== undefined ? parseDateOnly(body.fatalDate) : atual.fatalDate;
+            const interno = body.internalDate ? parseDateOnly(body.internalDate) : (body.internalDate === undefined ? atual.internalDate : null);
+            if (interno && fatal && interno > fatal) {
+                return res.status(400).json({ success: false, error: 'Dados inválidos', details: ['internalDate não pode ser posterior a fatalDate'] });
+            }
+        }
 
-        if (body.title !== undefined) data.title = body.title;
+        if (body.title !== undefined) data.title = body.title.trim();
         if (body.description !== undefined) data.description = body.description;
         if (body.type !== undefined) data.type = body.type;
         if (body.prioridade !== undefined) data.prioridade = body.prioridade || null;
@@ -439,6 +500,8 @@ router.put('/:id', async (req, res) => {
         if (error.code === 'P2025') {
             return res.status(404).json({ success: false, error: 'Prazo não encontrado.' });
         }
+        const motivo = erroDeEntrada(error);
+        if (motivo) return res.status(400).json({ success: false, error: motivo });
         logger.error('[updatePrazo] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao atualizar prazo.' });
     }
@@ -481,3 +544,5 @@ router.delete('/:id', async (req, res) => {
 
 module.exports = router;
 module.exports.parseImportDate = parseImportDate; // exposto para teste
+module.exports.dataValida = dataValida; // regra única de data de formulário (intimacoesRoutes reusa)
+module.exports.PRAZO_TYPES = PRAZO_TYPES;

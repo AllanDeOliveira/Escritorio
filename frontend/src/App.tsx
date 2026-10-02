@@ -3,7 +3,7 @@ import {
   X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle, Clock,
   ShieldAlert, BarChart3, Zap, LogOut, Sun, Moon, Users, CalendarClock
 } from 'lucide-react';
-import { auth, apiFetch } from './firebase';
+import { auth, apiFetch, API } from './firebase';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import AdminPanel from './AdminPanel';
 import LoginScreen from './LoginScreen';
@@ -11,11 +11,16 @@ import NameCaptureModal from './NameCaptureModal';
 import PrazosTab from './PrazosTab';
 import DashboardTab, { resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
 
-const API = import.meta.env.VITE_LEGACY_API_URL || 'http://localhost:3001';
+// Só contas do escritório (o servidor confere de novo; aqui é para não montar a tela à toa)
+const DOMINIO = '@jvo.adv.br';
+
+// localStorage pode lançar (janela privada do Safari, cota cheia) — nunca derruba a tela por isso
+const lsGet = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* sem persistência */ } };
 
 function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
-    const salva = localStorage.getItem('lexgen_active_tab') || '';
+    const salva = lsGet('lexgen_active_tab');
     return ['dashboard', 'prazos', 'perfil', 'admin'].includes(salva) ? salva : 'dashboard';
   });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -37,20 +42,16 @@ function App() {
   };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = Date.now();
+    const id = Date.now() + Math.random(); // vários toasts no mesmo ms geravam key duplicada
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4000);
   };
 
-  const [theme, setTheme] = useState(localStorage.getItem('lexgen_theme') || 'light');
-  useEffect(() => {
-    localStorage.setItem('lexgen_theme', theme);
-  }, [theme]);
-  useEffect(() => {
-    localStorage.setItem('lexgen_active_tab', activeTab);
-  }, [activeTab]);
+  const [theme, setTheme] = useState(lsGet('lexgen_theme') || 'light');
+  useEffect(() => { lsSet('lexgen_theme', theme); }, [theme]);
+  useEffect(() => { lsSet('lexgen_active_tab', activeTab); }, [activeTab]);
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
@@ -58,7 +59,22 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // Conta de fora do domínio: sai antes de montar a tela (a LoginScreen mostra o aviso)
+      if (user && !(user.email || '').toLowerCase().endsWith(DOMINIO)) {
+        await signOut(auth);
+        setAuthLoading(false);
+        return;
+      }
       setCurrentUser(user);
+      if (!user) {
+        // Logout ou troca de conta na mesma aba: nada do usuário anterior pode sobrar
+        setDbUser(null);
+        setShowNameModal(false);
+        setResumo(null);
+        setSync(null);
+        setListaHoje([]);
+        setListaSemana([]);
+      }
       if (user && user.email) {
         try {
           const r = await apiFetch(`${API}/api/users/sync`, {
@@ -94,8 +110,10 @@ function App() {
       if (d.success) {
         setDbUser(d.user);
         setShowNameModal(false);
+      } else {
+        showToast(d.error || "Erro ao salvar o nome", 'error');
       }
-    } catch (e) {
+    } catch {
       showToast("Erro ao salvar o nome", 'error');
     }
   };
@@ -135,9 +153,10 @@ function App() {
   // View inicial ao entrar na aba Prazos (deep-link do card de intimações → caixa)
   const [prazosInitialView, setPrazosInitialView] = useState<'board' | 'inbox'>('board');
 
+  // Depende do dbUser (não do login do Firebase): o /sync precisa ter criado o usuário
+  // antes, senão o primeiro acesso de alguém novo recebia 403 e abria em erro.
   const carregarResumo = useCallback(async () => {
-    const email = currentUser?.email;
-    if (!email) return;
+    if (!dbUser?.id) return;
     setResumoLoading(true);
     // Números (prazos + intimações): se qualquer um falhar, resumo fica null e a UI
     // mostra erro — nunca "0 vencidos" falso, que esconderia um prazo perdido.
@@ -165,7 +184,7 @@ function App() {
     } finally {
       setResumoLoading(false);
     }
-  }, [currentUser?.email]);
+  }, [dbUser?.id]);
 
   // Busca no login (o badge da sidebar precisa do resumo em qualquer aba) + refresh a cada 5 min
   useEffect(() => {
@@ -180,11 +199,15 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Aba "admin" lembrada no navegador, mas a conta não é (mais) admin: cai para a home
+  useEffect(() => {
+    if (activeTab === 'admin' && dbUser && dbUser.role !== 'admin') setActiveTab('dashboard');
+  }, [activeTab, dbUser]);
+
   // "Buscar agora" do banner de sync desatualizado. O resultado real vem do
   // carregarResumo() seguinte — inclusive um 409 (cron já rodando).
   const handleSyncNow = useCallback(async () => {
-    const email = currentUser?.email;
-    if (!email) return;
+    if (!dbUser?.id) return;
     setSyncing(true);
     try {
       await apiFetch(`${API}/api/intimacoes/sync`, {
@@ -197,7 +220,7 @@ function App() {
       setSyncing(false);
       await carregarResumo();
     }
-  }, [currentUser?.email, carregarResumo]);
+  }, [dbUser?.id, carregarResumo]);
 
   const handleDashboardNavigate = (tab: string, opts?: { view?: 'board' | 'inbox' }) => {
     if (tab === 'prazos') setPrazosInitialView(opts?.view || 'board');
@@ -308,7 +331,7 @@ function App() {
             <div className="app-datetime-pill">
               <Clock size={15} className="app-icon-gold" />
               <span className="app-capitalize">
-                {currentTime.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace('.', '')}
+                {currentTime.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')}
               </span>
               <span className="app-opacity-40">•</span>
               <span>{currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -350,7 +373,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} onDbUserChange={setDbUser} />
+          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} />
         )}
 
 
@@ -425,7 +448,7 @@ function App() {
                                   setSystemName(val);
                                   showToast("Nome do sistema atualizado!", 'success');
                                 }
-                              } catch (e) { showToast("Erro ao salvar.", 'error'); }
+                              } catch { showToast("Erro ao salvar.", 'error'); }
                             }
                           }}
                         >
@@ -435,15 +458,6 @@ function App() {
                     </div>
                   )}
 
-                  <div className="app-perfil-section">
-                    <div className="app-perfil-section-title-sm">Seu Limite de IA</div>
-                    <div className="app-limit-box">
-                      <div className="app-limit-title">
-                        <CheckCircle size={16} /> Ilimitado
-                      </div>
-                      <p className="app-limit-desc">Sua conta possui acesso ilimitado ao modelo Gemini 1.5 Flash através da licença institucional JVO.</p>
-                    </div>
-                  </div>
                 </div>
               </div>
 

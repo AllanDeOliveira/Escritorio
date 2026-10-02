@@ -67,6 +67,7 @@ function base32(str) {
         if (v < 0) throw new Error('PJE_TOTP_SECRET inválido (não é base32)');
         bits += v.toString(2).padStart(5, '0');
     }
+    if (bits.length < 8) throw new Error('PJE_TOTP_SECRET inválido (curto demais)');
     return Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
 }
 
@@ -125,6 +126,10 @@ function criarCliente() {
 const desescapar = (s) => s.replace(/&amp;/g, '&');
 
 // ── Login ──────────────────────────────────────────────────────────────────
+// Último TOTP enviado, do módulo: dois logins seguidos no mesmo SSO (1º e 2º grau do TJMT,
+// ou o fallback intranet→internet) não podem repetir o código — o Keycloak recusa reuso.
+let ultimoOtp = null;
+
 async function loginCertificado({
     pjeUrl = process.env.PJE_URL || PJE_URL_PADRAO,
     pfx = fs.readFileSync(process.env.MNI_CERT_PATH),
@@ -135,7 +140,6 @@ async function loginCertificado({
     const cliente = criarCliente();
 
     const telaDeLogin = (p) => /id="loginForm"/.test(p.texto) && /autenticar\(/.test(p.texto);
-    let ultimoOtp = null;
 
     // Uma rodada do que o navegador + PJeOffice fazem a partir da tela de login do SSO
     async function entrar(pagina) {

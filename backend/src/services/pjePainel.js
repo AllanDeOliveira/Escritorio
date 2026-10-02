@@ -13,6 +13,7 @@
 const logger = require('../infra/logger');
 const prisma = require('../infra/prismaClient');
 const { loginCertificado } = require('./pjeSso');
+const { recordHeartbeat } = require('./djenService');
 
 // Cada grau é um PJe separado (login e painel próprios). A sigla vira o filtro
 // "Tribunal" do quadro e compõe a chave única do expediente.
@@ -46,7 +47,8 @@ function decodificar(s) {
         .replace(/&([a-zA-Z])(acute|grave|circ|tilde|uml|cedil);/g, (_, l, d) => (l + DIACRITICO[d]).normalize('NFC'))
         .replace(/&ordm;/g, 'º').replace(/&ordf;/g, 'ª').replace(/&nbsp;/g, ' ')
         .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-        .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
 function linhas(html) {
@@ -84,14 +86,18 @@ function camposDoForm(html, formId) {
             campos[nome] = decodificar((tag.match(/value="([^"]*)"/) || [])[1] || '');
         }
     }
-    return { action: decodificar(f.match(/action="([^"]+)"/)[1]), campos };
+    const action = f.match(/action="([^"]+)"/);
+    if (!action) throw new Error(`Formulário ${formId} sem action`);
+    return { action: decodificar(action[1]), campos };
 }
 
 // ── Lista de expedientes ───────────────────────────────────────────────────
 const RE_CNJ = /(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})/;
 const data = (dmy) => {
     const m = dmy && dmy.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null; // meia-noite local, como Prazo.fatalDate
+    if (!m) return null;
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])); // meia-noite local, como Prazo.fatalDate
+    return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[1]) ? d : null; // 31/02 não "rola" para março
 };
 
 function parseLista(html) {
@@ -171,7 +177,11 @@ async function lerExpedientes(pjeUrl) {
     // Caixa que não foi lida até o fim: o tribunal não pode aparecer como "ok"
     const incompletas = [];
     const htmlSituacao = await clicar(situacao.form, situacao.params);
-    for (const jur of linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.total > 0)) {
+    const jurisdicoes = linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.total > 0);
+    // Aba com N pendentes mas sem jurisdição na resposta = sessão derrubada / página de erro
+    // com HTTP 200. Sem isto o tribunal voltava "0 expedientes" como se estivesse ok.
+    if (!jurisdicoes.length) throw new Error(`painel listou ${situacao.total} pendente(s) mas não devolveu as jurisdições (sessão derrubada?)`);
+    for (const jur of jurisdicoes) {
         const htmlJur = await clicar(jur.form, jur.params);
         // A árvore mantém abertas as jurisdições anteriores: só as caixas DESTA (…:trPend:<id>:…)
         const doNo = jur.params.ajaxSingle.replace(/::jNp$/, ':');
@@ -205,29 +215,74 @@ const formatarCnj = (d) => (d && d.length === 20
     ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}`
     : d);
 
-// Vários expedientes no mesmo processo → o de expedição mais próxima da disponibilização no DJEN
+// Vários expedientes no mesmo processo → o de expedição mais próxima da disponibilização no DJEN.
+// O DJEN publica 1–3 dias depois do painel; mais de 15 dias é outro ato do mesmo processo,
+// não este (sem o teto, uma intimação antiga casava com o expediente novo e sumia da fila).
+const MAX_DIST_MS = 15 * 24 * 60 * 60 * 1000;
 function melhorExpediente(intimacao, candidatos) {
     const ref = intimacao.dataDisponibilizacao ? new Date(intimacao.dataDisponibilizacao).getTime() : Date.now();
-    const dist = (e) => Math.abs((e.dataExpedicao ? new Date(e.dataExpedicao).getTime() : 0) - ref);
-    return [...candidatos].sort((a, b) => dist(a) - dist(b))[0] || null;
+    const dist = (e) => (e.dataExpedicao ? Math.abs(new Date(e.dataExpedicao).getTime() - ref) : Infinity);
+    const melhor = [...candidatos].sort((a, b) => dist(a) - dist(b))[0];
+    return melhor && dist(melhor) <= MAX_DIST_MS ? melhor : null;
+}
+
+/**
+ * Tira da caixa ("Novas" → "Distribuídas") toda intimação do DJEN cujo melhor
+ * expediente já tem prazo vivo no quadro. Passada própria, sobre TODAS as novas:
+ * a intimação costuma chegar depois do prazo nascer (painel lido às 06:40, DJEN
+ * publica dias depois), então vincular só no instante da criação deixava o ato
+ * em "Novas" e alguém gerava um 2º prazo à mão.
+ */
+async function vincularIntimacoesAoPje() {
+    const novas = await prisma.intimacao.findMany({
+        where: { status: 'NOVA', numeroProcesso: { not: null } },
+        select: { id: true, numeroProcesso: true, dataDisponibilizacao: true },
+    });
+    const processos = [...new Set(novas.map((i) => soDigitos(i.numeroProcesso)).filter(Boolean))];
+    if (!processos.length) return 0;
+    const expedientes = await prisma.expedientePje.findMany({ where: { numeroProcesso: { in: processos }, prazoId: { not: null } } });
+    // Prazo excluído no quadro deixa o prazoId órfão no expediente: só vincula a prazo que existe
+    const vivos = new Set((await prisma.prazo.findMany({
+        where: { id: { in: [...new Set(expedientes.map((e) => e.prazoId))] } }, select: { id: true },
+    })).map((p) => p.id));
+    const porProcesso = new Map();
+    for (const e of expedientes) if (vivos.has(e.prazoId)) porProcesso.set(e.numeroProcesso, [...(porProcesso.get(e.numeroProcesso) || []), e]);
+    let vinculadas = 0;
+    for (const i of novas) {
+        const e = melhorExpediente(i, porProcesso.get(soDigitos(i.numeroProcesso)) || []);
+        if (!e) continue;
+        const r = await prisma.intimacao.updateMany({
+            where: { id: i.id, status: 'NOVA' },
+            data: { status: 'GERADA', prazoId: e.prazoId, revisadoPor: 'Robô PJe', revisadoEm: new Date() },
+        });
+        vinculadas += r.count;
+    }
+    return vinculadas;
 }
 
 /**
  * Leva ao quadro, sem triagem manual, todo expediente com data limite do PJe:
  *  - cria o Prazo (fatalDate = data limite do PJe) e marca o expediente com o prazoId;
- *  - tira da caixa ("Novas" → "Distribuídas") as intimações do DJEN que correspondem a ele;
- *  - se o PJe mudar a data limite de um prazo ainda pendente, acompanha.
+ *  - o mesmo ato intimado a N destinatários (N expedientes, mesmo processo e data
+ *    limite) vira UM card — os demais expedientes apontam para ele;
+ *  - tira da caixa as intimações do DJEN já cobertas por prazo do robô.
  * Prazo excluído no quadro não volta: o prazoId fica no expediente.
+ * A data limite que muda no PJe é acompanhada em syncExpedientesPje (tem a data anterior).
  */
 async function gerarPrazosDoPje() {
-    let criados = 0; let atualizados = 0;
+    let criados = 0;
 
     const novos = await prisma.expedientePje.findMany({ where: { dataLimite: { not: null }, prazoId: null } });
     for (const e of novos) {
-        const prazo = await prisma.prazo.create({
+        const caseReference = formatarCnj(e.numeroProcesso);
+        const existente = caseReference && await prisma.prazo.findFirst({
+            where: { source: 'PJE', caseReference, fatalDate: e.dataLimite },
+            select: { id: true },
+        });
+        const prazo = existente || await prisma.prazo.create({
             data: {
-                title: e.destinatario || formatarCnj(e.numeroProcesso) || `Expediente ${e.idExpediente}`,
-                caseReference: formatarCnj(e.numeroProcesso),
+                title: e.destinatario || caseReference || `Expediente ${e.idExpediente}`,
+                caseReference,
                 type: 'JUDICIAL',
                 source: 'PJE',
                 fatalDate: e.dataLimite,
@@ -236,37 +291,11 @@ async function gerarPrazosDoPje() {
             },
         });
         await prisma.expedientePje.update({ where: { id: e.id }, data: { prazoId: prazo.id } });
-        criados++;
-
-        // Intimações novas do mesmo processo cujo melhor expediente é este
-        const doProcesso = await prisma.expedientePje.findMany({ where: { numeroProcesso: e.numeroProcesso } });
-        const intimacoes = await prisma.intimacao.findMany({
-            where: { status: 'NOVA', numeroProcesso: { in: [e.numeroProcesso, formatarCnj(e.numeroProcesso)] } },
-        });
-        const ids = intimacoes.filter((i) => melhorExpediente(i, doProcesso)?.id === e.id).map((i) => i.id);
-        if (ids.length) {
-            await prisma.intimacao.updateMany({
-                where: { id: { in: ids }, status: 'NOVA' },
-                data: { status: 'GERADA', prazoId: prazo.id, revisadoPor: 'Robô PJe', revisadoEm: new Date() },
-            });
-        }
+        if (!existente) criados++;
     }
 
-    // Data limite mudou no PJe (ex.: suspensão) → acompanha enquanto o prazo estiver pendente
-    const vinculados = await prisma.expedientePje.findMany({ where: { dataLimite: { not: null }, prazoId: { not: null } } });
-    const prazos = await prisma.prazo.findMany({
-        where: { id: { in: vinculados.map((e) => e.prazoId) }, status: 'PENDENTE' },
-        select: { id: true, fatalDate: true },
-    });
-    const limitePorPrazo = new Map(vinculados.map((e) => [e.prazoId, e.dataLimite]));
-    for (const p of prazos) {
-        const limite = limitePorPrazo.get(p.id);
-        if (limite && limite.getTime() !== p.fatalDate.getTime()) {
-            await prisma.prazo.update({ where: { id: p.id }, data: { fatalDate: limite } });
-            atualizados++;
-        }
-    }
-    return { criados, atualizados };
+    const vinculadas = await vincularIntimacoesAoPje();
+    return { criados, vinculadas };
 }
 
 // ── Sincronização ──────────────────────────────────────────────────────────
@@ -282,17 +311,30 @@ async function syncExpedientesPje() {
     emAndamento = true;
     const resultado = [];
     let prazos;
+    let atualizados = 0;
     try {
         for (const t of TRIBUNAIS) {
             try {
                 const { itens, incompletas } = await lerTribunal(t);
                 const agora = new Date();
                 for (const { idExpediente, ...dados } of itens) {
+                    const chave = { tribunal_idExpediente: { tribunal: t.sigla, idExpediente } };
+                    const antes = await prisma.expedientePje.findUnique({ where: chave, select: { prazoId: true, dataLimite: true } });
                     await prisma.expedientePje.upsert({
-                        where: { tribunal_idExpediente: { tribunal: t.sigla, idExpediente } },
+                        where: chave,
                         create: { tribunal: t.sigla, idExpediente, ...dados, vistoEm: agora },
                         update: { ...dados, vistoEm: agora },
                     });
+                    // Data limite mudou no PJe (ex.: suspensão) → acompanha, mas só se o card
+                    // ainda está com a data anterior do PJe: data editada à mão é decisão humana.
+                    const mudou = antes?.prazoId && antes.dataLimite && dados.dataLimite && antes.dataLimite.getTime() !== dados.dataLimite.getTime();
+                    if (mudou) {
+                        const r = await prisma.prazo.updateMany({
+                            where: { id: antes.prazoId, status: 'PENDENTE', fatalDate: antes.dataLimite },
+                            data: { fatalDate: dados.dataLimite },
+                        });
+                        atualizados += r.count;
+                    }
                 }
                 resultado.push({
                     tribunal: t.sigla,
@@ -306,8 +348,20 @@ async function syncExpedientesPje() {
             }
         }
         // Mesmo com um tribunal fora do ar, o que foi lido já vai para o quadro
-        prazos = await gerarPrazosDoPje();
-        logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.atualizados} data(s) atualizada(s)`);
+        let erroQuadro;
+        try {
+            prazos = { ...(await gerarPrazosDoPje()), atualizados };
+            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${atualizados} data(s) atualizada(s)`);
+        } catch (e) {
+            erroQuadro = e;
+            resultado.push({ tribunal: 'Quadro de prazos', erro: e.message });
+        }
+        // Fica no banco para o painel avisar — o cron não tem ninguém olhando o toast
+        await recordHeartbeat({
+            pjeLastAttemptAt: new Date(),
+            pjeLastFalhas: resultado.filter((t) => t.erro).map(({ tribunal, erro }) => ({ tribunal, erro: String(erro).slice(0, 300) })),
+        });
+        if (erroQuadro) throw erroQuadro;
     } finally {
         emAndamento = false;
     }

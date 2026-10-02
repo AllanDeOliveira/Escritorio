@@ -14,6 +14,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+// Google já mostra só as contas do domínio; a checagem de verdade continua no servidor.
+googleProvider.setCustomParameters({ hd: 'jvo.adv.br' });
+
+// Endereço do backend — um só lugar; antes cada tela lia uma variável diferente.
+export const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // fetch para o backend com o ID token do Firebase — o servidor só aceita
 // `Authorization: Bearer <token>` (conta @jvo.adv.br verificada).

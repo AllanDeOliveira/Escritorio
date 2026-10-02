@@ -74,6 +74,19 @@ describe('isSyncStale', () => {
   it('aceita string ISO (vem do banco assim via JSON)', () => {
     expect(isSyncStale(hAtras(27).toISOString(), agora)).toBe(true);
   });
+
+  // O cron só roda seg–sex: o fim de semana não pode acusar "desatualizado"
+  it('fim de semana e segunda cedo não são stale com o sync de sexta', () => {
+    const sexta = new Date('2026-07-10T06:45:00');
+    expect(isSyncStale(sexta, new Date('2026-07-11T10:00:00'))).toBe(false); // sábado
+    expect(isSyncStale(sexta, new Date('2026-07-12T22:00:00'))).toBe(false); // domingo
+    expect(isSyncStale(sexta, new Date('2026-07-13T06:00:00'))).toBe(false); // segunda, antes do cron
+    expect(isSyncStale(sexta, new Date('2026-07-13T09:00:00'))).toBe(true);  // segunda, cron já devia ter rodado
+  });
+
+  it('data corrompida = stale', () => {
+    expect(isSyncStale('lixo', agora)).toBe(true);
+  });
 });
 
 // Guarda da correção crítica: a API do DJEN falha SEM lançar (fetchPagina desiste

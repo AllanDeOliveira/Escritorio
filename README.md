@@ -32,7 +32,7 @@ Dois processos:
 
 ## 🛠️ Stack
 
-**Backend** — Node 20+, Express 5, Prisma 5 + PostgreSQL, `@google/genai`, `xlsx`, `node-cron`, `pino`. Testes em Vitest.
+**Backend** — Node 20+, Express 5, Prisma 5 + PostgreSQL, `xlsx`, `node-cron`, `pino`. Testes em Vitest.
 
 **Frontend** — React 18 + Vite 6 + TypeScript, Firebase Auth (Google). Sem router: navegação por aba, com estado persistido em localStorage.
 
@@ -46,11 +46,10 @@ Dois processos:
 
 | Serviço | O que faz |
 |---|---|
-| **DataJud / CNJ** | API pública Elasticsearch. Última movimentação dos processos ativos para o aviso diário no WhatsApp |
-| **DJEN / Comunica PJe** | Intimações por OAB, sem autenticação. As OABs monitoradas ficam em `backend/config/djen.json` |
-| **Google Gemini** | Flash Lite para mensagens de WhatsApp |
+| **DJEN / Comunica PJe** | Intimações por OAB, sem autenticação. As OABs monitoradas ficam em `backend/config/djen.json`. Cron 06:30, dias úteis |
+| **Painel do Advogado do PJe** | Robô com certificado A1 + TOTP lê os expedientes pendentes (TJMT e TRF1, 1º e 2º grau) e cria os prazos no quadro com a data limite que o próprio PJe calcula. **Somente leitura**: nunca toma ciência nem abre o ato. Cron 06:40 e 12:40, dias úteis |
 | **MNI / PJe (TJMT)** | SOAP com certificado A1 (mTLS). Consulta avisos pendentes |
-| **Firebase Auth** | Login com Google no frontend |
+| **Firebase Auth** | Login com Google no frontend; o backend valida o ID token e só aceita `@jvo.adv.br` |
 
 > [!CAUTION]
 > **O MNI implementa apenas a consulta de avisos pendentes, de propósito.**
@@ -62,10 +61,11 @@ O DJEN devolve HTTP 500 "sistema ocupado" com frequência; o cliente já trata c
 
 ## 🔧 Rodando localmente
 
-**Pré-requisitos:** Node 20+, Docker Desktop, chaves do Gemini e do DataJud.
+**Pré-requisitos:** Node 20+, Docker Desktop. Para o robô do PJe e o MNI, o certificado A1 (.pfx) do advogado e o segredo TOTP do SSO.
 
 ```bash
-docker-compose up -d      # postgres :5433, pgadmin :5050
+cp .env.example .env      # preencha POSTGRES_* e PGADMIN_* (lidos pelo compose)
+docker compose up -d      # postgres 127.0.0.1:5433, pgadmin 127.0.0.1:5050
 
 cd backend
 npm install
@@ -79,26 +79,25 @@ npm install
 Variáveis de ambiente — `backend/.env`:
 
 ```env
-DATABASE_URL=
-PORT=
-GEMINI_API_KEY=
-DATAJUD_API_KEY=
-MNI_URL=                     # opcional, default TJMT 1º grau
+DATABASE_URL=                # postgresql://usuario:senha@localhost:5433/banco
+PORT=3001
+LOG_LEVEL=                   # opcional; debug | info | warn | error
+FRONTEND_URL=                # opcional; origem do CORS (padrão: localhost:5173)
+FIREBASE_PROJECT_ID=         # opcional; padrão é o projeto do frontend
+MNI_CERT_PATH=               # certificado A1 (.pfx) — robô do PJe e MNI
+MNI_CERT_SENHA=
+PJE_TOTP_SECRET=             # 2FA do SSO do PJe; sem ele o robô não roda
+PJE_URL=                     # opcional; padrão TJMT 1º grau
+MNI_URL=                     # opcional; padrão TJMT 1º grau
 MNI_CPF=
 MNI_SENHA=
-MNI_CERT_PATH=
-MNI_CERT_SENHA=
-LOG_LEVEL=
+DISABLE_DJEN_CRON=           # true desliga a busca automática
+DISABLE_PJE_CRON=            # true desliga a busca automática
 ```
 
-E `frontend/.env`:
+O `.env.example` da raiz lista todas com comentários. O frontend não precisa de `.env` quando o backend roda em `localhost:3001`; em outro endereço, defina `VITE_API_URL` em `frontend/.env`.
 
-```env
-VITE_API_URL=
-VITE_LEGACY_API_URL=
-```
-
-> ⚠️ O Postgres do `docker-compose.yml` publica na porta **5433**, não 5432. A `DATABASE_URL` precisa refletir isso.
+> ⚠️ O Postgres do `docker-compose.yml` publica na porta **5433** (só nesta máquina, `127.0.0.1`), não 5432. A `DATABASE_URL` precisa refletir isso.
 
 Para subir os dois processos de uma vez, use o `Iniciar_App.bat` na raiz. Ou manualmente, em dois terminais:
 
@@ -116,9 +115,18 @@ Testes: `npm test` nos dois projetos.
 Este repositório **não versiona** — e não deve voltar a versionar:
 
 ```
-backend/.env                  chaves de API e string do banco
+.env                          senhas do Postgres/pgAdmin (compose)
+backend/.env                  string do banco, senha do certificado, segredo TOTP
 backend/config/escritorio.json
 backend/prisma/*.db
+backups/, *.dump, *.sql       cópias do banco — dados de clientes
+backend/pje-*.txt             dumps de página do PJe
+```
+
+Cópia de segurança do banco (gera um `.dump` restaurável com `pg_restore`):
+
+```bash
+docker exec central_jvo_postgres pg_dump -U <usuario> -d <banco> -Fc > backups/central-jvo-$(date +%Y%m%d).dump
 ```
 
 O `.gitignore` já cobre tudo isso. Antes de adicionar exceção com `!`, considere que uma regra de negação cancela as regras anteriores — foi assim que peças de clientes acabaram versionadas por engano no passado.
@@ -141,16 +149,15 @@ backend/
     djen.json               OABs monitoradas
   prisma/schema.prisma      7 models
   src/
-    infra/                  prisma singleton, Gemini, logger
+    infra/                  prisma singleton, auth (Firebase), logger
     middleware/             requireUser, requireAdmin
     routes/                 prazos, intimacoes, mni, user
-    services/               djen, mni, pje, tribunal
+    services/               djen, mni, pjePainel (robô), pjeSso (login A1 + TOTP)
 frontend/src/
   App.tsx                   shell e navegação por abas
   DashboardTab / PrazosTab / AdminPanel
 docker-compose.yml          postgres, pgadmin
-render.yaml                 deploy do backend
-Iniciar_App.bat             sobe backend e frontend numa janela
+Iniciar_App.bat             sobe backend e frontend numa janela (religa o backend se cair)
 ```
 
 ---

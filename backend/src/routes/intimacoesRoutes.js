@@ -4,6 +4,7 @@ const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
 const { syncExpedientesPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
+const { dataValida, PRAZO_TYPES } = require('./prazosRoutes');
 
 const INT_STATUS = ['NOVA', 'GERADA', 'DESCARTADA'];
 
@@ -20,6 +21,7 @@ async function syncStatusPayload() {
         lastError: s?.djenLastError || null,
         criadas: s?.djenLastCriadas ?? 0,
         stale: isSyncStale(lastSuccessAt),
+        pje: { lastAttemptAt: s?.pjeLastAttemptAt || null, falhas: s?.pjeLastFalhas || [] },
     };
 }
 
@@ -165,7 +167,9 @@ router.post('/:id/gerar-prazo', async (req, res) => {
 
         const errors = [];
         if (!body.title || !String(body.title).trim()) errors.push('title é obrigatório');
-        if (!body.fatalDate || isNaN(Date.parse(body.fatalDate))) errors.push('fatalDate é obrigatória e deve ser válida');
+        if (!dataValida(body.fatalDate)) errors.push('fatalDate é obrigatória e deve ser uma data válida (AAAA-MM-DD)');
+        if (body.internalDate && !dataValida(body.internalDate)) errors.push('internalDate inválida');
+        if (body.type && !PRAZO_TYPES.includes(body.type)) errors.push(`type deve ser um de: ${PRAZO_TYPES.join(', ')}`);
         if (errors.length) return res.status(400).json({ success: false, error: 'Dados inválidos', details: errors });
 
         // Sem responsável escolhido, o prazo fica com quem fez a triagem
@@ -183,6 +187,7 @@ router.post('/:id/gerar-prazo', async (req, res) => {
             const claim = await tx.intimacao.updateMany({ where: { id, status: 'NOVA' }, data: { status: 'GERADA', ...revisao } });
             if (claim.count === 0) return null;
             const intimacao = await tx.intimacao.findUnique({ where: { id }, select: { numeroProcesso: true } });
+            if (!intimacao) return null;
             const criado = await tx.prazo.create({
                 data: {
                     title: String(body.title).trim(),
@@ -196,9 +201,11 @@ router.post('/:id/gerar-prazo', async (req, res) => {
                     createdById: req.currentUser?.id || undefined,
                 },
             });
-            // Marca também as cópias do mesmo ato (grupoIds vindas do front)
+            // Marca também as cópias do mesmo ato (grupoIds vindas do front) — só as que ainda
+            // estão NOVAS e são do mesmo processo: id alheio não pode "roubar" um descarte ou
+            // um prazo já gerado por outra pessoa.
             await tx.intimacao.updateMany({
-                where: { id: { in: [id, ...grupoIds] } },
+                where: { OR: [{ id }, { id: { in: grupoIds }, status: 'NOVA', numeroProcesso: intimacao.numeroProcesso }] },
                 data: { status: 'GERADA', prazoId: criado.id, ...revisao },
             });
             return criado;
@@ -219,13 +226,13 @@ router.post('/:id/descartar', async (req, res) => {
         const { id } = req.params;
         const grupoIds = Array.isArray(req.body?.grupoIds) ? req.body.grupoIds.filter((x) => typeof x === 'string') : [];
         // Só descarta o que ainda está NOVA: com tela desatualizada, não pode
-        // descartar um ato que outra pessoa já transformou em prazo.
-        const r = await prisma.intimacao.updateMany({
-            where: { id: { in: [id, ...grupoIds] }, status: 'NOVA' },
-            data: { status: 'DESCARTADA', revisadoPor: nomeRevisor(req), revisadoEm: new Date() },
-        });
-        if (r.count === 0) return jaTratada(res, id);
-        res.json({ success: true, atualizadas: r.count });
+        // descartar um ato que outra pessoa já transformou em prazo. A representante
+        // decide (409 se já foi tratada); as cópias vão junto só se também estão NOVAS.
+        const data = { status: 'DESCARTADA', revisadoPor: nomeRevisor(req), revisadoEm: new Date() };
+        const rep = await prisma.intimacao.updateMany({ where: { id, status: 'NOVA' }, data });
+        if (rep.count === 0) return jaTratada(res, id);
+        const copias = grupoIds.length ? await prisma.intimacao.updateMany({ where: { id: { in: grupoIds }, status: 'NOVA' }, data }) : { count: 0 };
+        res.json({ success: true, atualizadas: rep.count + copias.count });
     } catch (error) {
         logger.error('[descartarIntimacao] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao descartar intimação.' });

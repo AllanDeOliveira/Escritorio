@@ -12,16 +12,21 @@ const DEFAULT_CONFIG = {
 };
 
 function lerConfig() {
-    try {
-        if (fs.existsSync(CONFIG_PATH)) {
-            return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
-        }
-    } catch (e) {
-        logger.warn('[DJEN] config/djen.json inválido, usando padrão:', e.message);
+    if (!fs.existsSync(CONFIG_PATH)) {
+        try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2)); } catch (e) { /* opcional */ }
+        return { ...DEFAULT_CONFIG };
     }
-    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2)); } catch (e) { /* opcional */ }
-    return { ...DEFAULT_CONFIG };
+    // JSON inválido (vírgula a mais numa edição manual) LANÇA: o sync falha visível no
+    // painel. Antes caía no padrão e sobrescrevia o arquivo — a 2ª OAB sumia em silêncio.
+    try {
+        return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
+    } catch (e) {
+        throw new Error(`config/djen.json inválido: ${e.message}`);
+    }
 }
+
+// "AAAA-MM-DD" no fuso local (toISOString é UTC: às 21h de Cuiabá já era "amanhã")
+const fmtDia = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,7 +39,8 @@ async function fetchPagina(params, tentativas = 5) {
     const url = `${API_BASE}?${new URLSearchParams(params)}`;
     for (let i = 1; i <= tentativas; i++) {
         try {
-            const r = await fetch(url, { headers: { Accept: 'application/json' } });
+            // 30 s: servidor que aceita e não responde não pode segurar o cron por 5 min × 5 tentativas
+            const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
             const body = await r.json().catch(() => null);
             if (r.ok && body && body.status === 'success') return body;
             logger.warn(`[DJEN] tentativa ${i}/${tentativas} (HTTP ${r.status}): ${body?.message || 'sem corpo'}`);
@@ -103,7 +109,7 @@ async function executarSync({ dias } = {}) {
     const inicio = new Date(hoje);
     inicio.setDate(inicio.getDate() - (Number(dias) > 0 ? Number(dias) : (cfg.diasBackfill || 14)));
 
-    const fmt = (d) => d.toISOString().slice(0, 10);
+    const fmt = fmtDia;
     const resultado = { criadas: 0, jaExistiam: 0, total: 0, janela: `${fmt(inicio)} a ${fmt(hoje)}`, oabs: [], erros: [] };
 
     // Por OAB (grafias conhecidas) e por nome do advogado (qualquer grafia que o
@@ -173,8 +179,9 @@ async function executarSync({ dias } = {}) {
                         link: item.link || null,
                         hash: item.hash ? String(item.hash) : null,
                         meio: item.meiocompleto || item.meio || null,
-                        // data-only em meia-noite LOCAL (mesma regra dos prazos)
-                        dataDisponibilizacao: item.data_disponibilizacao ? new Date(`${item.data_disponibilizacao}T00:00:00`) : null,
+                        // data-only em meia-noite LOCAL (mesma regra dos prazos); data fora do
+                        // formato vira null em vez de Invalid Date (que abortava o sync inteiro)
+                        dataDisponibilizacao: dataLocal(item.data_disponibilizacao),
                         clienteExtraido: extrairCliente(item),
                         advogadoNome: extrairAdvogado(item),
                         oabConsulta: consulta.origem,
@@ -187,6 +194,8 @@ async function executarSync({ dias } = {}) {
             pagina++;
             await sleep(800); // gentileza com a API entre páginas
         }
+        // Teto de páginas atingido com itens sobrando: não pode carimbar como passada limpa
+        if (coletadas < count && pagina > 30) resultado.erros.push(`${consulta.rotulo}: mais de 30 páginas, ${count - coletadas} comunicação(ões) não lidas`);
 
         resultado.oabs.push(consulta.rotulo);
     }
@@ -196,14 +205,31 @@ async function executarSync({ dias } = {}) {
 }
 
 // ── Heartbeat do sync ───────────────────────────────────────────────────────
-// 26h: dá folga para o run das 06:30 de dias úteis sem falso-positivo, mas
-// acusa um dia inteiro perdido.
-const STALE_MS = 26 * 60 * 60 * 1000;
+/**
+ * Última rodada do cron (06:30, seg–sex) que já deveria ter terminado, com 2 h de
+ * folga. Antes da folga, ou em fim de semana, a rodada esperada é a do dia útil
+ * anterior — assim sábado/domingo/segunda cedo não acusam "desatualizado" à toa.
+ */
+function ultimaRodadaEsperada(now) {
+    const d = new Date(now);
+    d.setHours(6, 30, 0, 0);
+    if (now.getTime() < d.getTime() + 2 * 60 * 60 * 1000) d.setDate(d.getDate() - 1);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    return d;
+}
 
 /** Regra de staleness — pura, mora só aqui. Sem sync bem-sucedido = stale. */
 function isSyncStale(lastSuccessAt, now = new Date()) {
     if (!lastSuccessAt) return true;
-    return now.getTime() - new Date(lastSuccessAt).getTime() > STALE_MS;
+    const t = new Date(lastSuccessAt).getTime();
+    if (Number.isNaN(t)) return true;
+    return t < ultimaRodadaEsperada(now).getTime();
+}
+
+/** "AAAA-MM-DD" (ou ISO) → meia-noite local; qualquer outra coisa → null. */
+function dataLocal(s) {
+    const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
 }
 
 /**
@@ -225,14 +251,14 @@ function heartbeatPatch(resultado, now = new Date()) {
     };
 }
 
-/** Grava o heartbeat na linha única de SystemSettings. Nunca derruba o sync. */
+/** Grava o heartbeat na linha única de SystemSettings (DJEN e PJe). Nunca derruba o sync. */
 async function recordHeartbeat(patch) {
     try {
         const row = await prisma.systemSettings.findFirst();
         if (row) await prisma.systemSettings.update({ where: { id: row.id }, data: patch });
         else await prisma.systemSettings.create({ data: patch });
     } catch (e) {
-        logger.warn('[DJEN] falha ao gravar heartbeat:', e.message);
+        logger.warn('[sync] falha ao gravar heartbeat:', e);
     }
 }
 
@@ -265,6 +291,6 @@ async function syncIntimacoesSafe(opts = {}) {
 }
 
 module.exports = {
-    syncIntimacoes, syncIntimacoesSafe, isSyncStale, heartbeatPatch,
+    syncIntimacoes, syncIntimacoesSafe, isSyncStale, heartbeatPatch, recordHeartbeat,
     lerConfig, extrairCliente, extrairAdvogado, ehDoAdvogado,
 };

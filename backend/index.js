@@ -25,6 +25,8 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
+// Express 5 deixa req.body undefined sem corpo JSON; as rotas leem body.campo direto
+app.use((req, _res, next) => { if (req.body === undefined) req.body = {}; next(); });
 
 // Auth routes
 app.use('/api/users', userRoutes);
@@ -77,6 +79,11 @@ app.use('/api/mni', requireUser, mniRoutes);
 // Handler final: JSON malformado, corpo grande demais etc. Sem stack trace na
 // resposta (o padrão do Express mostra quando NODE_ENV não é 'production').
 app.use((err, req, res, _next) => {
+    // Upload recusado pelo multer (planilha grande demais, campo errado) é erro do cliente, não 500
+    if (err.name === 'MulterError') {
+        const grande = err.code === 'LIMIT_FILE_SIZE';
+        return res.status(grande ? 413 : 400).json({ success: false, error: grande ? 'Planilha acima de 5 MB.' : 'Envio inválido.' });
+    }
     const status = err.status || err.statusCode || 500;
     if (status >= 500) logger.error(`${req.method} ${req.path}:`, err);
     res.status(status).json({ success: false, error: err.expose ? err.message : 'Erro interno.' });
@@ -108,7 +115,7 @@ app.listen(PORT, (err) => {
                 else logger.info(`[DJEN cron] ${r.criadas} nova(s) intimação(ões) (janela ${r.janela}).`);
             } catch (e) {
                 // O servidor nunca cai por causa do sync; o heartbeat marca a falha.
-                logger.error('[DJEN cron] Falhou:', e.message);
+                logger.error('[DJEN cron] Falhou:', e);
             }
         }, { timezone: 'America/Cuiaba' });
         logger.info('Cron do DJEN agendado: 06:30, dias úteis (America/Cuiaba).');
@@ -125,7 +132,7 @@ app.listen(PORT, (err) => {
                 if (r.skipped) logger.warn(`[PJe cron] Pulado: ${r.motivo}`);
                 else logger.info(`[PJe cron] ${JSON.stringify(r.resultado)}`);
             } catch (e) {
-                logger.error('[PJe cron] Falhou:', e.message);
+                logger.error('[PJe cron] Falhou:', e);
             }
         }, { timezone: 'America/Cuiaba' });
         logger.info('Cron do PJe agendado: 06:40 e 12:40, dias úteis (America/Cuiaba).');
@@ -149,8 +156,8 @@ const gracefulShutdown = async (signal) => {
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-// Depois de um erro fatal o processo fica em estado incerto: loga e sai; o Render
-// (e o node --watch local) sobe de novo limpo.
+// Depois de um erro fatal o processo fica em estado incerto: loga e sai. Quem religa é o
+// concurrently do Iniciar_App.bat (--restart-tries); o node --watch sozinho NÃO religa após crash.
 process.on('uncaughtException', (err) => {
     logger.error('Erro não tratado — encerrando:', err);
     process.exit(1);

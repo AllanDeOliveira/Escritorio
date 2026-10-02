@@ -81,7 +81,9 @@ router.post('/sync', async (req, res) => {
         const r = await auth.emailDoToken(req);
         if (r.error) return res.status(r.status).json({ success: false, error: r.error });
         const { email } = r;
-        const { name, forceUpdate } = req.body;
+        // Só string não vazia vira nome: "   " gravado deixava o usuário sem nome e sem o modal
+        const name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim() : null;
+        const forceUpdate = Boolean(req.body?.forceUpdate);
 
         // Verifica se o usuário existe
         let user = await prisma.user.findUnique({

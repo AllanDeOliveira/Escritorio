@@ -26,6 +26,8 @@ export interface SyncStatus {
   lastError: string | null;
   stale: boolean;
   criadas?: number;
+  /** Última leitura do Painel do PJe (cron ou botão) — tribunais que falharam. */
+  pje?: { lastAttemptAt: string | null; falhas: { tribunal: string; erro: string }[] };
 }
 
 /** Prazo no digest. Usa `responsibleName` (texto livre) — a relação `responsible` não vem em /api/prazos. */
@@ -159,6 +161,21 @@ export default function DashboardTab({
               ) : null
             )}
 
+            {/* PJe: o cron falha calado (só log) — aqui o tribunal fora fica visível até ler de novo */}
+            {sync?.pje?.lastAttemptAt && sync.pje.falhas?.length > 0 && (
+              <div className="dash-sync dash-sync--warn">
+                <AlertTriangle size={17} />
+                <span className="dash-sync-txt">
+                  PJe não leu <strong>{sync.pje.falhas.map(f => f.tribunal).join(', ')}</strong> na última busca
+                  ({tempoDesde(sync.pje.lastAttemptAt)}) — prazos desse tribunal podem estar faltando no quadro.
+                  {' '}<span title={sync.pje.falhas.map(f => `${f.tribunal}: ${f.erro}`).join('\n')} style={{ textDecoration: 'underline dotted', cursor: 'help' }}>ver motivo</span>
+                </span>
+                <button className="lx-btn-tool" onClick={() => onNavigate('prazos')} title='O botão "Buscar prazos no PJe" fica no quadro'>
+                  <RefreshCw size={14} /> Ir ao quadro
+                </button>
+              </div>
+            )}
+
             <div className="dash-cards">
               <button className="dash-card dash-card--vencido" onClick={() => onNavigate('prazos')}>
                 <span className="dash-card-num">{resumo.vencido}</span>
@@ -176,7 +193,7 @@ export default function DashboardTab({
 
             <button className="dash-intimacoes" onClick={() => onNavigate('prazos', { view: 'inbox' })}>
               <Inbox size={20} />
-              <span className="dash-intimacoes-txt">Intimações novas no DJEN</span>
+              <span className="dash-intimacoes-txt">Intimações novas no DJEN (todos os meses)</span>
               <span className={`dash-intimacoes-badge ${resumo.novas > 0 ? 'dash-intimacoes-badge--on' : ''}`}>{resumo.novas}</span>
               <ChevronRight size={16} className="dash-banner-seta" />
             </button>

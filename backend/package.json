@@ -8,14 +8,13 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env index.js",
     "dev": "node --watch --env-file-if-exists=.env index.js",
-    "build": "npx prisma generate && npx prisma db push --accept-data-loss",
-    "db:push": "prisma db push --accept-data-loss",
+    "build": "npx prisma generate && npx prisma db push",
+    "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "test": "vitest run"
   },
   "dependencies": {
-    "@google/genai": "^1.48.0",
     "@prisma/client": "^5.22.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
@@ -24,7 +23,7 @@
     "node-cron": "^4.2.1",
     "node-forge": "^1.4.0",
     "pino": "^10.3.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

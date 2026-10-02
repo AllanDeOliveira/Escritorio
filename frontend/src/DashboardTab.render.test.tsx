@@ -143,6 +143,21 @@ describe('DashboardTab — heartbeat do sync', () => {
     const html = render({ resumo: resumo(), sync: null });
     expect(html).not.toContain('dash-sync');
   });
+
+  it('PJe com tribunal que falhou mostra aviso com o tribunal, mesmo com DJEN ok', () => {
+    const html = render({
+      resumo: resumo(),
+      sync: { ...syncOk, pje: { lastAttemptAt: agora, falhas: [{ tribunal: 'TRF1 2º GRAU', erro: 'HTTP 503' }] } },
+    });
+    expect(html).toContain('PJe não leu');
+    expect(html).toContain('TRF1 2º GRAU');
+    expect(html).toContain('HTTP 503');
+  });
+
+  it('PJe sem falhas não mostra aviso', () => {
+    const html = render({ resumo: resumo(), sync: { ...syncOk, pje: { lastAttemptAt: agora, falhas: [] } } });
+    expect(html).not.toContain('PJe não leu');
+  });
 });
 
 describe('DashboardTab — digest', () => {
