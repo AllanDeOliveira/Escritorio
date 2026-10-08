@@ -4,21 +4,23 @@ import {
 } from 'lucide-react';
 import './DashboardTab.css';
 
-export interface PrazoBucketed { bucket: string }
+export interface PrazoBucketed { bucket: string; daysUntilFatal?: number }
 
 // Conta prazos por bucket de urgência. Buckets desconhecidos (futuro/concluído/lixo)
 // são ignorados de propósito — não entram no resumo de "o que exige ação agora".
-export function resumoDePrazos(prazos: PrazoBucketed[]): { vencido: number; hoje: number; semana: number } {
-  const r = { vencido: 0, hoje: 0, semana: 0 };
+// triagem = card sem data fatal; triagemVelha = parado há 2+ dias (exige ação).
+export function resumoDePrazos(prazos: PrazoBucketed[]): { vencido: number; hoje: number; semana: number; triagem: number; triagemVelha: number } {
+  const r = { vencido: 0, hoje: 0, semana: 0, triagem: 0, triagemVelha: 0 };
   for (const p of prazos) {
     if (p.bucket === 'vencido') r.vencido++;
     else if (p.bucket === 'hoje') r.hoje++;
     else if (p.bucket === 'semana') r.semana++;
+    else if (p.bucket === 'triagem') { r.triagem++; if ((p.daysUntilFatal ?? 0) <= -2) r.triagemVelha++; }
   }
   return r;
 }
 
-export interface Resumo { vencido: number; hoje: number; semana: number; novas: number }
+export interface Resumo { vencido: number; hoje: number; semana: number; triagem: number; triagemVelha: number; novas: number }
 
 /** Estado da última sincronização com o DJEN (`stale` vem calculado do servidor). */
 export interface SyncStatus {
@@ -71,7 +73,7 @@ export default function DashboardTab({
   sync, onSyncNow, syncing, prazosHoje, prazosSemana,
 }: DashboardTabProps) {
   const primeiroNome = nomeUsuario?.split(' ')[0] || 'Doutor(a)';
-  const critico = resumo ? resumo.vencido + resumo.hoje : 0;
+  const critico = resumo ? resumo.vencido + resumo.hoje + resumo.triagemVelha : 0;
 
   // Lista do digest de prazos.
   const listaPrazos = (itens: PrazoLite[], titulo: string, cls: string) => itens.length > 0 && (
@@ -125,6 +127,8 @@ export default function DashboardTab({
                   {resumo.vencido > 0 && <strong>{resumo.vencido} {resumo.vencido === 1 ? 'prazo vencido' : 'prazos vencidos'}</strong>}
                   {resumo.vencido > 0 && resumo.hoje > 0 && ' · '}
                   {resumo.hoje > 0 && <span>{resumo.hoje} {resumo.hoje === 1 ? 'vence hoje' : 'vencem hoje'}</span>}
+                  {(resumo.vencido > 0 || resumo.hoje > 0) && resumo.triagemVelha > 0 && ' · '}
+                  {resumo.triagemVelha > 0 && <span>{resumo.triagemVelha} sem data fatal há mais de 2 dias</span>}
                 </span>
                 <ChevronRight size={16} className="dash-banner-seta" />
               </button>
@@ -189,11 +193,15 @@ export default function DashboardTab({
                 <span className="dash-card-num">{resumo.semana}</span>
                 <span className="dash-card-label">Esta semana</span>
               </button>
+              <button className="dash-card dash-card--triagem" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-num">{resumo.triagem}</span>
+                <span className="dash-card-label">A confirmar data</span>
+              </button>
             </div>
 
             <button className="dash-intimacoes" onClick={() => onNavigate('prazos', { view: 'inbox' })}>
               <Inbox size={20} />
-              <span className="dash-intimacoes-txt">Intimações novas no DJEN (todos os meses)</span>
+              <span className="dash-intimacoes-txt">Intimações recebidas hoje (já no quadro)</span>
               <span className={`dash-intimacoes-badge ${resumo.novas > 0 ? 'dash-intimacoes-badge--on' : ''}`}>{resumo.novas}</span>
               <ChevronRight size={16} className="dash-banner-seta" />
             </button>

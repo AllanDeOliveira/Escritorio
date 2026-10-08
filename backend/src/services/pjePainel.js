@@ -260,23 +260,42 @@ async function vincularIntimacoesAoPje() {
     return vinculadas;
 }
 
+const meiaNoite = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+
+// Dono por processo: o último card do mesmo processo que tem dono passa o dono adiante.
+// A memória é o próprio quadro — "Pegar" num card assume o processo (rota /pegar).
+// ponytail: se um dia o processo precisar de dono oficial diferente do último card,
+// vira campo na ação judicial.
+async function donoDoProcesso(caseReference) {
+    if (!caseReference) return {};
+    const ultimo = await prisma.prazo.findFirst({
+        where: { caseReference, responsibleId: { not: null } },
+        orderBy: { updatedAt: 'desc' },
+        select: { responsibleId: true, responsibleName: true },
+    });
+    return ultimo || {};
+}
+
 /**
- * Leva ao quadro, sem triagem manual, todo expediente com data limite do PJe:
- *  - cria o Prazo (fatalDate = data limite do PJe) e marca o expediente com o prazoId;
- *  - o mesmo ato intimado a N destinatários (N expedientes, mesmo processo e data
- *    limite) vira UM card — os demais expedientes apontam para ele;
- *  - tira da caixa as intimações do DJEN já cobertas por prazo do robô.
+ * Leva ao quadro, sem triagem manual, TODO expediente do painel:
+ *  - com data limite do PJe → card PENDENTE (fatalDate = data limite);
+ *  - sem data (pauta, "sem prazo", ciência pendente) → card A_CONFIRMAR com a expedição
+ *    como piso; quem assume informa a data real, ou o PJe passa a mostrá-la
+ *    (syncExpedientesPje troca para PENDENTE);
+ *  - o mesmo ato a N destinatários (N expedientes, mesmo processo e data) vira UM card;
+ *  - tira da caixa as intimações do DJEN já cobertas por card do robô;
+ *  - o que sobrou na caixa vira card A_CONFIRMAR (gerarCardsDoDjen).
  * Prazo excluído no quadro não volta: o prazoId fica no expediente.
- * A data limite que muda no PJe é acompanhada em syncExpedientesPje (tem a data anterior).
  */
-async function gerarPrazosDoPje() {
+async function gerarQuadro() {
     let criados = 0;
 
-    const novos = await prisma.expedientePje.findMany({ where: { dataLimite: { not: null }, prazoId: null } });
+    const novos = await prisma.expedientePje.findMany({ where: { prazoId: null } });
     for (const e of novos) {
         const caseReference = formatarCnj(e.numeroProcesso);
+        const fatalDate = e.dataLimite || meiaNoite(e.dataExpedicao || e.vistoEm);
         const existente = caseReference && await prisma.prazo.findFirst({
-            where: { source: 'PJE', caseReference, fatalDate: e.dataLimite },
+            where: { source: 'PJE', caseReference, fatalDate },
             select: { id: true },
         });
         const prazo = existente || await prisma.prazo.create({
@@ -285,8 +304,12 @@ async function gerarPrazosDoPje() {
                 caseReference,
                 type: 'JUDICIAL',
                 source: 'PJE',
-                fatalDate: e.dataLimite,
-                description: [e.tipo, e.prazoDias && `prazo ${e.prazoDias} dias`, e.tribunal, e.orgao, `expediente ${e.idExpediente} (PJe)`]
+                status: e.dataLimite ? 'PENDENTE' : 'A_CONFIRMAR',
+                fatalDate,
+                ...(await donoDoProcesso(caseReference)),
+                description: [e.tipo, e.prazoDias && `prazo ${e.prazoDias} dias`,
+                    !e.dataLimite && (e.cienciaPendente ? 'ciência pendente no PJe' : 'sem data limite no PJe'),
+                    e.tribunal, e.orgao, `expediente ${e.idExpediente} (PJe)`]
                     .filter(Boolean).join(' · '),
             },
         });
@@ -295,7 +318,64 @@ async function gerarPrazosDoPje() {
     }
 
     const vinculadas = await vincularIntimacoesAoPje();
-    return { criados, vinculadas };
+    const djen = await gerarCardsDoDjen();
+    return { criados, vinculadas, djen };
+}
+
+// ponytail: fila em memória, processo único. Cron do DJEN, cron do PJe e os botões
+// chamam isto; em série, nunca nascem dois cards para o mesmo ato.
+let fila = Promise.resolve();
+function gerarPrazosDoPje() {
+    fila = fila.catch(() => {}).then(gerarQuadro);
+    return fila;
+}
+
+/**
+ * Intimação do DJEN sem par no PJe (o TJMT publica no Diário muito ato que nunca
+ * entra em "pendentes de ciência"; o TRT23 não tem robô) virava fila de triagem
+ * manual que ninguém esvaziava. Agora vira card A_CONFIRMAR: a disponibilização no
+ * DJEN é o piso, quem assume informa a data fatal. Cópias do mesmo ato
+ * (processo + data + texto, como no gerar-prazo manual) viram um card só.
+ */
+async function gerarCardsDoDjen() {
+    const novas = await prisma.intimacao.findMany({ where: { status: 'NOVA' }, orderBy: { createdAt: 'asc' } });
+    const porAto = new Map();
+    for (const i of novas) {
+        const k = `${i.numeroProcesso}|${i.dataDisponibilizacao?.getTime()}|${i.texto}`;
+        porAto.set(k, [...(porAto.get(k) || []), i]);
+    }
+    let criados = 0;
+    for (const grupo of porAto.values()) {
+        const [i] = grupo;
+        const revisao = { revisadoPor: 'Robô DJEN', revisadoEm: new Date() };
+        // Reivindica antes de criar (mesmo padrão do gerar-prazo manual): quem perder a
+        // corrida vê count 0 e não cria um segundo card.
+        const criou = await prisma.$transaction(async (tx) => {
+            const claim = await tx.intimacao.updateMany({ where: { id: i.id, status: 'NOVA' }, data: { status: 'GERADA', ...revisao } });
+            if (!claim.count) return false;
+            const dig = soDigitos(i.numeroProcesso);
+            const caseReference = (dig.length === 20 ? formatarCnj(dig) : i.numeroProcesso) || null;
+            const prazo = await tx.prazo.create({
+                data: {
+                    title: i.clienteExtraido || caseReference || `Intimação ${i.djenId}`,
+                    caseReference,
+                    type: 'JUDICIAL',
+                    source: 'DJEN',
+                    status: 'A_CONFIRMAR',
+                    fatalDate: i.dataDisponibilizacao || meiaNoite(i.createdAt),
+                    ...(await donoDoProcesso(caseReference)),
+                    description: [i.tipoDocumento || i.tipoComunicacao, i.tribunal, i.orgao, 'publicado no DJEN, sem data limite'].filter(Boolean).join(' · '),
+                },
+            });
+            await tx.intimacao.updateMany({
+                where: { id: { in: grupo.map((x) => x.id) }, prazoId: null, status: { in: ['NOVA', 'GERADA'] } },
+                data: { status: 'GERADA', prazoId: prazo.id, ...revisao },
+            });
+            return true;
+        });
+        if (criou) criados++;
+    }
+    return criados;
 }
 
 // ── Sincronização ──────────────────────────────────────────────────────────
@@ -335,6 +415,15 @@ async function syncExpedientesPje() {
                         });
                         atualizados += r.count;
                     }
+                    // Estava sem data (ciência pendente / "sem prazo") e o PJe passou a mostrar a
+                    // data limite: o card "a confirmar" entra no quadro — se ninguém confirmou antes à mão.
+                    if (antes?.prazoId && !antes.dataLimite && dados.dataLimite) {
+                        const r = await prisma.prazo.updateMany({
+                            where: { id: antes.prazoId, status: 'A_CONFIRMAR' },
+                            data: { fatalDate: dados.dataLimite, status: 'PENDENTE' },
+                        });
+                        atualizados += r.count;
+                    }
                 }
                 resultado.push({
                     tribunal: t.sigla,
@@ -351,7 +440,7 @@ async function syncExpedientesPje() {
         let erroQuadro;
         try {
             prazos = { ...(await gerarPrazosDoPje()), atualizados };
-            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${atualizados} data(s) atualizada(s)`);
+            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${prazos.djen} card(s) do DJEN a confirmar, ${atualizados} data(s) atualizada(s)`);
         } catch (e) {
             erroQuadro = e;
             resultado.push({ tribunal: 'Quadro de prazos', erro: e.message });

@@ -114,7 +114,7 @@
 /* Cards de estatística — clicáveis */
 .dash-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
 }
 .dash-card {
@@ -144,6 +144,8 @@
 .dash-card--hoje .dash-card-num { color: #f59e0b; }
 .dash-card--semana { border-left-color: #eab308; }
 .dash-card--semana .dash-card-num { color: #eab308; }
+.dash-card--triagem { border-left-color: #7c3aed; }
+.dash-card--triagem .dash-card-num { color: #7c3aed; }
 
 /* Card de intimações */
 .dash-intimacoes {

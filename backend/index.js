@@ -11,8 +11,24 @@ const { requireAdmin } = require('./src/middleware/requireAdmin');
 const { requireUser } = require('./src/middleware/requireUser');
 
 const cron = require('node-cron');
-const { syncIntimacoesSafe } = require('./src/services/djenService');
-const { syncExpedientesPje } = require('./src/services/pjePainel');
+const { syncIntimacoesSafe, isSyncStale } = require('./src/services/djenService');
+const { syncExpedientesPje, gerarPrazosDoPje, configurado: pjeConfigurado } = require('./src/services/pjePainel');
+
+// node-cron não recupera rodada perdida: PC desligado às 06:30 era um dia sem intimação
+// nova até alguém clicar em "Buscar". Ao subir, roda o que ficou para trás.
+async function recuperarRodadasPerdidas() {
+    const s = await prisma.systemSettings.findFirst();
+    if (process.env.DISABLE_DJEN_CRON !== 'true' && isSyncStale(s?.djenLastSyncAt)) {
+        logger.info('[DJEN] rodada perdida: sincronizando ao subir...');
+        const r = await syncIntimacoesSafe();
+        if (!r.skipped) await gerarPrazosDoPje();
+    }
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    if (process.env.DISABLE_PJE_CRON !== 'true' && pjeConfigurado() && !(s?.pjeLastAttemptAt >= hoje)) {
+        logger.info('[PJe] rodada perdida: lendo o painel ao subir...');
+        await syncExpedientesPje();
+    }
+}
 
 const app = express();
 const allowedOrigins = process.env.FRONTEND_URL
@@ -113,6 +129,8 @@ app.listen(PORT, (err) => {
                 const r = await syncIntimacoesSafe();
                 if (r.skipped) logger.warn('[DJEN cron] Pulado: já havia uma sincronização em andamento.');
                 else logger.info(`[DJEN cron] ${r.criadas} nova(s) intimação(ões) (janela ${r.janela}).`);
+                // Intimação nova vira card na hora: liga ao PJe se houver; senão "a confirmar"
+                if (!r.skipped) await gerarPrazosDoPje();
             } catch (e) {
                 // O servidor nunca cai por causa do sync; o heartbeat marca a falha.
                 logger.error('[DJEN cron] Falhou:', e);
@@ -138,6 +156,7 @@ app.listen(PORT, (err) => {
         logger.info('Cron do PJe agendado: 06:40 e 12:40, dias úteis (America/Cuiaba).');
     }
 
+    recuperarRodadasPerdidas().catch((e) => logger.error('[boot] recuperação de rodadas perdidas falhou:', e));
 });
 
 // ── Tratamento de Fechamento (Evitar EPERM no Prisma) ───────────────────────

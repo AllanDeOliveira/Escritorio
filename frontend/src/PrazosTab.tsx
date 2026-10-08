@@ -14,6 +14,9 @@ const linkSeguro = (u?: string | null) => (u && /^https?:\/\//i.test(u) ? u : un
 const TYPES = ['JUDICIAL', 'ADMINISTRATIVO', 'INTERNO'];
 
 const COLUMNS = [
+  // Card que o tribunal mandou sem data fatal (DJEN sem par no PJe, pauta, "sem prazo"):
+  // quem assume abre o card e informa a data; aí ele entra nas colunas de urgência.
+  { key: 'triagem', label: 'A confirmar', cls: 'prazo-col--triagem', empty: 'Nada a confirmar' },
   { key: 'vencido', label: 'Vencidos', cls: 'prazo-col--vencido', empty: 'Nenhum vencido' },
   { key: 'hoje', label: 'Hoje', cls: 'prazo-col--hoje', empty: 'Nada para hoje' },
   { key: 'semana', label: 'Esta semana', cls: 'prazo-col--semana', empty: 'Nada nesta semana' },
@@ -280,6 +283,38 @@ const emptyForm = {
   type: 'JUDICIAL', prioridade: '', fatalDate: '', internalDate: '', description: '',
 };
 
+// Tipo/área/tribunal/órgão de um card vêm da intimação ligada ou, nos prazos do robô, do expediente do PJe.
+const origemDe = (p: Pick<Prazo, 'intimacoes' | 'origemPje'>) => {
+  const o = p.intimacoes?.[0];
+  return {
+    tribunal: o?.tribunal || p.origemPje?.tribunal,
+    orgao: o?.orgao || p.origemPje?.orgao,
+    classe: o?.nomeClasse,
+    tipo: o?.tipoDocumento || o?.tipoComunicacao || p.origemPje?.tipo,
+  };
+};
+
+// ponytail: sem o teor (pesado para o quadro inteiro) — banco como parte só é detectado pela classe/órgão
+export function areaDoPrazo(p: Pick<Prazo, 'intimacoes' | 'origemPje'>): AreaKey {
+  const o = origemDe(p);
+  return areaDireito({ nomeClasse: o.classe, orgao: o.orgao, tribunal: o.tribunal, texto: '' });
+}
+
+/** Card sem dono que cabe a mim triar: sem responsável, aberto e da minha área (sem área cadastrada, vê todos). */
+export function cardSemDono(
+  p: Pick<Prazo, 'responsibleId' | 'responsibleName' | 'bucket' | 'intimacoes' | 'origemPje'>,
+  minhasAreas: readonly AreaKey[],
+): boolean {
+  if (p.responsibleId || p.responsibleName || p.bucket === 'concluido') return false;
+  return !minhasAreas.length || minhasAreas.includes(areaDoPrazo(p));
+}
+
+/** Card "a confirmar": quanto tempo está parado sem data fatal (days = dias desde a publicação, negativo). */
+export function rotuloTriagem(days: number): string {
+  const parado = -days;
+  return parado >= 2 ? `sem data há ${parado} dias` : 'sem data fatal';
+}
+
 export function relativeLabel(days: number): string {
   // ponytail: mais de 10 anos é ano digitado errado na planilha, não prazo.
   // Prefiro admitir que a data é suspeita a imprimir "em 138583 dias" com cara de certeza.
@@ -340,7 +375,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [view, setView] = useState<'board' | 'inbox'>(initialView);
   const [intimacoes, setIntimacoes] = useState<Intimacao[]>([]);
   const [intCounts, setIntCounts] = useState<IntCounts>({ nova: 0, gerada: 0, descartada: 0 });
-  const [intFilter, setIntFilter] = useState<'NOVA' | 'GERADA' | 'DESCARTADA'>('NOVA');
+  // Abre em "Distribuídas": tudo que chega vira card na hora, então "Novas" fica sempre em 0
+  const [intFilter, setIntFilter] = useState<'NOVA' | 'GERADA' | 'DESCARTADA'>('GERADA');
   // Mês exibido na caixa ('' = todos). Abre no mês vigente.
   const [intMes, setIntMes] = useState<string>(mesAtual);
 
@@ -366,7 +402,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Distribuição por área: cada pessoa tria as próprias áreas e fica com os prazos que gera
   const minhasAreas: AreaKey[] = dbUser?.areas || [];
-  const [soMeus, setSoMeus] = useState(false);
+  // Recorte do quadro: meus cards | sem dono (das minhas áreas) | todos
+  const [recorte, setRecorte] = useState<'meus' | 'semDono' | 'todos'>('todos');
   const [equipe, setEquipe] = useState<Membro[]>([]);
 
   // Quadro: colunas por pessoa (distribuição) ou por urgência
@@ -396,7 +433,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   // Quem participa da distribuição abre no próprio recorte (caixa e quadro).
   // Roda quando o usuário carrega, que pode ser depois do mount.
   useEffect(() => {
-    if (dbUser?.areas?.length) { setIntArea('minhas'); setSoMeus(true); }
+    if (dbUser?.areas?.length) { setIntArea('minhas'); setRecorte('meus'); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbUser?.id]);
 
@@ -417,7 +454,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       const r = await apiFetch(`${API}/api/prazos`);
       const d = await r.json();
       if (d.success) {
-        const g: Groups = { vencido: [], hoje: [], semana: [], futuro: [], concluido: [] };
+        const g: Groups = { triagem: [], vencido: [], hoje: [], semana: [], futuro: [], concluido: [] };
         (d.prazos as Prazo[]).forEach(p => { (g[p.bucket] || g.futuro).push(p); });
         setGroups(g);
       }
@@ -465,8 +502,13 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       const d = await r.json();
       if (d.success) {
         const erros = d.erros?.length ? ` · API instável em parte da busca` : '';
-        showToast(`${d.criadas} nova(s) intimação(ões) encontrada(s)${erros}`, d.criadas > 0 ? 'success' : 'info');
+        const novosCards = (d.quadro?.criados || 0) + (d.quadro?.djen || 0);
+        const msg = d.criadas > 0
+          ? `${d.criadas} nova(s) intimação(ões) · ${novosCards} card(s) novo(s) no quadro${erros}`
+          : `Nada novo no DJEN desde a última busca. O que chegou hoje já está no quadro.${erros}`;
+        showToast(msg, d.criadas > 0 ? 'success' : 'info');
         carregarIntimacoes(intFilter);
+        carregar(); // o quadro pode ter ganhado cards
       } else {
         showToast(d.error || 'Falha ao consultar o DJEN.', 'error');
       }
@@ -759,6 +801,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     }
   };
 
+  // "Pegar": assume o card e os demais sem dono do mesmo processo (rota /pegar)
+  const pegar = async (p: Prazo) => {
+    try {
+      const r = await apiFetch(`${API}/api/prazos/${p.id}/pegar`, { method: 'PATCH' });
+      const d = await r.json();
+      if (d.success) {
+        showToast(d.assumidos > 1 ? `Você assumiu ${d.assumidos} cards do processo ${d.processo}.` : 'Card no seu nome.', 'success');
+        carregar();
+      } else {
+        showToast(d.error || 'Erro ao assumir o card.', 'error');
+        carregar(); // 409: alguém pegou antes — mostra o dono atual
+      }
+    } catch { showToast('Erro de conexão.', 'error'); }
+  };
+
   // ── Importação ───────────────────────────────────────────────────
   const baixarModelo = async () => {
     try {
@@ -797,14 +854,18 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     }
   };
 
-  // "Meus prazos": colunas, contagens e resumo do cabeçalho seguem o recorte
+  // Recorte: colunas, contagens e resumo do cabeçalho seguem o recorte
   // (na visão por pessoa o recorte não se aplica: cada coluna já é uma pessoa)
-  const groups: Groups = soMeus && dbUser?.id
-    ? Object.fromEntries(Object.entries(todosGroups).map(([k, ps]) => [k, ps.filter(p => p.responsibleId === dbUser.id)]))
+  const recorteDe = (p: Prazo, r = recorte) =>
+    (r === 'meus' ? p.responsibleId === dbUser?.id : r === 'semDono' ? cardSemDono(p, minhasAreas) : true);
+  const groups: Groups = recorte !== 'todos' && dbUser?.id
+    ? Object.fromEntries(Object.entries(todosGroups).map(([k, ps]) => [k, ps.filter(p => recorteDe(p))]))
     : todosGroups;
   const totalPrazos = COLUMNS.reduce((acc, c) => acc + (groups[c.key]?.length || 0), 0);
   const totalTodos = COLUMNS.reduce((acc, c) => acc + (todosGroups[c.key]?.length || 0), 0);
+  const nRecorte = (r: 'meus' | 'semDono') => COLUMNS.reduce((acc, c) => acc + (todosGroups[c.key] || []).filter(p => recorteDe(p, r)).length, 0);
   const count = (k: string) => groups[k]?.length || 0;
+  const editandoTriagem = Boolean(editingId && groups.triagem?.some(p => p.id === editingId));
   const grupos = useMemo(() => agruparIntimacoes(intimacoes), [intimacoes]);
   // Selecionadas sem data limite do PJe — só elas dependem da data digitada no lote
   const faltamPje = grupos.filter(g => selecionados.includes(g.rep.id) && !g.rep.prazoPjeProcesso && !limitePje(g.rep)).length;
@@ -866,24 +927,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   });
 
   // Quadro: busca + filtros combináveis (aba "Filtros") valem para todas as colunas.
-  // Tipo/área/tribunal/órgão vêm da intimação ligada ou, nos prazos do robô, do expediente do PJe.
-  const origemDe = (p: Prazo) => {
-    const o = p.intimacoes?.[0];
-    return {
-      tribunal: o?.tribunal || p.origemPje?.tribunal,
-      orgao: o?.orgao || p.origemPje?.orgao,
-      classe: o?.nomeClasse,
-      tipo: o?.tipoDocumento || o?.tipoComunicacao || p.origemPje?.tipo,
-    };
-  };
   type FiltroQuadro = { key: string; label: string; de: (p: Prazo) => string; rotulo: (k: string) => string; ordem?: readonly string[]; largo?: boolean };
   const FILTROS_QUADRO: FiltroQuadro[] = [
     { key: 'tipo', label: 'Tipo', de: p => tipoBucket({ tipoDocumento: origemDe(p).tipo }), rotulo: k => INT_COLUMNS.find(c => c.key === k)?.label || k, ordem: INT_COLUMNS.map(c => c.key) },
-    {
-      key: 'area', label: 'Área', rotulo: k => AREAS.find(a => a.key === k)?.label || k, ordem: AREAS.map(a => a.key),
-      // ponytail: sem o teor (pesado para o quadro inteiro) — banco como parte só é detectado pela classe/órgão
-      de: p => { const o = origemDe(p); return areaDireito({ nomeClasse: o.classe, orgao: o.orgao, tribunal: o.tribunal, texto: '' }); },
-    },
+    { key: 'area', label: 'Área', rotulo: k => AREAS.find(a => a.key === k)?.label || k, ordem: AREAS.map(a => a.key), de: areaDoPrazo },
     { key: 'tribunal', label: 'Tribunal', de: p => chaveTribunal(origemDe(p).tribunal), rotulo: k => (k === 'SEM' ? 'Sem tribunal' : k) },
     { key: 'prioridade', label: 'Prioridade', de: p => p.prioridade || 'SEM', rotulo: k => PRIORIDADES.find(x => x.key === k)?.label || 'Sem prioridade', ordem: [...PRIORIDADES.map(x => x.key), 'SEM'] },
     { key: 'orgao', label: 'Juizado / órgão', de: p => chaveOrgao(origemDe(p).orgao), rotulo: k => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k)), largo: true },
@@ -906,12 +953,12 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       .map(([key, qtd]) => ({ key, label: f.rotulo(key), n: qtd }));
   };
   const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]);
-  const nFiltros = filtrosAtivos.length + (soMeus ? 1 : 0);
+  const nFiltros = filtrosAtivos.length;
   const setFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => ({ ...fs, [key]: valor }));
 
   // Colunas do quadro: urgência (vencido / hoje / semana / futuro / concluído)
   type ColQuadro = { key: string; label: string; cor: string; empty: string; itens: Prazo[]; porPrioridade?: boolean };
-  const COR_TEMPO: Record<string, string> = { vencido: '#dc2626', hoje: '#d97706', semana: '#2563eb', futuro: '#64748b', concluido: '#16a34a' };
+  const COR_TEMPO: Record<string, string> = { triagem: '#7c3aed', vencido: '#dc2626', hoje: '#d97706', semana: '#2563eb', futuro: '#64748b', concluido: '#16a34a' };
   const colunasQuadro: ColQuadro[] = COLUMNS.map(c => {
     const itens = (groups[c.key] || []).filter(filtraPrazo);
     // Vencidos agrupados por prioridade quando alguém definiu prioridade
@@ -942,13 +989,30 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         <div className="prazo-card-head">
           <span className="prazo-card-title">{p.title}</span>
           {rotuloPrio(p.prioridade) && <span className={`prazo-prio prazo-prio--${p.prioridade!.toLowerCase()}`}>{rotuloPrio(p.prioridade)}</span>}
+          {p.bucket !== 'concluido' && (
+            <button type="button" className="prazo-icon-btn prazo-card-ok" title="Marcar como cumprido"
+              onClick={e => { e.stopPropagation(); setMoveModal({ prazo: p, targetStatus: 'CUMPRIDO' }); }}>
+              <Check size={14} />
+            </button>
+          )}
         </div>
         {p.caseReference && <div className="prazo-card-case">{p.caseReference}</div>}
         <div className="prazo-card-meta">
           <CalendarClock size={13} />
-          <span>prazo limite {formatDate(p.fatalDate)}</span>
-          {p.bucket !== 'concluido' && (
-            <span className={`prazo-card-rel prazo-card-rel--${p.bucket}`}>{relativeLabel(p.daysUntilFatal)}</span>
+          {p.bucket === 'triagem' ? (
+            <>
+              <span>publicado {formatDate(p.fatalDate)}</span>
+              <span className={`prazo-card-rel ${-p.daysUntilFatal >= 2 ? 'prazo-card-rel--vencido' : 'prazo-card-rel--triagem'}`}>
+                {rotuloTriagem(p.daysUntilFatal)}
+              </span>
+            </>
+          ) : (
+            <>
+              <span>prazo limite {formatDate(p.fatalDate)}</span>
+              {p.bucket !== 'concluido' && (
+                <span className={`prazo-card-rel prazo-card-rel--${p.bucket}`}>{relativeLabel(p.daysUntilFatal)}</span>
+              )}
+            </>
           )}
         </div>
         <div className="prazo-card-foot">
@@ -956,11 +1020,16 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             {tipo && <span className="prazo-tag prazo-tag--tipo">{tipo}</span>}
             {(origem?.tribunal || p.origemPje?.tribunal) && <span className="prazo-tag">{origem?.tribunal || p.origemPje?.tribunal}</span>}
           </div>
-          {(p.responsibleId || p.responsibleName) && (
+          {(p.responsibleId || p.responsibleName) ? (
             p.responsibleId && idxPessoa(p.responsibleId) >= 0
               ? avatar(p.responsibleId, p.responsibleName, 'prazo-av--sm')
               : <span className="prazo-card-resp">{p.responsibleName}</span>
-          )}
+          ) : p.bucket !== 'concluido' && dbUser?.id ? (
+            <button type="button" className="prazo-card-pegar" title="Assumir este card e os demais sem dono do mesmo processo"
+              onClick={e => { e.stopPropagation(); pegar(p); }}>
+              Pegar
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -994,7 +1063,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             <div className="prazo-titulo">
               <h1>Caixa de intimações</h1>
               <span className="prazo-titulo-sub">
-                {intCounts.nova > 0 ? `${intCounts.nova} aguardando distribuição` : 'Nenhuma intimação aguardando distribuição'}
+                {intCounts.nova > 0 ? `${intCounts.nova} aguardando distribuição` : 'Tudo que chega vira card no quadro'}
                 {intMes ? ` · ${nomeMes(intMes)}` : ''}
               </span>
             </div>
@@ -1111,8 +1180,14 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 {intFilter === 'NOVA' ? 'Nenhuma intimação nova' : intFilter === 'GERADA' ? 'Nenhuma intimação distribuída' : 'Nenhuma intimação descartada'}
                 {intMes ? ` em ${nomeMes(intMes)}` : ''}
               </h3>
-              {intFilter === 'NOVA' && (!intMes || intMes === mesAtual()) && (
-                <p>Use "Buscar novas no DJEN" para consultar as publicações das OABs do escritório.</p>
+              {intFilter === 'NOVA' && (
+                <>
+                  <p>As intimações viram card no quadro assim que chegam. As sem data fatal ficam na coluna "A confirmar".</p>
+                  <div className="prazo-empty-actions">
+                    <button className="prazo-btn prazo-btn--navy" onClick={() => setView('board')}>Ir ao quadro</button>
+                    <button className="lx-btn-tool" onClick={() => setIntFilter('GERADA')}>Ver o que chegou</button>
+                  </div>
+                </>
               )}
               {intMes && <button className="lx-btn-tool" onClick={() => setIntMes('')}>Ver todos os meses</button>}
             </div>
@@ -1411,11 +1486,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 <input value={buscaQuadro} onChange={e => setBuscaQuadro(e.target.value)} placeholder="Buscar processo ou cliente…" aria-label="Buscar prazo por processo ou cliente" />
                 {buscaQuadro && <button type="button" className="prazo-busca-limpar" onClick={() => setBuscaQuadro('')} title="Limpar busca"><X size={14} /></button>}
               </div>
-              {soMeus && (
-                <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setSoMeus(false)}>
-                  Só meus prazos <X size={12} />
-                </button>
-              )}
+              {dbUser?.id && segmento([
+                ['meus', <>Meus <span className="prazo-seg-n">{nRecorte('meus')}</span></>],
+                ['semDono', <>Sem dono <span className="prazo-seg-n">{nRecorte('semDono')}</span></>],
+                ['todos', <>Todos <span className="prazo-seg-n">{totalTodos}</span></>],
+              ] as const, recorte, setRecorte, 'Recorte do quadro')}
               {filtrosAtivos.map(f => (
                 <button key={f.key} type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setFiltro(f.key, '')}>
                   {f.label}: {f.rotulo(filtrosQuadro[f.key])} <X size={12} />
@@ -1437,7 +1512,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                     <div className="prazo-fp-topo">
                       <span className="prazo-fp-titulo"><SlidersHorizontal size={14} /> Filtros</span>
                       {nFiltros > 0 && (
-                        <button type="button" className="prazo-fp-limpar" onClick={() => { setFiltrosQuadro({}); setSoMeus(false); }}>Limpar</button>
+                        <button type="button" className="prazo-fp-limpar" onClick={() => setFiltrosQuadro({})}>Limpar</button>
                       )}
                     </div>
                     {FILTROS_QUADRO.map(f => (
@@ -1449,13 +1524,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                         </select>
                       </label>
                     ))}
-                    {dbUser?.id && (
-                      <label className={`prazo-fp-toggle ${soMeus ? 'prazo-fp-toggle--on' : ''}`}>
-                        <input type="checkbox" checked={soMeus} onChange={e => setSoMeus(e.target.checked)} />
-                        <span>Só meus prazos</span>
-                        <small>os que estão no meu nome</small>
-                      </label>
-                    )}
                   </div>
                 )}
               </div>
@@ -1487,13 +1555,16 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
           {loading ? (
             <div className="prazo-loading"><Loader2 className="lx-spin" size={32} /></div>
-          ) : totalPrazos === 0 && soMeus && totalTodos > 0 ? (
+          ) : totalPrazos === 0 && recorte !== 'todos' && totalTodos > 0 ? (
             <div className="prazo-empty-all">
               <CalendarClock size={48} className="prazo-empty-icon" />
-              <h3>Nenhum prazo no seu nome</h3>
-              <p>Os prazos enviados para você na triagem aparecem aqui.</p>
+              <h3>{recorte === 'meus' ? 'Nenhum prazo no seu nome' : 'Nenhum card sem dono nas suas áreas'}</h3>
+              <p>{recorte === 'meus' ? 'Pegue um card em "Sem dono": ele e os demais do mesmo processo passam para o seu nome.' : 'Tudo o que chegou já tem dono.'}</p>
               <div className="prazo-empty-actions">
-                <button className="lx-btn-tool" onClick={() => setSoMeus(false)}>Ver todos os prazos ({totalTodos})</button>
+                {recorte === 'meus' && nRecorte('semDono') > 0 && (
+                  <button className="prazo-btn prazo-btn--navy" onClick={() => setRecorte('semDono')}>Ver sem dono ({nRecorte('semDono')})</button>
+                )}
+                <button className="lx-btn-tool" onClick={() => setRecorte('todos')}>Ver todos os prazos ({totalTodos})</button>
               </div>
             </div>
           ) : (
@@ -1551,9 +1622,15 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         <div className="prazo-modal-overlay" onClick={() => { if (!saving) setModalOpen(false); }}>
           <div className="prazo-modal" onClick={e => e.stopPropagation()}>
             <div className="prazo-modal-header">
-              <h3>{editingId ? 'Editar prazo' : 'Novo prazo'}</h3>
+              <h3>{editingId ? (editandoTriagem ? 'Confirmar data fatal' : 'Editar prazo') : 'Novo prazo'}</h3>
               <button className="prazo-icon-btn" title="Fechar" onClick={() => setModalOpen(false)}><X size={18} /></button>
             </div>
+            {editandoTriagem && (
+              <p className="prazo-modal-nota">
+                O tribunal não informou a data fatal: a data abaixo é só a publicação.
+                Informe a data real e o card entra no quadro.
+              </p>
+            )}
             <div className="prazo-form">
               <div className="prazo-field">
                 <label htmlFor="prazo-title">Título *</label>

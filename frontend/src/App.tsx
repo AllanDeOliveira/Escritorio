@@ -169,7 +169,8 @@ function App() {
       // O backend já roda enrich() em cada prazo, então `bucket` vem pronto — o
       // digest sai de um filtro no array que já temos. Sem endpoint novo.
       const prazos = pr.prazos || [];
-      setResumo({ ...resumoDePrazos(prazos), novas: intr.counts?.nova || 0 });
+      // `novas` = intimações recebidas hoje (tudo vira card na hora, então "aguardando" é sempre 0)
+      setResumo({ ...resumoDePrazos(prazos), novas: intr.counts?.hoje || 0 });
       setListaHoje(prazos.filter((p: any) => p.bucket === 'hoje'));
       setListaSemana(prazos.filter((p: any) => p.bucket === 'semana'));
       setSync(intr.syncStatus || null);

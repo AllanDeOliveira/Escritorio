@@ -12,7 +12,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 const IMPORT_HEADERS = ['Título', 'Processo/Cliente', 'Responsável', 'Tipo', 'Prazo Limite', 'Prazo Interno', 'Observações'];
 
 const PRAZO_TYPES = ['JUDICIAL', 'ADMINISTRATIVO', 'INTERNO'];
-const PRAZO_STATUS = ['PENDENTE', 'CUMPRIDO', 'CANCELADO'];
+// A_CONFIRMAR: card que o robô criou sem data fatal (DJEN sem par no PJe, expediente
+// "sem prazo"/pauta/ciência pendente). fatalDate guarda a publicação só como piso;
+// vira PENDENTE quando alguém informa a data real (PUT) ou o PJe passa a mostrá-la.
+const PRAZO_STATUS = ['PENDENTE', 'CUMPRIDO', 'CANCELADO', 'A_CONFIRMAR'];
 const PRAZO_PRIORIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
 
 const includeRelations = {
@@ -128,7 +131,8 @@ function joinObs(parts) {
  * Enriquece o prazo com campos derivados calculados na leitura:
  * - computedStatus: VENCIDO quando pendente e a data fatal já passou
  * - daysUntilFatal: dias corridos até o prazo fatal (negativo = atrasado)
- * - bucket: agrupamento para o painel (vencido | hoje | semana | futuro | concluido)
+ * - bucket: agrupamento para o painel (triagem | vencido | hoje | semana | futuro | concluido)
+ *   triagem = A_CONFIRMAR: ainda sem data fatal; daysUntilFatal negativo = dias parado
  */
 function enrich(prazo) {
     const today = startOfToday();
@@ -140,6 +144,8 @@ function enrich(prazo) {
 
     if (prazo.status === 'CUMPRIDO' || prazo.status === 'CANCELADO') {
         bucket = 'concluido';
+    } else if (prazo.status === 'A_CONFIRMAR') {
+        bucket = 'triagem';
     } else if (days < 0) {
         computedStatus = 'VENCIDO';
         bucket = 'vencido';
@@ -457,12 +463,17 @@ router.put('/:id', async (req, res) => {
         }
         // Interno depois do fatal: cruza o valor novo com o que já está gravado (o POST já cruzava)
         if (body.fatalDate !== undefined || body.internalDate) {
-            const atual = await prisma.prazo.findUnique({ where: { id }, select: { fatalDate: true, internalDate: true } });
+            const atual = await prisma.prazo.findUnique({ where: { id }, select: { fatalDate: true, internalDate: true, status: true } });
             if (!atual) return res.status(404).json({ success: false, error: 'Prazo não encontrado.' });
             const fatal = body.fatalDate !== undefined ? parseDateOnly(body.fatalDate) : atual.fatalDate;
             const interno = body.internalDate ? parseDateOnly(body.internalDate) : (body.internalDate === undefined ? atual.internalDate : null);
             if (interno && fatal && interno > fatal) {
                 return res.status(400).json({ success: false, error: 'Dados inválidos', details: ['internalDate não pode ser posterior a fatalDate'] });
+            }
+            // Card "a confirmar" ganhou data de verdade → entra no quadro. Só quando a data
+            // MUDOU: o modal reenvia a data-piso ao salvar título, e isso não é confirmação.
+            if (atual.status === 'A_CONFIRMAR' && body.status === undefined && fatal.getTime() !== atual.fatalDate.getTime()) {
+                data.status = 'PENDENTE';
             }
         }
 
@@ -527,6 +538,34 @@ router.patch('/:id/cumprir', async (req, res) => {
     }
 });
 
+// PATCH /api/prazos/:id/pegar — assume o card E todos os cards abertos sem dono do
+// mesmo processo: quem pega um ato pega o processo (os próximos cards do robô já
+// nascem no nome dessa pessoa, ver pjePainel.donoDoProcesso). Card já no nome de
+// alguém (id ou nome livre) não é roubado; se outra pessoa pegou antes, 409.
+router.patch('/:id/pegar', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const u = req.currentUser;
+        const p = await prisma.prazo.findUnique({ where: { id }, select: { caseReference: true } });
+        if (!p) return res.status(404).json({ success: false, error: 'Prazo não encontrado.' });
+        const r = await prisma.prazo.updateMany({
+            where: {
+                status: { in: ['PENDENTE', 'A_CONFIRMAR'] },
+                AND: [
+                    { OR: [{ id }, ...(p.caseReference ? [{ caseReference: p.caseReference }] : [])] },
+                    { responsibleId: null, OR: [{ responsibleName: null }, { responsibleName: '' }] },
+                ],
+            },
+            data: { responsibleId: u.id, responsibleName: u.name || u.email },
+        });
+        if (r.count === 0) return res.status(409).json({ success: false, error: 'Este card já está no nome de alguém.' });
+        res.json({ success: true, assumidos: r.count, processo: p.caseReference });
+    } catch (error) {
+        logger.error('[pegarPrazo] Erro:', error);
+        res.status(500).json({ success: false, error: 'Erro ao assumir o prazo.' });
+    }
+});
+
 // DELETE /api/prazos/:id - remove prazo
 router.delete('/:id', async (req, res) => {
     try {
@@ -546,3 +585,4 @@ module.exports = router;
 module.exports.parseImportDate = parseImportDate; // exposto para teste
 module.exports.dataValida = dataValida; // regra única de data de formulário (intimacoesRoutes reusa)
 module.exports.PRAZO_TYPES = PRAZO_TYPES;
+module.exports.enrich = enrich; // exposto para teste

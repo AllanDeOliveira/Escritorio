@@ -22,7 +22,7 @@ const syncOk: SyncStatus = { lastSuccessAt: agora, lastError: null, stale: false
 const render = (over: Partial<React.ComponentProps<typeof DashboardTab>>) =>
   renderToString(<DashboardTab {...props} resumo={null} {...over} />);
 
-const resumo = (o: Partial<Resumo> = {}): Resumo => ({ vencido: 0, hoje: 0, semana: 0, novas: 0, ...o });
+const resumo = (o: Partial<Resumo> = {}): Resumo => ({ vencido: 0, hoje: 0, semana: 0, triagem: 0, triagemVelha: 0, novas: 0, ...o });
 
 describe('DashboardTab — invariante de segurança do estado de erro', () => {
   it('em erro, avisa que não carregou e NÃO renderiza os cards de contagem', () => {

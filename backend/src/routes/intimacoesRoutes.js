@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
-const { syncExpedientesPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
+const { syncExpedientesPje, gerarPrazosDoPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
 const { dataValida, PRAZO_TYPES } = require('./prazosRoutes');
 
 const INT_STATUS = ['NOVA', 'GERADA', 'DESCARTADA'];
@@ -90,7 +90,8 @@ router.get('/', async (req, res) => {
             const mesIdx = Number(mMes[2]) - 1;
             porMes = { dataDisponibilizacao: { gte: new Date(ano, mesIdx, 1), lt: new Date(ano, mesIdx + 1, 1) } };
         }
-        const [intimacoes, novaG, geradaG, descartadaG, syncStatus] = await Promise.all([
+        const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+        const [intimacoes, novaG, geradaG, descartadaG, recebidasHoje, syncStatus] = await Promise.all([
             prisma.intimacao.findMany({
                 where: { status, ...porMes },
                 orderBy: { dataDisponibilizacao: 'desc' },
@@ -100,12 +101,14 @@ router.get('/', async (req, res) => {
             prisma.intimacao.groupBy({ by: CHAVE_ATO, where: { status: 'NOVA', ...porMes } }),
             prisma.intimacao.groupBy({ by: CHAVE_ATO, where: { status: 'GERADA', ...porMes } }),
             prisma.intimacao.groupBy({ by: CHAVE_ATO, where: { status: 'DESCARTADA', ...porMes } }),
+            // Painel inicial: "recebidas hoje" — tudo vira card na hora, então "novas" é sempre 0
+            prisma.intimacao.count({ where: { createdAt: { gte: hoje } } }),
             syncStatusPayload(),
         ]);
         res.json({
             success: true,
             intimacoes: await anexarExpedientesPje(intimacoes),
-            counts: { nova: novaG.length, gerada: geradaG.length, descartada: descartadaG.length },
+            counts: { nova: novaG.length, gerada: geradaG.length, descartada: descartadaG.length, hoje: recebidasHoje },
             syncStatus,
         });
     } catch (error) {
@@ -124,7 +127,9 @@ router.post('/sync', async (req, res) => {
         if (resultado.skipped) {
             return res.status(409).json({ success: false, error: 'Sincronização já em andamento. Tente em instantes.' });
         }
-        res.json({ success: true, ...resultado });
+        // Intimação nova vira card na hora: liga ao PJe se houver; senão "a confirmar"
+        const quadro = await gerarPrazosDoPje();
+        res.json({ success: true, ...resultado, quadro });
     } catch (error) {
         logger.error('[syncIntimacoes] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao buscar intimações no DJEN.' });

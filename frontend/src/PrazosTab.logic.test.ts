@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
-  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade,
+  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade, cardSemDono,
   type Intimacao,
 } from './PrazosTab';
 
@@ -225,5 +225,27 @@ describe('ordenarPorPrioridade', () => {
   it('Alta, Média, Baixa e sem prioridade por último, mantendo a ordem dentro da faixa', () => {
     const ps = [{ id: 1, prioridade: null }, { id: 2, prioridade: 'BAIXA' }, { id: 3, prioridade: 'ALTA' }, { id: 4, prioridade: 'ALTA' }, { id: 5, prioridade: 'MEDIA' }];
     expect(ordenarPorPrioridade(ps).map(p => p.id)).toEqual([3, 4, 5, 2, 1]);
+  });
+});
+
+describe('cardSemDono', () => {
+  const trt = { responsibleId: null, responsibleName: null, bucket: 'triagem', intimacoes: [{ tribunal: 'TRT23' }] };
+
+  it('sem dono e da minha área → sim; de outra área → não; sem área cadastrada vê todos', () => {
+    expect(cardSemDono(trt, ['trabalhista'])).toBe(true);
+    expect(cardSemDono(trt, ['bancario'])).toBe(false);
+    expect(cardSemDono(trt, [])).toBe(true);
+  });
+
+  it('card do robô do PJe (sem intimação) classifica pelo expediente', () => {
+    const trf = { responsibleId: null, responsibleName: null, bucket: 'semana', origemPje: { tribunal: 'TRF1' } };
+    expect(cardSemDono(trf, ['previdenciario'])).toBe(true);
+    expect(cardSemDono(trf, ['trabalhista'])).toBe(false);
+  });
+
+  it('com dono (id ou nome livre) ou concluído nunca é "sem dono"', () => {
+    expect(cardSemDono({ ...trt, responsibleId: 'u1' }, [])).toBe(false);
+    expect(cardSemDono({ ...trt, responsibleName: 'Fulano' }, [])).toBe(false);
+    expect(cardSemDono({ ...trt, bucket: 'concluido' }, [])).toBe(false);
   });
 });

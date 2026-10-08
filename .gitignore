@@ -50,3 +50,5 @@ graphify-out/
 # cópias do banco (dados de clientes — nunca versionar)
 *.dump
 backups/
+
+desktop.ini
