@@ -13,7 +13,7 @@ describe('prismaClient singleton (legacy Express process)', () => {
     const prisma = require('./prismaClient');
 
     expect(typeof prisma.user.findMany).toBe('function');
-    expect(typeof prisma.lawsuit.findMany).toBe('function');
+    expect(typeof prisma.intimacao.findMany).toBe('function');
     expect(typeof prisma.prazo.create).toBe('function');
   });
 

@@ -26,7 +26,7 @@ function lerConfig() {
 }
 
 // "AAAA-MM-DD" no fuso local (toISOString é UTC: às 21h de Cuiabá já era "amanhã")
-const fmtDia = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fmtDia = (d) => d.toLocaleDateString('sv-SE');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -109,8 +109,7 @@ async function executarSync({ dias } = {}) {
     const inicio = new Date(hoje);
     inicio.setDate(inicio.getDate() - (Number(dias) > 0 ? Number(dias) : (cfg.diasBackfill || 14)));
 
-    const fmt = fmtDia;
-    const resultado = { criadas: 0, jaExistiam: 0, total: 0, janela: `${fmt(inicio)} a ${fmt(hoje)}`, oabs: [], erros: [] };
+    const resultado = { criadas: 0, jaExistiam: 0, total: 0, janela: `${fmtDia(inicio)} a ${fmtDia(hoje)}`, oabs: [], erros: [] };
 
     // Por OAB (grafias conhecidas) e por nome do advogado (qualquer grafia que o
     // tribunal use). A dedupe por djenId junta o que as duas buscas repetem.
@@ -137,8 +136,8 @@ async function executarSync({ dias } = {}) {
         while (coletadas < count && pagina <= 30) {
             const body = await fetchPagina({
                 ...consulta.params,
-                dataDisponibilizacaoInicio: fmt(inicio),
-                dataDisponibilizacaoFim: fmt(hoje),
+                dataDisponibilizacaoInicio: fmtDia(inicio),
+                dataDisponibilizacaoFim: fmtDia(hoje),
                 pagina: String(pagina),
                 itensPorPagina: '100',
             });

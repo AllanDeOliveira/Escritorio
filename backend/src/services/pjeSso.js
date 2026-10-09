@@ -7,7 +7,7 @@
  * o formulário de login com `pjeoffice-code = token`. Aqui fazemos o mesmo papel
  * do PJeOffice, assinando com o .pfx.
  *
- * ⚠️ Só autentica. Nada aqui dá ciência nem peticiona (ver guarda em mniService.js).
+ * ⚠️ Só autentica. Nada aqui dá ciência nem peticiona.
  *
  * O SSO exige 2FA (TOTP) para usuários externos. O robô gera o código a partir
  * da chave secreta do autenticador (a mesma do QR code do Google Authenticator).

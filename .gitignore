@@ -40,7 +40,6 @@ passkey_enclave_state
 # Arquivos temporários e scripts de teste
 temp_docx/
 scratch/
-backend/scripts/exportarPje.js
 pje-*.txt
 backend/pje-*.txt
 

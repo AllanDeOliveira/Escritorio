@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
-  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade, cardSemDono,
+  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade, cardSemDono, caminhoPje,
   type Intimacao,
 } from './PrazosTab';
 
@@ -247,5 +247,18 @@ describe('cardSemDono', () => {
     expect(cardSemDono({ ...trt, responsibleId: 'u1' }, [])).toBe(false);
     expect(cardSemDono({ ...trt, responsibleName: 'Fulano' }, [])).toBe(false);
     expect(cardSemDono({ ...trt, bucket: 'concluido' }, [])).toBe(false);
+  });
+});
+
+describe('caminhoPje', () => {
+  it('aba › jurisdição › caixa; sem caixa nomeada vira "Caixa de entrada"', () => {
+    expect(caminhoPje({ situacao: 'Apenas pendentes de resposta', jurisdicao: 'BARRA DO BUGRES', caixa: 'Processos [Previdenciários Regime Geral Previdência Social [INSS]' }))
+      .toBe('Apenas pendentes de resposta › BARRA DO BUGRES › Processos [Previdenciários Regime Geral Previdência Social [INSS]');
+    expect(caminhoPje({ situacao: 'Sem prazo', jurisdicao: 'CÁCERES', caixa: null })).toBe('Sem prazo › CÁCERES › Caixa de entrada');
+  });
+
+  it('expediente lido antes do caminho existir: nada', () => {
+    expect(caminhoPje({ situacao: null })).toBeNull();
+    expect(caminhoPje(null)).toBeNull();
   });
 });

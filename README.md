@@ -36,7 +36,7 @@ Dois processos:
 
 **Frontend** — React 18 + Vite 6 + TypeScript, Firebase Auth (Google). Sem router: navegação por aba, com estado persistido em localStorage.
 
-**Banco** — PostgreSQL via Prisma, 7 models com nomes de tabela em português.
+**Banco** — PostgreSQL via Prisma, 5 models com nomes de tabela em português.
 
 **Infra local** — Docker Compose (PostgreSQL + pgAdmin).
 
@@ -48,12 +48,11 @@ Dois processos:
 |---|---|
 | **DJEN / Comunica PJe** | Intimações por OAB, sem autenticação. As OABs monitoradas ficam em `backend/config/djen.json`. Cron 06:30, dias úteis |
 | **Painel do Advogado do PJe** | Robô com certificado A1 + TOTP lê os expedientes pendentes (TJMT e TRF1, 1º e 2º grau) e cria os prazos no quadro com a data limite que o próprio PJe calcula. **Somente leitura**: nunca toma ciência nem abre o ato. Cron 06:40 e 12:40, dias úteis |
-| **MNI / PJe (TJMT)** | SOAP com certificado A1 (mTLS). Consulta avisos pendentes |
 | **Firebase Auth** | Login com Google no frontend; o backend valida o ID token e só aceita `@jvo.adv.br` |
 
 > [!CAUTION]
-> **O MNI implementa apenas a consulta de avisos pendentes, de propósito.**
-> `consultarTeorComunicacao`, `confirmarRecebimento` e `entregarManifestacaoProcessual` foram omitidos porque efetivam ciência — o que **dispara prazo** — ou peticionam em nome do advogado. Isso é uma trava de segurança deliberada, não uma pendência. Ampliar exige decisão do escritório, não só código.
+> **O robô do PJe só lê, de propósito.**
+> Tomar ciência **dispara prazo**, e peticionar age em nome do advogado; por isso nenhuma das duas coisas foi implementada. Isso é uma trava de segurança deliberada, não uma pendência. Ampliar exige decisão do escritório, não só código.
 
 O DJEN devolve HTTP 500 "sistema ocupado" com frequência; o cliente já trata com retry e backoff, paginação até 30 páginas e janela incremental com 2 dias de sobreposição.
 
@@ -61,7 +60,7 @@ O DJEN devolve HTTP 500 "sistema ocupado" com frequência; o cliente já trata c
 
 ## 🔧 Rodando localmente
 
-**Pré-requisitos:** Node 20+, Docker Desktop. Para o robô do PJe e o MNI, o certificado A1 (.pfx) do advogado e o segredo TOTP do SSO.
+**Pré-requisitos:** Node 20+, Docker Desktop. Para o robô do PJe, o certificado A1 (.pfx) do advogado e o segredo TOTP do SSO.
 
 ```bash
 cp .env.example .env      # preencha POSTGRES_* e PGADMIN_* (lidos pelo compose)
@@ -84,13 +83,10 @@ PORT=3001
 LOG_LEVEL=                   # opcional; debug | info | warn | error
 FRONTEND_URL=                # opcional; origem do CORS (padrão: localhost:5173)
 FIREBASE_PROJECT_ID=         # opcional; padrão é o projeto do frontend
-MNI_CERT_PATH=               # certificado A1 (.pfx) — robô do PJe e MNI
+MNI_CERT_PATH=               # certificado A1 (.pfx) do robô do PJe
 MNI_CERT_SENHA=
 PJE_TOTP_SECRET=             # 2FA do SSO do PJe; sem ele o robô não roda
 PJE_URL=                     # opcional; padrão TJMT 1º grau
-MNI_URL=                     # opcional; padrão TJMT 1º grau
-MNI_CPF=
-MNI_SENHA=
 DISABLE_DJEN_CRON=           # true desliga a busca automática
 DISABLE_PJE_CRON=            # true desliga a busca automática
 ```
@@ -147,12 +143,12 @@ backend/
   index.js                  API Express: config, admin, registro de rotas e crons
   config/
     djen.json               OABs monitoradas
-  prisma/schema.prisma      7 models
+  prisma/schema.prisma      5 models
   src/
     infra/                  prisma singleton, auth (Firebase), logger
     middleware/             requireUser, requireAdmin
-    routes/                 prazos, intimacoes, mni, user
-    services/               djen, mni, pjePainel (robô), pjeSso (login A1 + TOTP)
+    routes/                 prazos, intimacoes, user
+    services/               djen, pjePainel (robô), pjeSso (login A1 + TOTP)
 frontend/src/
   App.tsx                   shell e navegação por abas
   DashboardTab / PrazosTab / AdminPanel

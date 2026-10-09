@@ -20,8 +20,6 @@ const PRAZO_PRIORIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
 
 const includeRelations = {
     responsible: { select: { id: true, name: true, email: true } },
-    lawsuit: { select: { id: true, caseNumber: true, actionType: true } },
-    client: { select: { id: true, name: true } },
     // intimação de origem: tribunal e tipo de ato viram etiquetas no card do quadro
     intimacoes: { select: { tribunal: true, tipoDocumento: true, tipoComunicacao: true, nomeClasse: true, orgao: true }, take: 1 },
 };
@@ -131,9 +129,12 @@ function joinObs(parts) {
  * Enriquece o prazo com campos derivados calculados na leitura:
  * - computedStatus: VENCIDO quando pendente e a data fatal já passou
  * - daysUntilFatal: dias corridos até o prazo fatal (negativo = atrasado)
- * - bucket: agrupamento para o painel (triagem | vencido | hoje | semana | futuro | concluido)
+ * - bucket: agrupamento para o painel (triagem | vencido | vencidoAntigo | hoje | semana | futuro | concluido)
  *   triagem = A_CONFIRMAR: ainda sem data fatal; daysUntilFatal negativo = dias parado
+ *   vencidoAntigo = vencido há mais de VENCIDO_VISIVEL_DIAS: sai do quadro (decisão do
+ *   escritório, 08/10/2026), mas o card continua no banco
  */
+const VENCIDO_VISIVEL_DIAS = 2;
 function enrich(prazo) {
     const today = startOfToday();
     const fatalDate = new Date(prazo.fatalDate);
@@ -148,7 +149,7 @@ function enrich(prazo) {
         bucket = 'triagem';
     } else if (days < 0) {
         computedStatus = 'VENCIDO';
-        bucket = 'vencido';
+        bucket = days >= -VENCIDO_VISIVEL_DIAS ? 'vencido' : 'vencidoAntigo';
     } else if (days === 0) {
         bucket = 'hoje';
     } else if (days <= 7) {
@@ -181,7 +182,7 @@ function erroDeEntrada(error) {
 // GET /api/prazos - lista com filtros
 router.get('/', async (req, res) => {
     try {
-        const { status, responsibleId, lawsuitId, clientId, from, to, overdue } = req.query;
+        const { status, responsibleId, from, to, overdue } = req.query;
         // Parâmetro repetido (?a=1&a=2) vira array e derrubava o Prisma: só string vale
         const str = (v) => (typeof v === 'string' && v ? v : undefined);
 
@@ -198,8 +199,6 @@ router.get('/', async (req, res) => {
         if (statusExplicito) where.status = statusExplicito;
         else where.status = { not: 'CANCELADO' };
         if (str(responsibleId)) where.responsibleId = responsibleId;
-        if (str(lawsuitId)) where.lawsuitId = lawsuitId;
-        if (str(clientId)) where.clientId = clientId;
         if (from || to) {
             // Prazos são meia-noite LOCAL (parseDateOnly); "to" inclui o dia inteiro
             const fimExclusivo = to ? new Date(parseDateOnly(to).getTime() + 24 * 60 * 60 * 1000) : null;
@@ -222,12 +221,12 @@ router.get('/', async (req, res) => {
             orderBy: { fatalDate: 'asc' },
         });
 
-        // Prazos criados pelo robô do PJe: tribunal/órgão/tipo do expediente (para os filtros do quadro)
+        // Prazos criados pelo robô do PJe: tribunal/órgão/tipo do expediente (filtros do quadro) e onde estava no painel
         const expedientes = await prisma.expedientePje.findMany({
             where: { prazoId: { in: prazos.map((p) => p.id) } },
-            select: { prazoId: true, tribunal: true, orgao: true, tipo: true },
+            select: { prazoId: true, tribunal: true, orgao: true, tipo: true, situacao: true, jurisdicao: true, caixa: true },
         });
-        const origemPje = new Map(expedientes.map((e) => [e.prazoId, { tribunal: e.tribunal, orgao: e.orgao, tipo: e.tipo }]));
+        const origemPje = new Map(expedientes.map((e) => [e.prazoId, { tribunal: e.tribunal, orgao: e.orgao, tipo: e.tipo, situacao: e.situacao, jurisdicao: e.jurisdicao, caixa: e.caixa }]));
         res.json({ success: true, prazos: prazos.map((p) => ({ ...enrich(p), origemPje: origemPje.get(p.id) || null })) });
     } catch (error) {
         logger.error('[listPrazos] Erro:', error);
@@ -414,7 +413,7 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Dados inválidos', details: errors });
         }
 
-        const { title, description, type, prioridade, fatalDate, internalDate, responsibleName, caseReference, responsibleId, lawsuitId, clientId } = req.body;
+        const { title, description, type, prioridade, fatalDate, internalDate, responsibleName, caseReference, responsibleId } = req.body;
         const createdById = req.currentUser?.id; // autor é quem está logado, nunca o corpo
 
         const prazo = await prisma.prazo.create({
@@ -428,8 +427,6 @@ router.post('/', async (req, res) => {
                 responsibleName,
                 caseReference,
                 responsibleId,
-                lawsuitId,
-                clientId,
                 createdById,
             },
             include: includeRelations,
@@ -497,8 +494,6 @@ router.put('/:id', async (req, res) => {
             data.lastMovedBy = req.currentUser?.name || req.currentUser?.email || String(body.lastMovedBy).trim();
             data.lastMovedAt = new Date();
         }
-        if (body.lawsuitId !== undefined) data.lawsuitId = body.lawsuitId;
-        if (body.clientId !== undefined) data.clientId = body.clientId;
 
         const prazo = await prisma.prazo.update({
             where: { id },
@@ -583,6 +578,4 @@ router.delete('/:id', async (req, res) => {
 
 module.exports = router;
 module.exports.parseImportDate = parseImportDate; // exposto para teste
-module.exports.dataValida = dataValida; // regra única de data de formulário (intimacoesRoutes reusa)
-module.exports.PRAZO_TYPES = PRAZO_TYPES;
 module.exports.enrich = enrich; // exposto para teste

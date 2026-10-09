@@ -41,39 +41,6 @@ model SystemSettings {
   @@map("configuracoes_sistema")
 }
 
-model Client {
-  id        String    @id @default(uuid())
-  name      String
-  cpf_cnpj  String    @unique
-  phone     String?
-  email     String?
-  address   String?
-  notes     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  Lawsuits  Lawsuit[]
-  prazos    Prazo[]
-
-  @@map("clientes")
-}
-
-model Lawsuit {
-  id            String     @id @default(uuid())
-  caseNumber    String     @unique
-  court         String?
-  actionType    String?
-  opposingParty String?
-  status        String     @default("ATIVO")
-  notes         String?
-  clientId      String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  client        Client?    @relation(fields: [clientId], references: [id])
-  prazos        Prazo[]
-
-  @@map("acoes_judiciais")
-}
-
 model Prazo {
   id          String  @id @default(uuid())
   title       String
@@ -95,10 +62,6 @@ model Prazo {
 
   responsibleId String?
   responsible   User?    @relation(fields: [responsibleId], references: [id])
-  lawsuitId     String?
-  lawsuit       Lawsuit? @relation(fields: [lawsuitId], references: [id])
-  clientId      String?
-  client        Client?  @relation(fields: [clientId], references: [id])
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -165,6 +128,11 @@ model ExpedientePje {
   cienciaPendente Boolean   @default(false) // ainda não houve ciência
   dataCiencia     DateTime?
   dataLimite      DateTime? // "Data limite prevista para manifestação" (23:59)
+
+  // Onde estava no painel: aba › jurisdição › caixa (mostrado no card)
+  situacao   String? // "Apenas pendentes de resposta", "Cujo prazo findou…"
+  jurisdicao String? // "CUIABÁ CÍVEL", "CÁCERES JUIZADOS"...
+  caixa      String? // "Caixa de entrada" ou a caixa nomeada do escritório
 
   vistoEm DateTime @default(now()) // última leitura em que o expediente apareceu no painel
 

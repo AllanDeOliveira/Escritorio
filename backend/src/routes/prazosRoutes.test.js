@@ -25,7 +25,11 @@ describe('enrich', () => {
     expect(p.daysUntilFatal).toBeLessThan(0);
   });
 
-  it('PENDENTE com data passada continua vencido', () => {
-    expect(enrich({ status: 'PENDENTE', fatalDate: new Date(2000, 0, 1) }).bucket).toBe('vencido');
+  it('vencido até 2 dias fica na coluna; mais antigo sai do quadro (vencidoAntigo)', () => {
+    const haDias = (n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - n); return d; };
+    expect(enrich({ status: 'PENDENTE', fatalDate: haDias(1) }).bucket).toBe('vencido');
+    expect(enrich({ status: 'PENDENTE', fatalDate: haDias(2) }).bucket).toBe('vencido');
+    expect(enrich({ status: 'PENDENTE', fatalDate: haDias(3) }).bucket).toBe('vencidoAntigo');
+    expect(enrich({ status: 'PENDENTE', fatalDate: haDias(3) }).computedStatus).toBe('VENCIDO');
   });
 });

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus, Check, Trash2, X, CalendarClock, Loader2, Upload, Download,
-  Inbox, RefreshCw, ExternalLink, RotateCcw, ChevronLeft, ChevronRight, Search,
-  ChevronDown, Users, MoreHorizontal, SlidersHorizontal, ArrowRight, AlertTriangle,
+  Inbox, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Search,
+  ChevronDown, Users, MoreHorizontal, SlidersHorizontal,
 } from 'lucide-react';
 import './PrazosTab.css';
 import { apiFetch, API } from './firebase';
@@ -43,7 +43,14 @@ interface Prazo {
   // intimação de origem (quando o prazo nasceu da caixa)
   intimacoes?: { tribunal?: string | null; tipoDocumento?: string | null; tipoComunicacao?: string | null; nomeClasse?: string | null; orgao?: string | null }[];
   // Prazo criado pelo robô do PJe: tribunal/órgão do expediente (quando não há intimação ligada)
-  origemPje?: { tribunal: string; orgao?: string | null; tipo?: string | null } | null;
+  origemPje?: ({ tribunal: string; orgao?: string | null; tipo?: string | null } & CaminhoPje) | null;
+}
+
+// Onde o expediente estava no Painel do Advogado: aba › jurisdição › caixa
+type CaminhoPje = { situacao?: string | null; jurisdicao?: string | null; caixa?: string | null };
+export function caminhoPje(c?: CaminhoPje | null): string | null {
+  if (!c?.situacao) return null;
+  return [c.situacao, c.jurisdicao, c.caixa || 'Caixa de entrada'].filter(Boolean).join(' › ');
 }
 
 type Groups = Record<string, Prazo[]>;
@@ -74,15 +81,13 @@ export interface Intimacao {
     cienciaPendente: boolean;
     dataCiencia: string | null;
     dataLimite: string | null;
-  } | null;
+  } & CaminhoPje | null;
   // O processo já tem prazo criado pelo robô do PJe no quadro (possível duplicidade)
-  prazoPjeProcesso?: { total: number; proximoLimite: string } | null;
 }
 
 // Resumo do prazo gerado a partir da intimação (aba "Distribuídas")
 type PrazoVinculado = Pick<Prazo, 'id' | 'title' | 'status' | 'fatalDate'> & { caseReference?: string | null };
 
-type IntCounts = { nova: number; gerada: number; descartada: number };
 
 // O DJEN publica o mesmo ato uma vez por destinatário/advogado; agrupamos essas
 // cópias num card só, e as ações valem para o grupo inteiro. A chave é
@@ -108,8 +113,7 @@ type IntColKey = (typeof INT_COLUMNS)[number]['key'];
 
 // Helpers do filtro de mês da caixa ('YYYY-MM')
 export function mesAtual(): string {
-  const hoje = new Date();
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+  return new Date().toLocaleDateString('sv-SE').slice(0, 7); // sv-SE = AAAA-MM-DD
 }
 
 export function nomeMes(mes: string): string {
@@ -328,12 +332,7 @@ export function relativeLabel(days: number): string {
 // Data gravada → "AAAA-MM-DD" do input date, no fuso LOCAL (o backend grava meia-noite
 // local; toISOString() é UTC e devolvia o dia anterior em qualquer fuso a oeste de Greenwich)
 function dataLocal(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-// Data limite do PJe → input date
-function limitePje(i: Intimacao): string {
-  return i.expedientePje?.dataLimite ? dataLocal(i.expedientePje.dataLimite) : '';
+  return new Date(iso).toLocaleDateString('sv-SE');
 }
 
 function formatDate(iso: string): string {
@@ -374,16 +373,13 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   // Caixa de entrada de intimações (DJEN). Monta na view pedida pelo dashboard.
   const [view, setView] = useState<'board' | 'inbox'>(initialView);
   const [intimacoes, setIntimacoes] = useState<Intimacao[]>([]);
-  const [intCounts, setIntCounts] = useState<IntCounts>({ nova: 0, gerada: 0, descartada: 0 });
-  // Abre em "Distribuídas": tudo que chega vira card na hora, então "Novas" fica sempre em 0
-  const [intFilter, setIntFilter] = useState<'NOVA' | 'GERADA' | 'DESCARTADA'>('GERADA');
   // Mês exibido na caixa ('' = todos). Abre no mês vigente.
   const [intMes, setIntMes] = useState<string>(mesAtual);
 
   const mudarMes = (delta: number) => {
     const [y, m] = (intMes || mesAtual()).split('-').map(Number);
     const d = new Date(y, m - 1 + delta, 1);
-    setIntMes(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    setIntMes(d.toLocaleDateString('sv-SE').slice(0, 7)); // sv-SE = AAAA-MM-DD
   };
   const [intLoading, setIntLoading] = useState(true);
   // Nº da última requisição da caixa: resposta atrasada de um mês anterior não sobrescreve a atual
@@ -399,6 +395,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [intOrgao, setIntOrgao] = useState('');
   // Busca por número do processo ou cliente
   const [intBusca, setIntBusca] = useState('');
+  // Distribuídas: abre só nas que viraram card "A confirmar" (sem data fatal)
+  const [intSemData, setIntSemData] = useState(true);
 
   // Distribuição por área: cada pessoa tria as próprias áreas e fica com os prazos que gera
   const minhasAreas: AreaKey[] = dbUser?.areas || [];
@@ -408,11 +406,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Quadro: colunas por pessoa (distribuição) ou por urgência
   // "Enviar para": intimação com o seletor aberto, pessoa e prazo limite escolhidos
-  const [envio, setEnvio] = useState<{ g: IntGroup; fatal: string } | null>(null);
-  const [enviando, setEnviando] = useState(false);
-  // Seleção em lote na caixa (ids do representante de cada grupo)
-  const [selecionados, setSelecionados] = useState<string[]>([]);
-  const [lote, setLote] = useState({ fatal: '' });
   // Menu aberto: ⋯ de um card (id da intimação), 'lote' ou 'quadro'
   const [menu, setMenu] = useState<string | null>(null);
   // Quadro: busca e filtro de prioridade
@@ -445,8 +438,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       .catch(() => { /* seletor cai para só o usuário logado */ });
   }, [currentUser?.email]);
 
-  // Mudou o filtro da caixa: a seleção em lote não pode agir em cards que sumiram da tela
-  useEffect(() => { setSelecionados([]); }, [intArea, intTribunal, intOrgao, intBusca]);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -455,7 +446,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       const d = await r.json();
       if (d.success) {
         const g: Groups = { triagem: [], vencido: [], hoje: [], semana: [], futuro: [], concluido: [] };
-        (d.prazos as Prazo[]).forEach(p => { (g[p.bucket] || g.futuro).push(p); });
+        // vencidoAntigo (vencido há mais de 2 dias) não entra em coluna nenhuma: sai do quadro
+        (d.prazos as Prazo[]).forEach(p => { if (p.bucket !== 'vencidoAntigo') (g[p.bucket] || g.futuro).push(p); });
         setGroups(g);
       }
     } catch {
@@ -468,18 +460,15 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const carregarIntimacoes = useCallback(async (filter: 'NOVA' | 'GERADA' | 'DESCARTADA' = 'NOVA') => {
+  const carregarIntimacoes = useCallback(async () => {
     const seq = ++intReq.current;
     setIntLoading(true);
     try {
-      const r = await apiFetch(`${API}/api/intimacoes?status=${filter}${intMes ? `&mes=${intMes}` : ''}`);
+      const r = await apiFetch(`${API}/api/intimacoes${intMes ? `?mes=${intMes}` : ''}`);
       const d = await r.json();
       if (seq !== intReq.current) return; // já pediram outro mês/filtro depois desta
       if (d.success) {
         setIntimacoes(d.intimacoes);
-        setIntCounts(d.counts);
-        setSelecionados([]);
-        setEnvio(null);
       }
     } catch {
       if (seq === intReq.current) showToast('Erro ao carregar intimações.', 'error');
@@ -489,7 +478,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.email, intMes]);
 
-  useEffect(() => { carregarIntimacoes(intFilter); }, [carregarIntimacoes, intFilter]);
+  useEffect(() => { carregarIntimacoes(); }, [carregarIntimacoes]);
 
   const sincronizarDjen = async () => {
     setSyncing(true);
@@ -507,7 +496,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           ? `${d.criadas} nova(s) intimação(ões) · ${novosCards} card(s) novo(s) no quadro${erros}`
           : `Nada novo no DJEN desde a última busca. O que chegou hoje já está no quadro.${erros}`;
         showToast(msg, d.criadas > 0 ? 'success' : 'info');
-        carregarIntimacoes(intFilter);
+        carregarIntimacoes();
         carregar(); // o quadro pode ter ganhado cards
       } else {
         showToast(d.error || 'Falha ao consultar o DJEN.', 'error');
@@ -534,7 +523,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             + `${falhas.length ? ` · falhou: ${falhas.join(', ')}` : ''}`,
           falhas.length ? 'error' : 'success',
         );
-        carregarIntimacoes(intFilter);
+        carregarIntimacoes();
         carregar();
       } else {
         showToast(d.error || 'Falha ao ler o PJe.', 'error');
@@ -544,83 +533,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     } finally {
       setSyncingPje(false);
     }
-  };
-
-  // Campos do prazo que saem da própria intimação ("Enviar para")
-  const dadosDaIntimacao = (i: Intimacao) => ({
-    title: nomeProprio(i.clienteExtraido) || i.numeroProcesso || '',
-    caseReference: i.numeroProcesso || '',
-    type: 'JUDICIAL',
-    description: [i.tipoDocumento || i.tipoComunicacao, i.nomeClasse, i.tribunal, i.orgao].filter(Boolean).join(' · '),
-  });
-
-  // Gera o prazo de um ato no quadro (409 = alguém tratou antes). Sem responsável: o quadro é por data.
-  const gerarPrazoGrupo = async (g: IntGroup, fatal: string) => {
-    const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/gerar-prazo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...dadosDaIntimacao(g.rep), fatalDate: fatal, grupoIds: g.ids.filter(id => id !== g.rep.id) }),
-    });
-    const d = await r.json();
-    return { ok: !!d.success, erro: (d.details?.join(' · ') || d.error) as string | undefined };
-  };
-
-  const gerarPrazoIntimacao = async () => {
-    if (!envio?.fatal) return;
-    setEnviando(true);
-    try {
-      const res = await gerarPrazoGrupo(envio.g, envio.fatal);
-      showToast(res.ok ? 'Prazo gerado no quadro.' : res.erro || 'Erro ao gerar prazo.', res.ok ? 'success' : 'error');
-      setEnvio(null);
-      carregarIntimacoes(intFilter);
-      if (res.ok) carregar();
-    } catch {
-      showToast('Erro de conexão ao gerar prazo.', 'error');
-    } finally {
-      setEnviando(false);
-    }
-  };
-
-  const gerarPrazosLote = async () => {
-    const selecionadosG = grupos.filter(g => selecionados.includes(g.rep.id));
-    // Processos que já têm prazo do PJe no quadro ficam de fora (evita duplicar)
-    const alvo = selecionadosG.filter(g => !g.rep.prazoPjeProcesso);
-    const pulados = selecionadosG.length - alvo.length;
-    // Data do PJe de cada ato vence; a digitada só cobre quem não tem expediente no PJe
-    if (alvo.some(g => !limitePje(g.rep) && !lote.fatal)) return;
-    setEnviando(true);
-    let ok = 0;
-    // ponytail: uma chamada por ato; endpoint em lote se passar de algumas dezenas por vez
-    for (const g of alvo) {
-      try { if ((await gerarPrazoGrupo(g, limitePje(g.rep) || lote.fatal)).ok) ok++; } catch { /* conta como falha */ }
-    }
-    setEnviando(false);
-    setMenu(null);
-    setLote({ fatal: '' });
-    const obsPulados = pulados ? ` · ${pulados} pulada(s): já têm prazo do PJe` : '';
-    showToast(ok === alvo.length ? `${ok} prazo(s) gerado(s) no quadro.${obsPulados}` : `${ok} de ${alvo.length} gerados — os demais já tinham sido tratados.${obsPulados}`, ok === alvo.length ? 'success' : 'error');
-    carregarIntimacoes(intFilter);
-    carregar();
-  };
-
-  const descartarSelecionados = () => {
-    const alvo = grupos.filter(g => selecionados.includes(g.rep.id));
-    (window as any).showConfirm(`Descartar ${alvo.length} intimação(ões) selecionada(s)? (não viram prazo)`, async () => {
-      let ok = 0;
-      // ponytail: uma chamada por grupo; endpoint em lote se passar de algumas dezenas por vez
-      for (const g of alvo) {
-        try {
-          const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
-          });
-          if ((await r.json()).success) ok++;
-        } catch { /* conta como falha abaixo */ }
-      }
-      showToast(ok === alvo.length ? `${ok} descartada(s).` : `${ok} de ${alvo.length} descartadas — as demais já tinham sido tratadas.`, ok === alvo.length ? 'info' : 'error');
-      carregarIntimacoes(intFilter);
-    });
   };
 
   const marcarNoQuadro = async (u: Membro, noQuadro: boolean) => {
@@ -657,36 +569,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     } finally {
       setSalvandoPerfil(false);
     }
-  };
-
-  const descartarIntimacao = (g: IntGroup) => {
-    const plural = g.ids.length > 1 ? ` (${g.ids.length} publicações do mesmo ato)` : '';
-    (window as any).showConfirm(`Descartar esta intimação${plural}? (não vira prazo)`, async () => {
-      try {
-        const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/descartar`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
-        });
-        const d = await r.json();
-        // 409: outra pessoa da mesma área tratou antes — recarrega para a tela refletir
-        showToast(d.success ? 'Intimação descartada.' : d.error || 'Erro ao descartar.', d.success ? 'info' : 'error');
-        carregarIntimacoes(intFilter);
-      } catch { showToast('Erro ao descartar.', 'error'); }
-    });
-  };
-
-  const restaurarIntimacao = async (g: IntGroup) => {
-    try {
-      const r = await apiFetch(`${API}/api/intimacoes/${g.rep.id}/restaurar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grupoIds: g.ids.filter(id => id !== g.rep.id) }),
-      });
-      const d = await r.json();
-      showToast(d.success ? 'Intimação restaurada.' : d.error || 'Erro ao restaurar.', d.success ? 'success' : 'error');
-      carregarIntimacoes(intFilter);
-    } catch { showToast('Erro ao restaurar.', 'error'); }
   };
 
   const abrirNovo = () => {
@@ -792,7 +674,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         showToast(moveModal.targetStatus === 'CUMPRIDO' ? 'Prazo concluído!' : 'Prazo reaberto!', 'success');
         setMoveModal(null);
         carregar();
-        if (view === 'inbox') carregarIntimacoes(intFilter); // atualiza o chip do prazo vinculado
+        if (view === 'inbox') carregarIntimacoes(); // atualiza o chip do prazo vinculado
       } else {
         showToast('Erro ao mover prazo.', 'error');
       }
@@ -867,13 +749,15 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const count = (k: string) => groups[k]?.length || 0;
   const editandoTriagem = Boolean(editingId && groups.triagem?.some(p => p.id === editingId));
   const grupos = useMemo(() => agruparIntimacoes(intimacoes), [intimacoes]);
-  // Selecionadas sem data limite do PJe — só elas dependem da data digitada no lote
-  const faltamPje = grupos.filter(g => selecionados.includes(g.rep.id) && !g.rep.prazoPjeProcesso && !limitePje(g.rep)).length;
   // Área calculada uma vez por carga, não a cada chip/tecla (a regra lê o cabeçalho do teor)
   const areaDe = useMemo(() => new Map(grupos.map(g => [g, areaDireito(g.rep)])), [grupos]);
   const naArea = (g: IntGroup, filtro: AreaKey | '' | 'minhas') =>
     !filtro || (filtro === 'minhas' ? minhasAreas.includes(areaDe.get(g)!) : areaDe.get(g) === filtro);
-  const gruposBuscados = intBusca.trim() ? grupos.filter(g => buscaMatch(g.rep, intBusca)) : grupos;
+  const semData = (g: IntGroup) => g.rep.prazo?.status === 'A_CONFIRMAR';
+  const nSemData = grupos.filter(semData).length;
+  const filtraSemData = intSemData;
+  const gruposBuscados = grupos.filter(g =>
+    (!filtraSemData || semData(g)) && (!intBusca.trim() || buscaMatch(g.rep, intBusca)));
   // Área, tribunal e órgão se combinam; a contagem de cada filtro já respeita os outros
   const naTribunal = (g: IntGroup) => !intTribunal || chaveTribunal(g.rep.tribunal) === intTribunal;
   const naOrgao = (g: IntGroup) => !intOrgao || chaveOrgao(g.rep.orgao) === intOrgao;
@@ -997,6 +881,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           )}
         </div>
         {p.caseReference && <div className="prazo-card-case">{p.caseReference}</div>}
+        {caminhoPje(p.origemPje) && <div className="prazo-card-pje" title="Onde estava no Painel do Advogado do PJe">PJe: {caminhoPje(p.origemPje)}</div>}
         <div className="prazo-card-meta">
           <CalendarClock size={13} />
           {p.bucket === 'triagem' ? (
@@ -1048,7 +933,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   return (
     <div className="lx-single-panel prazo-panel">
       <div className="prazo-abas" role="tablist" aria-label="Controle de prazos">
-        {([['board', 'Quadro de prazos', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta'], ['inbox', 'Caixa de intimações', intCounts.nova, 'prazo-aba-badge']] as const).map(([k, label, n, cls]) => (
+        {([['board', 'Quadro de prazos', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta'], ['inbox', 'Caixa de intimações', nSemData, 'prazo-aba-badge']] as const).map(([k, label, n, cls]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} className={`prazo-aba ${view === k ? 'prazo-aba--ativa' : ''}`} onClick={() => setView(k)}>
             {label}
             {n > 0 && <span className={cls}>{n}</span>}
@@ -1063,7 +948,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             <div className="prazo-titulo">
               <h1>Caixa de intimações</h1>
               <span className="prazo-titulo-sub">
-                {intCounts.nova > 0 ? `${intCounts.nova} aguardando distribuição` : 'Tudo que chega vira card no quadro'}
+                Tudo que chega vira card no quadro
                 {intMes ? ` · ${nomeMes(intMes)}` : ''}
               </span>
             </div>
@@ -1090,18 +975,17 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             </div>
           </div>
 
-          {/* ── Status · áreas · selecionar visíveis ─────────────────────── */}
+          {/* ── Sem data/todas · áreas · tribunal · órgão ─────────────────── */}
           <div className="prazo-filtros">
             <div className="prazo-filtros-esq">
               {segmento(
                 [
-                  ['NOVA', <>Novas <span className="prazo-seg-n">{intCounts.nova}</span></>],
-                  ['GERADA', <>Distribuídas <span className="prazo-seg-n">{intCounts.gerada}</span></>],
-                  ['DESCARTADA', <>Descartadas <span className="prazo-seg-n">{intCounts.descartada}</span></>],
+                  ['sem', <>Sem data <span className="prazo-seg-n">{nSemData}</span></>],
+                  ['todas', <>Todas <span className="prazo-seg-n">{grupos.length}</span></>],
                 ] as const,
-                intFilter,
-                k => setIntFilter(k as typeof intFilter),
-                'Situação das intimações',
+                intSemData ? 'sem' : 'todas',
+                k => setIntSemData(k === 'sem'),
+                'Data fatal do card',
               )}
               <span className="prazo-divisor" />
               <div className="prazo-chips">
@@ -1177,25 +1061,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             <div className="prazo-empty-all">
               <Inbox size={48} className="prazo-empty-icon" />
               <h3>
-                {intFilter === 'NOVA' ? 'Nenhuma intimação nova' : intFilter === 'GERADA' ? 'Nenhuma intimação distribuída' : 'Nenhuma intimação descartada'}
+                Nenhuma intimação
                 {intMes ? ` em ${nomeMes(intMes)}` : ''}
               </h3>
-              {intFilter === 'NOVA' && (
-                <>
-                  <p>As intimações viram card no quadro assim que chegam. As sem data fatal ficam na coluna "A confirmar".</p>
-                  <div className="prazo-empty-actions">
-                    <button className="prazo-btn prazo-btn--navy" onClick={() => setView('board')}>Ir ao quadro</button>
-                    <button className="lx-btn-tool" onClick={() => setIntFilter('GERADA')}>Ver o que chegou</button>
-                  </div>
-                </>
-              )}
               {intMes && <button className="lx-btn-tool" onClick={() => setIntMes('')}>Ver todos os meses</button>}
             </div>
           ) : gruposFiltrados.length === 0 ? (
             <div className="prazo-empty-all">
               <Search size={48} className="prazo-empty-icon" />
-              <h3>Nenhum resultado{intBusca.trim() ? ` para "${intBusca.trim()}"` : ''}</h3>
-              {intMes ? (
+              <h3>{filtraSemData && !intBusca.trim() ? 'Nada sem data' : 'Nenhum resultado'}{intBusca.trim() ? ` para "${intBusca.trim()}"` : ''}</h3>
+              {filtraSemData ? (
+                <>
+                  <p>{intBusca.trim() ? 'Pode estar entre as que já têm data fatal.' : `Todas as intimações ${intMes ? `de ${nomeMes(intMes)} ` : ''}já têm data fatal no quadro.`}</p>
+                  <button className="lx-btn-tool" onClick={() => setIntSemData(false)}>Ver todas</button>
+                </>
+              ) : intMes ? (
                 <>
                   <p>Não encontrei em {nomeMes(intMes)} — o processo pode ter publicações em outro mês.</p>
                   <button className="lx-btn-tool" onClick={() => setIntMes('')}>Buscar em todos os meses</button>
@@ -1217,24 +1097,13 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       {col.itens.length === 0 && <div className="prazo-col-empty">Nenhuma</div>}
                       {col.visiveis.map(g => {
                         const i = g.rep;
-                        const sel = selecionados.includes(i.id);
-                        const aberto = envio?.g.rep.id === i.id;
                         const tipo = i.tipoDocumento || i.tipoComunicacao;
                         return (
                           <div
                             key={i.id}
-                            className={`prazo-int-card ${sel ? 'prazo-int-card--sel' : ''} ${aberto ? 'prazo-int-card--envio' : ''}`}
+                            className="prazo-int-card"
                           >
                             <div className="prazo-int-head">
-                              {intFilter === 'NOVA' && (
-                                <input
-                                  type="checkbox"
-                                  className="prazo-int-check"
-                                  checked={sel}
-                                  onChange={e => setSelecionados(s => e.target.checked ? [...s, i.id] : s.filter(x => x !== i.id))}
-                                  aria-label={`Selecionar ${nomeProprio(i.clienteExtraido) || i.numeroProcesso || 'intimação'}`}
-                                />
-                              )}
                               <div className="prazo-int-id">
                                 <div className="prazo-int-linha">
                                   <span className="prazo-int-cliente">{nomeProprio(i.clienteExtraido) || 'Cliente não identificado'}</span>
@@ -1289,20 +1158,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                               return (
                                 <div className="prazo-int-pje" title={`Expediente ${e.idExpediente} — dado lido do Painel do Advogado do PJe (${e.tribunal})`}>
                                   <CalendarClock size={13} /> <span className="prazo-int-pje-fonte">PJe</span> {texto}
+                                  {caminhoPje(e) && <span className="prazo-int-pje-caminho">{caminhoPje(e)}</span>}
                                 </div>
                               );
                             })()}
-
-                            {intFilter === 'NOVA' && i.prazoPjeProcesso && (
-                              <div className="prazo-int-duplicado" role="note">
-                                <AlertTriangle size={13} />
-                                <span>
-                                  Já existe prazo do PJe para este processo
-                                  {i.prazoPjeProcesso.total > 1 ? ` (${i.prazoPjeProcesso.total} prazos, o próximo` : ' (limite'}
-                                  {' '}<strong>{formatDate(i.prazoPjeProcesso.proximoLimite)}</strong>)
-                                </span>
-                              </div>
-                            )}
 
                             <div className="prazo-int-meta">
                               <div className="prazo-int-tags">
@@ -1332,96 +1191,38 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                               )}
                             </div>
 
-                            {intFilter === 'GERADA' && (i.prazo ? (
+                            {i.prazo ? (
                               <div className={`prazo-int-vinculo ${i.prazo.status === 'CUMPRIDO' ? 'prazo-int-vinculo--done' : ''}`}>
                                 {i.prazo.status === 'CUMPRIDO' ? <Check size={13} /> : <CalendarClock size={13} />}
                                 <span className="prazo-int-vinculo-titulo">{i.prazo.title}</span>
-                                <span className="prazo-int-vinculo-fatal">prazo limite {formatDate(i.prazo.fatalDate)}</span>
+                                <span className="prazo-int-vinculo-fatal">
+                                  {/* No A_CONFIRMAR o fatalDate é só o piso (publicação), não um prazo */}
+                                  {i.prazo.status === 'A_CONFIRMAR' ? 'sem data · a confirmar' : `prazo limite ${formatDate(i.prazo.fatalDate)}`}
+                                </span>
                               </div>
                             ) : (
                               <div className="prazo-int-vinculo prazo-int-vinculo--orfao">
                                 <X size={13} /> <span>O prazo vinculado foi excluído do quadro.</span>
                               </div>
-                            ))}
+                            )}
 
                             <div className="prazo-int-footer">
-                              {intFilter === 'NOVA' ? (
-                                <>
-                                  <div className="prazo-menu-wrap">
-                                    <button type="button" className="prazo-icon-btn" title="Mais ações" aria-expanded={menu === i.id} onClick={() => setMenu(menu === i.id ? null : i.id)}>
-                                      <MoreHorizontal size={16} />
-                                    </button>
-                                    {menu === i.id && (
-                                      <div className="prazo-menu" role="menu">
-                                        <button type="button" role="menuitem" className="prazo-menu-item prazo-menu-item--perigo" onClick={() => { setMenu(null); descartarIntimacao(g); }}>
-                                          <Trash2 size={14} /> Descartar (não vira prazo)
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {/* Processo já tem prazo do PJe no quadro: gerar outro seria duplicar */}
-                                  {!i.prazoPjeProcesso && (
+                              {i.revisadoPor ? <span className="prazo-int-revisado">revisado por {i.revisadoPor}</span> : <span />}
+                              {i.prazo && (
+                                <div className="prazo-int-envio">
+                                  <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => setView('board')}>Ver no quadro</button>
+                                  {i.prazo.status !== 'CUMPRIDO' && (
                                     <button
                                       type="button"
                                       className="prazo-btn prazo-btn--navy prazo-btn--sm"
-                                      aria-expanded={aberto}
-                                      onClick={() => setEnvio(aberto ? null : { g, fatal: limitePje(g.rep) })}
+                                      onClick={() => setMoveModal({ prazo: i.prazo!, targetStatus: 'CUMPRIDO' })}
                                     >
-                                      <CalendarClock size={13} /> Gerar prazo <ChevronDown size={12} />
+                                      <Check size={13} /> Concluir
                                     </button>
                                   )}
-                                </>
-                              ) : (
-                                <>
-                                  {i.revisadoPor ? <span className="prazo-int-revisado">revisado por {i.revisadoPor}</span> : <span />}
-                                  <div className="prazo-int-envio">
-                                    {intFilter === 'GERADA' && !i.prazo && (
-                                      <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => restaurarIntimacao(g)}><RotateCcw size={13} /> Voltar para Novas</button>
-                                    )}
-                                    {intFilter === 'GERADA' && i.prazo && (
-                                      <>
-                                        <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => setView('board')}>Ver no quadro</button>
-                                        {i.prazo.status !== 'CUMPRIDO' && (
-                                          <button
-                                            type="button"
-                                            className="prazo-btn prazo-btn--navy prazo-btn--sm"
-                                            onClick={() => setMoveModal({ prazo: i.prazo!, targetStatus: 'CUMPRIDO' })}
-                                          >
-                                            <Check size={13} /> Concluir
-                                          </button>
-                                        )}
-                                      </>
-                                    )}
-                                    {intFilter === 'DESCARTADA' && (
-                                      <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => restaurarIntimacao(g)}><RotateCcw size={13} /> Restaurar</button>
-                                    )}
-                                  </div>
-                                </>
+                                </div>
                               )}
                             </div>
-
-                            {aberto && envio && (
-                              <div className="prazo-envio">
-                                <div className="prazo-envio-fatal">
-                                  <CalendarClock size={13} />
-                                  <label htmlFor={`envio-fatal-${i.id}`}>{limitePje(g.rep) ? 'Prazo limite (do PJe)' : 'Prazo limite'}</label>
-                                  <input id={`envio-fatal-${i.id}`} type="date" value={envio.fatal} onChange={e => setEnvio({ ...envio, fatal: e.target.value })} />
-                                </div>
-                                <div className="prazo-envio-acoes">
-                                  <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => setEnvio(null)} disabled={enviando}>Cancelar</button>
-                                  <button
-                                    type="button"
-                                    className="prazo-btn prazo-btn--navy prazo-btn--sm"
-                                    onClick={gerarPrazoIntimacao}
-                                    disabled={!envio.fatal || enviando}
-                                    title={!envio.fatal ? 'Defina o prazo limite' : undefined}
-                                  >
-                                    Gerar prazo
-                                    {enviando ? <Loader2 className="lx-spin" size={13} /> : <ArrowRight size={13} />}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -1434,35 +1235,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             </div>
           )}
 
-          {intFilter === 'NOVA' && selecionados.length > 0 && (
-            <div className="prazo-lote" role="region" aria-label="Ações em lote">
-              <strong>{selecionados.length} selecionada{selecionados.length > 1 ? 's' : ''}</strong>
-              <span className="prazo-lote-sep">·</span>
-              <button type="button" className="prazo-lote-btn" onClick={descartarSelecionados}>Descartar</button>
-              <div className="prazo-menu-wrap">
-                <button type="button" className="prazo-lote-enviar" aria-expanded={menu === 'lote'} onClick={() => setMenu(menu === 'lote' ? null : 'lote')}>
-                  <CalendarClock size={13} /> Gerar {selecionados.length} prazo{selecionados.length > 1 ? 's' : ''} <ChevronDown size={13} />
-                </button>
-                {menu === 'lote' && (
-                  <div className="prazo-menu prazo-menu--cima prazo-envio">
-                    <div className="prazo-envio-fatal">
-                      <CalendarClock size={13} />
-                      <label htmlFor="lote-fatal">
-                        {faltamPje === 0 ? 'Todas com prazo do PJe' : `Prazo limite (${faltamPje} sem data do PJe)`}
-                      </label>
-                      {faltamPje > 0 && <input id="lote-fatal" type="date" value={lote.fatal} onChange={e => setLote({ fatal: e.target.value })} />}
-                    </div>
-                    <div className="prazo-envio-acoes">
-                      <button type="button" className="prazo-btn prazo-btn--navy prazo-btn--sm" onClick={gerarPrazosLote} disabled={(faltamPje > 0 && !lote.fatal) || enviando}>
-                        {enviando ? <Loader2 className="lx-spin" size={13} /> : <CalendarClock size={13} />} Gerar {selecionados.length}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <button type="button" className="prazo-lote-fechar" title="Limpar seleção" onClick={() => setSelecionados([])}><X size={16} /></button>
-            </div>
-          )}
         </>
       ) : (
         <>

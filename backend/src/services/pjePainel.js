@@ -1,7 +1,7 @@
 /**
  * Robô de leitura do Painel do Advogado do PJe → tabela expedientes_pje.
  *
- * Percorre Expedientes › "Pendentes de ciência ou de resposta" › jurisdição › caixa
+ * Percorre Expedientes › abas de pendentes de resposta (ver escolherSituacoes) › jurisdição › caixa
  * reproduzindo os cliques AJAX (RichFaces A4J) por HTTP, sem navegador.
  * Guarda o prazo e a "Data limite prevista para manifestação" que o PRÓPRIO PJe
  * calculou — não fazemos conta de prazo aqui.
@@ -169,44 +169,61 @@ async function lerExpedientes(pjeUrl) {
         return r.texto;
     }
 
-    const situacao = linksA4j(paginaInicial.texto).find((l) => /^Pendentes de ciência ou de resposta/.test(l.rotulo));
-    if (!situacao) throw new Error('Aba "Pendentes de ciência ou de resposta" não encontrada');
-    if (!situacao.total) return { itens: [], incompletas: [] };
-
     const porId = new Map();
     // Caixa que não foi lida até o fim: o tribunal não pode aparecer como "ok"
     const incompletas = [];
-    const htmlSituacao = await clicar(situacao.form, situacao.params);
-    const jurisdicoes = linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.total > 0);
-    // Aba com N pendentes mas sem jurisdição na resposta = sessão derrubada / página de erro
-    // com HTTP 200. Sem isto o tribunal voltava "0 expedientes" como se estivesse ok.
-    if (!jurisdicoes.length) throw new Error(`painel listou ${situacao.total} pendente(s) mas não devolveu as jurisdições (sessão derrubada?)`);
-    for (const jur of jurisdicoes) {
-        const htmlJur = await clicar(jur.form, jur.params);
-        // A árvore mantém abertas as jurisdições anteriores: só as caixas DESTA (…:trPend:<id>:…)
-        const doNo = jur.params.ajaxSingle.replace(/::jNp$/, ':');
-        const caixas = linksA4j(htmlJur).filter((l) => l.params.ajaxSingle?.endsWith(':cxExItem') && l.params.ajaxSingle.startsWith(doNo) && l.total > 0);
-        for (const caixa of caixas) {
-            const antes = porId.size;
-            let html = await clicar(caixa.form, caixa.params);
-            let { total, itens } = parseLista(html);
-            itens.forEach((i) => porId.set(i.idExpediente, { ...i, orgao: i.orgao || jur.rotulo }));
-            // paginação (datascroller) quando a caixa passa de uma página
-            for (let pag = 2, vistos = itens.length; vistos < total && pag <= 50; pag++) {
-                html = await clicar('formExpedientes', {
-                    'formExpedientes:tbExpedientes:scPendentes': String(pag), ajaxSingle: 'formExpedientes:tbExpedientes:scPendentes',
-                });
-                ({ itens } = parseLista(html));
-                if (!itens.length) break;
-                itens.forEach((i) => porId.set(i.idExpediente, { ...i, orgao: i.orgao || jur.rotulo }));
-                vistos += itens.length;
+    for (const situacao of escolherSituacoes(linksA4j(paginaInicial.texto)).filter((s) => s.total > 0)) {
+        const htmlSituacao = await clicar(situacao.form, situacao.params);
+        // A árvore mantém abertas as situações anteriores: só as jurisdições DESTA (…:listaAgrSitExp:<n>:…)
+        const daSituacao = situacao.params.ajaxSingle.replace(/j_id\d+$/, '');
+        const jurisdicoes = linksA4j(htmlSituacao).filter((l) => l.params.ajaxSingle?.endsWith('::jNp') && l.params.ajaxSingle.startsWith(daSituacao) && l.total > 0);
+        // Aba com N pendentes mas sem jurisdição na resposta = sessão derrubada / página de erro
+        // com HTTP 200. Sem isto o tribunal voltava "0 expedientes" como se estivesse ok.
+        if (!jurisdicoes.length) throw new Error(`"${situacao.rotulo}" listou ${situacao.total} expediente(s) mas não devolveu as jurisdições (sessão derrubada?)`);
+        for (const jur of jurisdicoes) {
+            const htmlJur = await clicar(jur.form, jur.params);
+            // A árvore mantém abertas as jurisdições anteriores: só as caixas DESTA (…:trPend:<id>:…)
+            const doNo = jur.params.ajaxSingle.replace(/::jNp$/, ':');
+            const caixas = linksA4j(htmlJur).filter((l) => l.params.ajaxSingle?.endsWith(':cxExItem') && l.params.ajaxSingle.startsWith(doNo) && l.total > 0);
+            for (const caixa of caixas) {
+                const origem = { situacao: situacao.rotulo, jurisdicao: jur.rotulo, caixa: caixa.rotulo };
+                const daCaixa = new Set(); // por caixa: o mesmo expediente pode já ter vindo de outra aba
+                let html = await clicar(caixa.form, caixa.params);
+                let { total, itens } = parseLista(html);
+                itens.forEach((i) => { daCaixa.add(i.idExpediente); porId.set(i.idExpediente, { ...i, orgao: i.orgao || jur.rotulo, ...origem }); });
+                // paginação (datascroller) quando a caixa passa de uma página
+                for (let pag = 2, vistos = itens.length; vistos < total && pag <= 50; pag++) {
+                    html = await clicar('formExpedientes', {
+                        'formExpedientes:tbExpedientes:scPendentes': String(pag), ajaxSingle: 'formExpedientes:tbExpedientes:scPendentes',
+                    });
+                    ({ itens } = parseLista(html));
+                    if (!itens.length) break;
+                    itens.forEach((i) => { daCaixa.add(i.idExpediente); porId.set(i.idExpediente, { ...i, orgao: i.orgao || jur.rotulo, ...origem }); });
+                    vistos += itens.length;
+                }
+                const lidos = daCaixa.size;
+                (lidos < total ? logger.warn : logger.info).call(logger, `[PJe] ${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total} lido(s)`);
+                if (lidos < total) incompletas.push(`${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total}`);
             }
-            const lidos = porId.size - antes;
-            (lidos < total ? logger.warn : logger.info).call(logger, `[PJe] ${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total} lido(s)`);
-            if (lidos < total) incompletas.push(`${jur.rotulo} › ${caixa.rotulo}: ${lidos} de ${total}`);
         }
     }
     return { itens: [...porId.values()], incompletas };
+}
+
+// Abas do painel que o escritório acompanha: o que já teve ciência e espera resposta,
+// o "sem prazo" e o que venceu sem resposta. "Pendentes de ciência" fica de fora DE
+// PROPÓSITO (ainda não corre prazo); o card nasce quando a ciência é dada.
+// TJMT tem "Apenas pendentes de resposta", que já é a soma das três abas de ciência
+// dada/sem prazo; o TRF1 não tem essa aba, então lê as três.
+const ABA_SOMA = /^Apenas pendentes de resposta/;
+const ABAS_PARTES = [/^Ciência dada pelo destinatário/, /^Ciência dada pelo Judiciário/, /^Sem prazo/];
+const ABA_FINDOU = /^Cujo prazo findou/;
+function escolherSituacoes(links) {
+    const temSoma = links.some((l) => ABA_SOMA.test(l.rotulo));
+    const abas = links.filter((l) => ABA_FINDOU.test(l.rotulo)
+        || (temSoma ? ABA_SOMA.test(l.rotulo) : ABAS_PARTES.some((re) => re.test(l.rotulo))));
+    if (!abas.some((l) => !ABA_FINDOU.test(l.rotulo))) throw new Error('Abas de "pendentes de resposta" não encontradas no painel');
+    return abas;
 }
 
 // ── Expediente ↔ intimação / prazo ─────────────────────────────────────────
@@ -262,6 +279,65 @@ async function vincularIntimacoesAoPje() {
 
 const meiaNoite = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
+// O robô não lê "pendentes de ciência": o DJEN publica antes de o expediente aparecer
+// no painel, e o ato já tem card "a confirmar" do DJEN. O PJe assume esse card (data,
+// status, descrição) em vez de abrir um 2º — dono e intimações vinculadas ficam.
+async function cardDoDjen(caseReference, e) {
+    const cards = (await prisma.prazo.findMany({
+        where: { source: 'DJEN', status: 'A_CONFIRMAR', caseReference },
+        select: { id: true, fatalDate: true, intimacoes: { select: { tipoDocumento: true, tipoComunicacao: true }, take: 1 } },
+    // fatalDate do card do DJEN é a disponibilização: mesmo critério de proximidade do vínculo
+    })).map((c) => ({ ...c, dataExpedicao: c.fatalDate }));
+    const ref = { dataDisponibilizacao: e.dataExpedicao };
+    // Mesmo tipo de ato primeiro: o processo pode ter Decisão e Sentença na mesma quinzena
+    return melhorExpediente(ref, cards.filter((c) => mesmoTipo(tipoDoCard(c), e.tipo))) || melhorExpediente(ref, cards);
+}
+
+// "Intimação de pauta" (DJEN) = "Intimação de Pauta" (PJe): compara sem caixa nem acento
+const normTipo = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const mesmoTipo = (a, b) => Boolean(normTipo(a)) && normTipo(a) === normTipo(b);
+const tipoDoCard = (c) => c.intimacoes?.[0]?.tipoDocumento || c.intimacoes?.[0]?.tipoComunicacao;
+
+/**
+ * O DJEN às vezes publica o mesmo ato de novo (ex.: decisão sigilosa em 05/10 e 06/10) e
+ * a 2ª publicação vira outro card "a confirmar". Se já existe card aberto do PJe no mesmo
+ * processo, com o MESMO tipo de ato e expedição a até 15 dias, o card do DJEN é duplicado:
+ * as intimações passam para o card do PJe e o do DJEN é cancelado (sai do quadro, não
+ * some do banco). Tipo diferente (Sentença × Intimação) pode ser outro ato: fica para
+ * alguém olhar no "A confirmar".
+ */
+async function juntarDuplicadosDjen() {
+    const djen = await prisma.prazo.findMany({
+        where: { source: 'DJEN', status: 'A_CONFIRMAR', caseReference: { not: null } },
+        select: { id: true, caseReference: true, fatalDate: true, responsibleId: true, responsibleName: true, intimacoes: { select: { tipoDocumento: true, tipoComunicacao: true }, take: 1 } },
+    });
+    if (!djen.length) return 0;
+    const processos = [...new Set(djen.map((d) => soDigitos(d.caseReference)))];
+    const exps = await prisma.expedientePje.findMany({
+        where: { numeroProcesso: { in: processos }, prazoId: { not: null } },
+        select: { prazoId: true, numeroProcesso: true, tipo: true, dataExpedicao: true },
+    });
+    const abertos = new Set((await prisma.prazo.findMany({
+        where: { id: { in: exps.map((e) => e.prazoId) }, status: { in: ['PENDENTE', 'A_CONFIRMAR'] } }, select: { id: true },
+    })).map((p) => p.id));
+    let juntados = 0;
+    for (const d of djen) try {
+        const candidatos = exps.filter((e) => abertos.has(e.prazoId) && e.numeroProcesso === soDigitos(d.caseReference) && mesmoTipo(tipoDoCard(d), e.tipo));
+        const alvo = melhorExpediente({ dataDisponibilizacao: d.fatalDate }, candidatos);
+        if (!alvo) continue;
+        await prisma.$transaction([
+            prisma.intimacao.updateMany({ where: { prazoId: d.id }, data: { prazoId: alvo.prazoId } }),
+            // Dono que alguém já deu ao duplicado passa para o card que fica (se ele não tiver)
+            ...(d.responsibleId ? [prisma.prazo.updateMany({ where: { id: alvo.prazoId, responsibleId: null }, data: { responsibleId: d.responsibleId, responsibleName: d.responsibleName } })] : []),
+            prisma.prazo.update({ where: { id: d.id }, data: { status: 'CANCELADO', lastMovedBy: 'Robô PJe', lastMovedAt: new Date() } }),
+        ]);
+        juntados++;
+    } catch (err) {
+        logger.error(`[quadro] card ${d.id} do DJEN não foi juntado:`, err);
+    }
+    return juntados;
+}
+
 // Dono por processo: o último card do mesmo processo que tem dono passa o dono adiante.
 // A memória é o próprio quadro — "Pegar" num card assume o processo (rota /pegar).
 // ponytail: se um dia o processo precisar de dono oficial diferente do último card,
@@ -291,35 +367,45 @@ async function gerarQuadro() {
     let criados = 0;
 
     const novos = await prisma.expedientePje.findMany({ where: { prazoId: null } });
-    for (const e of novos) {
+    // Um expediente com erro não pode travar os demais nem os cards do DJEN que vêm depois
+    for (const e of novos) try {
         const caseReference = formatarCnj(e.numeroProcesso);
         const fatalDate = e.dataLimite || meiaNoite(e.dataExpedicao || e.vistoEm);
         const existente = caseReference && await prisma.prazo.findFirst({
             where: { source: 'PJE', caseReference, fatalDate },
             select: { id: true },
         });
-        const prazo = existente || await prisma.prazo.create({
-            data: {
-                title: e.destinatario || caseReference || `Expediente ${e.idExpediente}`,
-                caseReference,
-                type: 'JUDICIAL',
-                source: 'PJE',
-                status: e.dataLimite ? 'PENDENTE' : 'A_CONFIRMAR',
-                fatalDate,
-                ...(await donoDoProcesso(caseReference)),
-                description: [e.tipo, e.prazoDias && `prazo ${e.prazoDias} dias`,
-                    !e.dataLimite && (e.cienciaPendente ? 'ciência pendente no PJe' : 'sem data limite no PJe'),
-                    e.tribunal, e.orgao, `expediente ${e.idExpediente} (PJe)`]
-                    .filter(Boolean).join(' · '),
-            },
-        });
+        const doPje = {
+            source: 'PJE',
+            status: e.dataLimite ? 'PENDENTE' : 'A_CONFIRMAR',
+            fatalDate,
+            description: [e.tipo, e.prazoDias && `prazo ${e.prazoDias} dias`,
+                !e.dataLimite && (e.cienciaPendente ? 'ciência pendente no PJe' : 'sem data limite no PJe'),
+                e.tribunal, e.orgao, `expediente ${e.idExpediente} (PJe)`]
+                .filter(Boolean).join(' · '),
+        };
+        const djen = !existente && caseReference && await cardDoDjen(caseReference, e);
+        const prazo = existente
+            || (djen && await prisma.prazo.update({ where: { id: djen.id }, data: doPje }))
+            || await prisma.prazo.create({
+                data: {
+                    title: e.destinatario || caseReference || `Expediente ${e.idExpediente}`,
+                    caseReference,
+                    type: 'JUDICIAL',
+                    ...doPje,
+                    ...(await donoDoProcesso(caseReference)),
+                },
+            });
         await prisma.expedientePje.update({ where: { id: e.id }, data: { prazoId: prazo.id } });
-        if (!existente) criados++;
+        if (!existente && !djen) criados++;
+    } catch (err) {
+        logger.error(`[quadro] expediente ${e.idExpediente} não virou card:`, err);
     }
 
     const vinculadas = await vincularIntimacoesAoPje();
     const djen = await gerarCardsDoDjen();
-    return { criados, vinculadas, djen };
+    const juntados = await juntarDuplicadosDjen();
+    return { criados, vinculadas, djen, juntados };
 }
 
 // ponytail: fila em memória, processo único. Cron do DJEN, cron do PJe e os botões
@@ -345,7 +431,7 @@ async function gerarCardsDoDjen() {
         porAto.set(k, [...(porAto.get(k) || []), i]);
     }
     let criados = 0;
-    for (const grupo of porAto.values()) {
+    for (const grupo of porAto.values()) try {
         const [i] = grupo;
         const revisao = { revisadoPor: 'Robô DJEN', revisadoEm: new Date() };
         // Reivindica antes de criar (mesmo padrão do gerar-prazo manual): quem perder a
@@ -374,6 +460,9 @@ async function gerarCardsDoDjen() {
             return true;
         });
         if (criou) criados++;
+    } catch (err) {
+        // Fica NOVA e a próxima rodada tenta de novo; os outros atos seguem
+        logger.error(`[quadro] intimação ${grupo[0].djenId} não virou card:`, err);
     }
     return criados;
 }
@@ -440,7 +529,7 @@ async function syncExpedientesPje() {
         let erroQuadro;
         try {
             prazos = { ...(await gerarPrazosDoPje()), atualizados };
-            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${prazos.djen} card(s) do DJEN a confirmar, ${atualizados} data(s) atualizada(s)`);
+            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${prazos.djen} card(s) do DJEN a confirmar, ${prazos.juntados} duplicado(s) juntado(s), ${atualizados} data(s) atualizada(s)`);
         } catch (e) {
             erroQuadro = e;
             resultado.push({ tribunal: 'Quadro de prazos', erro: e.message });
@@ -459,5 +548,5 @@ async function syncExpedientesPje() {
 
 module.exports = {
     syncExpedientesPje, gerarPrazosDoPje, lerExpedientes, parseLista, linksA4j, decodificar, configurado, alvoPermitido,
-    soDigitos, formatarCnj, melhorExpediente,
+    soDigitos, formatarCnj, melhorExpediente, escolherSituacoes,
 };

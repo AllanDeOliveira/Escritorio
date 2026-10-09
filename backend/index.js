@@ -20,14 +20,15 @@ async function recuperarRodadasPerdidas() {
     const s = await prisma.systemSettings.findFirst();
     if (process.env.DISABLE_DJEN_CRON !== 'true' && isSyncStale(s?.djenLastSyncAt)) {
         logger.info('[DJEN] rodada perdida: sincronizando ao subir...');
-        const r = await syncIntimacoesSafe();
-        if (!r.skipped) await gerarPrazosDoPje();
+        await syncIntimacoesSafe().catch((e) => logger.error('[DJEN] rodada perdida falhou:', e));
     }
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     if (process.env.DISABLE_PJE_CRON !== 'true' && pjeConfigurado() && !(s?.pjeLastAttemptAt >= hoje)) {
         logger.info('[PJe] rodada perdida: lendo o painel ao subir...');
         await syncExpedientesPje();
     }
+    // Rede de segurança: intimação que ficou NOVA por qualquer falha anterior vira card
+    await gerarPrazosDoPje();
 }
 
 const app = express();
@@ -89,8 +90,6 @@ const prazosRoutes = require('./src/routes/prazosRoutes');
 app.use('/api/prazos', requireUser, prazosRoutes);
 const intimacoesRoutes = require('./src/routes/intimacoesRoutes');
 app.use('/api/intimacoes', requireUser, intimacoesRoutes);
-const mniRoutes = require('./src/routes/mniRoutes');
-app.use('/api/mni', requireUser, mniRoutes);
 
 // Handler final: JSON malformado, corpo grande demais etc. Sem stack trace na
 // resposta (o padrão do Express mostra quando NODE_ENV não é 'production').
@@ -125,16 +124,18 @@ app.listen(PORT, (err) => {
     } else {
         cron.schedule('30 6 * * 1-5', async () => {
             logger.info('[DJEN cron] Iniciando sincronização automática...');
+            let r;
             try {
-                const r = await syncIntimacoesSafe();
+                r = await syncIntimacoesSafe();
                 if (r.skipped) logger.warn('[DJEN cron] Pulado: já havia uma sincronização em andamento.');
                 else logger.info(`[DJEN cron] ${r.criadas} nova(s) intimação(ões) (janela ${r.janela}).`);
-                // Intimação nova vira card na hora: liga ao PJe se houver; senão "a confirmar"
-                if (!r.skipped) await gerarPrazosDoPje();
             } catch (e) {
                 // O servidor nunca cai por causa do sync; o heartbeat marca a falha.
                 logger.error('[DJEN cron] Falhou:', e);
             }
+            // Intimação nova vira card na hora: liga ao PJe se houver; senão "a confirmar".
+            // Roda mesmo com o sync quebrado no meio: o que já foi gravado não fica NOVA.
+            if (!r?.skipped) await gerarPrazosDoPje().catch((e) => logger.error('[DJEN cron] Quadro falhou:', e));
         }, { timezone: 'America/Cuiaba' });
         logger.info('Cron do DJEN agendado: 06:30, dias úteis (America/Cuiaba).');
     }

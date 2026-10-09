@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseLista, linksA4j, alvoPermitido, decodificar, melhorExpediente, formatarCnj } = require('./pjePainel');
+const { parseLista, linksA4j, alvoPermitido, decodificar, melhorExpediente, formatarCnj, escolherSituacoes } = require('./pjePainel');
 
 // Estrutura real do painel (TRF1, set/2026), com dados fictícios
 const linha = (miolo) => `<tr class="rich-table-row rich-table-firstrow"><td>${miolo}</td></tr>`;
@@ -92,5 +92,38 @@ describe('expediente ↔ intimação', () => {
         expect(formatarCnj('00005605720084013601')).toBe('0000560-57.2008.4.01.3601');
         expect(formatarCnj('123')).toBe('123');
         expect(formatarCnj(null)).toBeNull();
+    });
+});
+
+describe('abas lidas (fluxo do escritório)', () => {
+    const aba = (rotulo, total) => ({ rotulo, total });
+    const rotulos = (links) => escolherSituacoes(links).map((l) => l.rotulo);
+    const comuns = [
+        aba('Pendentes de ciência ou de resposta', 335),
+        aba('Apenas pendentes de ciência', 17),
+        aba('Ciência dada pelo destinatário direto ou indireto - pendente de resposta', 13),
+        aba('Ciência dada pelo Judiciário - pendente de resposta', 302),
+        aba('Cujo prazo findou nos últimos 10 dias - sem resposta', 39),
+        aba('Sem prazo', 3),
+        aba('Respondidos nos últimos 10 dias', 79),
+    ];
+
+    it('TJMT: "Apenas pendentes de resposta" (já soma as de ciência dada) + prazo findou', () => {
+        expect(rotulos([...comuns, aba('Apenas pendentes de resposta', 318)])).toEqual([
+            'Cujo prazo findou nos últimos 10 dias - sem resposta', 'Apenas pendentes de resposta',
+        ]);
+    });
+
+    it('TRF1 (sem a aba somada): ciência dada, sem prazo e prazo findou; nunca pendentes de ciência', () => {
+        expect(rotulos(comuns)).toEqual([
+            'Ciência dada pelo destinatário direto ou indireto - pendente de resposta',
+            'Ciência dada pelo Judiciário - pendente de resposta',
+            'Cujo prazo findou nos últimos 10 dias - sem resposta',
+            'Sem prazo',
+        ]);
+    });
+
+    it('painel sem as abas esperadas é erro, não "0 expedientes"', () => {
+        expect(() => escolherSituacoes([aba('Pendentes de ciência ou de resposta', 5)])).toThrow();
     });
 });

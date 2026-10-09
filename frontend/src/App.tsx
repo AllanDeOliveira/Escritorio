@@ -163,13 +163,13 @@ function App() {
     try {
       const [pr, intr] = await Promise.all([
         apiFetch(`${API}/api/prazos`).then(r => r.json()),
-        apiFetch(`${API}/api/intimacoes?status=NOVA`).then(r => r.json()),
+        apiFetch(`${API}/api/intimacoes?resumo=1`).then(r => r.json()),
       ]);
       if (!pr.success || !intr.success) throw new Error('resumo');
       // O backend já roda enrich() em cada prazo, então `bucket` vem pronto — o
       // digest sai de um filtro no array que já temos. Sem endpoint novo.
       const prazos = pr.prazos || [];
-      // `novas` = intimações recebidas hoje (tudo vira card na hora, então "aguardando" é sempre 0)
+      // `novas` = intimações recebidas hoje (cada uma já virou card no quadro)
       setResumo({ ...resumoDePrazos(prazos), novas: intr.counts?.hoje || 0 });
       setListaHoje(prazos.filter((p: any) => p.bucket === 'hoje'));
       setListaSemana(prazos.filter((p: any) => p.bucket === 'semana'));

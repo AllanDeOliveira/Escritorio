@@ -289,10 +289,7 @@
 }
 .prazo-int-card[draggable="true"] { cursor: grab; }
 .prazo-int-card:hover { box-shadow: var(--pz-sombra-hover); }
-.prazo-int-card--sel { border-color: var(--pz-navy); }
-.prazo-int-card--envio { border-color: var(--pz-gold-borda); box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12); }
 .prazo-int-head { display: flex; align-items: flex-start; gap: 10px; }
-.prazo-int-check { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--pz-navy); cursor: pointer; }
 .prazo-int-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .prazo-int-linha { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .prazo-int-cliente { font-size: 13.5px; font-weight: 600; line-height: 1.3; color: var(--text-primary); }
@@ -394,42 +391,8 @@
 [data-theme="dark"] .prazo-av--2 { background: rgba(22, 163, 74, 0.22); color: #86efac; }
 [data-theme="dark"] .prazo-av--3 { background: rgba(124, 58, 237, 0.24); color: #c4b5fd; }
 
-/* Envio rápido: avatares sobrepostos */
-
-/* Painel "Enviar para o quadro de" */
-.prazo-envio {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 2px -4px -2px;
-  padding: 10px;
-  border: 1px solid var(--pz-gold-borda);
-  border-radius: 9px;
-  background: var(--pz-envio-bg);
-}
 .prazo-envio-nome { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12.5px; font-weight: 600; }
 .prazo-envio-nome small { font-size: 11px; font-weight: 400; color: var(--pz-texto-2); }
-.prazo-envio-fatal {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--pz-gold-borda);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.prazo-envio-fatal input {
-  margin-left: auto;
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-}
-.prazo-envio-acoes { display: flex; justify-content: flex-end; gap: 6px; }
 
 /* Menus (⋯ do card, ⋯ do quadro, envio em lote) */
 .prazo-menu-wrap { position: relative; }
@@ -446,7 +409,6 @@
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
 }
 .prazo-menu--direita { left: auto; right: 0; }
-.prazo-menu--cima { top: auto; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: 320px; margin: 0; color: var(--text-primary); background: var(--bg-card); }
 .prazo-menu-item {
   display: flex;
   align-items: center;
@@ -465,54 +427,6 @@
 .prazo-menu-item:hover { background: var(--bg-input); }
 .prazo-menu-item--perigo { color: #dc2626; }
 
-/* Barra flutuante da seleção em lote */
-.prazo-lote {
-  position: fixed;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 12px 10px 18px;
-  border-radius: 12px;
-  background: #0f172a;
-  color: #fff;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
-  font-size: 13px;
-}
-.prazo-lote-sep { color: #94a3b8; }
-.prazo-lote-btn {
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 7px;
-  background: transparent;
-  color: #fff;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.prazo-lote-btn:hover { background: rgba(239, 68, 68, 0.25); border-color: #ef4444; }
-.prazo-lote-enviar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 8px 0 12px;
-  border: 0;
-  border-radius: 7px;
-  background: #e6c566;
-  color: #2b2106;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.prazo-lote-fechar { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #94a3b8; cursor: pointer; }
-.prazo-lote-fechar:hover { color: #fff; }
 
 /* ── Card de prazo (quadro) ───────────────────────────────────────── */
 .prazo-card-slot { display: flex; flex-direction: column; gap: 8px; }
@@ -555,6 +469,7 @@
 [data-theme="dark"] .prazo-prio--media { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
 [data-theme="dark"] .prazo-prio--baixa { background: var(--bg-input); color: var(--text-secondary); }
 .prazo-card-case { font-size: 12px; color: var(--pz-texto-2); font-variant-numeric: tabular-nums; }
+.prazo-card-pje { font-size: 11px; color: var(--text-secondary); line-height: 1.35; }
 .prazo-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; color: var(--text-secondary); }
 .prazo-card-rel { font-weight: 700; }
 .prazo-card-rel--vencido { color: #dc2626; }
@@ -661,8 +576,9 @@
 }
 
 /* Prazo oficial lido do Painel do Advogado do PJe */
-.prazo-int-pje { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--text-secondary); margin: 2px 0 6px; }
+.prazo-int-pje { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 0.74rem; color: var(--text-secondary); margin: 2px 0 6px; }
 .prazo-int-pje strong { color: var(--text-primary); }
+.prazo-int-pje-caminho { flex-basis: 100%; font-size: 0.7rem; }
 .prazo-int-pje-fonte { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.04em; padding: 0 5px; border-radius: 6px; border: 1px solid var(--border); }
 
 /* Painel "Filtros" do quadro (".prazo-filtros" é outra coisa: a barra da caixa) */
@@ -703,12 +619,6 @@
   .prazo-fp { grid-template-columns: 1fr; }
 }
 
-/* Aviso de possível duplicidade na caixa: processo já tem prazo do PJe no quadro */
-.prazo-int-duplicado { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 6px; padding: 5px 8px; border-radius: 7px; background: #fef3c7; color: #92400e; font-size: 0.72rem; line-height: 1.35; }
-.prazo-int-duplicado svg { flex: none; margin-top: 1px; }
-.prazo-int-duplicado strong { color: #78350f; }
-[data-theme="dark"] .prazo-int-duplicado { background: rgba(245, 158, 11, 0.14); color: #fcd34d; }
-[data-theme="dark"] .prazo-int-duplicado strong { color: #fde68a; }
 .prazo-fp-toggle {
   grid-column: 1 / -1;
   display: flex;
