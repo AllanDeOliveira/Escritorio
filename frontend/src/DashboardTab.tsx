@@ -1,6 +1,6 @@
 import {
   AlertTriangle, CalendarClock, Inbox, ChevronRight, Loader2, RefreshCw, Activity,
-  CheckCircle2, CloudOff,
+  CheckCircle2, CloudOff, OctagonAlert, Clock, CalendarDays, CircleHelp,
 } from 'lucide-react';
 import './DashboardTab.css';
 
@@ -54,6 +54,9 @@ interface DashboardTabProps {
   prazosSemana: PrazoLite[];
 }
 
+// O digest mostra só os primeiros; o resto está a um clique, no quadro.
+const LIMITE_DIGEST = 8;
+
 function formatHora(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
@@ -80,7 +83,7 @@ export default function DashboardTab({
     <div className="dash-recentes">
       <div className={`dash-recentes-head ${cls}`}><CalendarClock size={16} /> {titulo} ({itens.length})</div>
       <ul className="dash-recentes-list">
-        {itens.map(p => (
+        {itens.slice(0, LIMITE_DIGEST).map(p => (
           <li key={p.id}>
             <button className="dash-recente" onClick={() => onNavigate('prazos')}>
               <span className="dash-recente-nome">{p.title || 'Prazo sem título'}</span>
@@ -91,6 +94,11 @@ export default function DashboardTab({
           </li>
         ))}
       </ul>
+      {itens.length > LIMITE_DIGEST && (
+        <button className="dash-recentes-mais" onClick={() => onNavigate('prazos')}>
+          Ver os outros {itens.length - LIMITE_DIGEST} no quadro
+        </button>
+      )}
     </div>
   );
 
@@ -181,34 +189,43 @@ export default function DashboardTab({
             )}
 
             <div className="dash-cards">
-              <button className="dash-card dash-card--vencido" onClick={() => onNavigate('prazos')}>
+              {/* Cada nível tem ícone próprio: a urgência não depende só da cor */}
+              <button className={`dash-card dash-card--vencido ${resumo.vencido === 0 ? 'dash-card--zero' : ''}`} onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-label">
+                  {resumo.vencido === 0 ? <CheckCircle2 size={16} /> : <OctagonAlert size={16} />} Vencidos
+                </span>
                 <span className="dash-card-num">{resumo.vencido}</span>
-                <span className="dash-card-label">Vencidos</span>
               </button>
               <button className="dash-card dash-card--hoje" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-label"><Clock size={16} /> Vencem hoje</span>
                 <span className="dash-card-num">{resumo.hoje}</span>
-                <span className="dash-card-label">Vencem hoje</span>
               </button>
               <button className="dash-card dash-card--semana" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-label"><CalendarDays size={16} /> Esta semana</span>
                 <span className="dash-card-num">{resumo.semana}</span>
-                <span className="dash-card-label">Esta semana</span>
               </button>
               <button className="dash-card dash-card--triagem" onClick={() => onNavigate('prazos')}>
+                <span className="dash-card-label"><CircleHelp size={16} /> A confirmar data</span>
                 <span className="dash-card-num">{resumo.triagem}</span>
-                <span className="dash-card-label">A confirmar data</span>
               </button>
             </div>
 
-            <button className="dash-intimacoes" onClick={() => onNavigate('prazos', { view: 'inbox' })}>
-              <Inbox size={20} />
-              <span className="dash-intimacoes-txt">Intimações recebidas hoje (já no quadro)</span>
-              <span className={`dash-intimacoes-badge ${resumo.novas > 0 ? 'dash-intimacoes-badge--on' : ''}`}>{resumo.novas}</span>
-              <ChevronRight size={16} className="dash-banner-seta" />
-            </button>
-
-            {/* Digest da rotina matinal: quais prazos, não só quantos. */}
-            {listaPrazos(prazosHoje, 'Vencem hoje', 'dash-recentes-head--hoje')}
-            {listaPrazos(prazosSemana, 'Esta semana', 'dash-recentes-head--semana')}
+            <div className="dash-cols">
+              {/* Digest da rotina matinal: quais prazos, não só quantos. */}
+              <div className="dash-col">
+                {listaPrazos(prazosHoje, 'Vencem hoje', 'dash-recentes-head--hoje')}
+                {prazosHoje.length === 0 && listaPrazos(prazosSemana, 'Esta semana', 'dash-recentes-head--semana')}
+              </div>
+              <div className="dash-col">
+                <button className="dash-intimacoes" onClick={() => onNavigate('prazos', { view: 'inbox' })}>
+                  <Inbox size={20} />
+                  <span className="dash-intimacoes-txt">Intimações recebidas hoje (já no quadro)</span>
+                  <span className={`dash-intimacoes-badge ${resumo.novas > 0 ? 'dash-intimacoes-badge--on' : ''}`}>{resumo.novas}</span>
+                  <ChevronRight size={16} className="dash-banner-seta" />
+                </button>
+                {prazosHoje.length > 0 && listaPrazos(prazosSemana, 'Esta semana', 'dash-recentes-head--semana')}
+              </div>
+            </div>
           </>
         ) : null}
       </div>
