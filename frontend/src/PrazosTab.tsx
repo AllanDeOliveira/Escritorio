@@ -410,8 +410,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [menu, setMenu] = useState<string | null>(null);
   // Quadro: busca e filtro de prioridade
   const [buscaQuadro, setBuscaQuadro] = useState('');
-  // Filtros do quadro (aba "Filtros"): chave do filtro → valor escolhido ('' = todos)
-  const [filtrosQuadro, setFiltrosQuadro] = useState<Record<string, string>>({});
+  // Filtros do quadro (aba "Filtros"): chave do filtro → valores marcados (vazio = todos; vários = OU)
+  const [filtrosQuadro, setFiltrosQuadro] = useState<Record<string, string[]>>({});
 
   // Fecha menus ao clicar fora
   useEffect(() => {
@@ -820,7 +820,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     { key: 'orgao', label: 'Juizado / órgão', de: p => chaveOrgao(origemDe(p).orgao), rotulo: k => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k)), largo: true },
   ];
   const passaFiltros = (p: Prazo, exceto?: string) =>
-    FILTROS_QUADRO.every(f => f.key === exceto || !filtrosQuadro[f.key] || f.de(p) === filtrosQuadro[f.key]);
+    FILTROS_QUADRO.every(f => f.key === exceto || !filtrosQuadro[f.key]?.length || filtrosQuadro[f.key].includes(f.de(p)));
   const naBuscaQuadro = (p: Prazo) =>
     !buscaQuadro.trim() || buscaMatch({ numeroProcesso: p.caseReference, clienteExtraido: p.title }, buscaQuadro);
   const filtraPrazo = (p: Prazo) => naBuscaQuadro(p) && passaFiltros(p);
@@ -829,16 +829,25 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const opcoesFiltro = (f: FiltroQuadro) => {
     const n = new Map<string, number>();
     basePrazos.filter(p => passaFiltros(p, f.key)).forEach(p => { const k = f.de(p); n.set(k, (n.get(k) || 0) + 1); });
-    const atual = filtrosQuadro[f.key];
-    if (atual && !n.has(atual)) n.set(atual, 0);
+    (filtrosQuadro[f.key] || []).forEach(k => { if (!n.has(k)) n.set(k, 0); });
     const pos = (k: string) => f.ordem!.indexOf(k);
     return [...n.entries()]
       .sort((a, b) => (f.ordem ? pos(a[0]) - pos(b[0]) : b[1] - a[1] || f.rotulo(a[0]).localeCompare(f.rotulo(b[0]))))
       .map(([key, qtd]) => ({ key, label: f.rotulo(key), n: qtd }));
   };
-  const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]);
+  const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]?.length);
   const nFiltros = filtrosAtivos.length;
-  const setFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => ({ ...fs, [key]: valor }));
+  const marcadosFiltro = (key: string) => filtrosQuadro[key] || [];
+  const alternarFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => {
+    const atual = fs[key] || [];
+    return { ...fs, [key]: atual.includes(valor) ? atual.filter(v => v !== valor) : [...atual, valor] };
+  });
+  const limparFiltro = (key: string) => setFiltrosQuadro(fs => ({ ...fs, [key]: [] }));
+  // "Todos" | "Cáceres" | "Cáceres +2"
+  const resumoFiltro = (f: FiltroQuadro) => {
+    const v = marcadosFiltro(f.key);
+    return !v.length ? 'Todos' : f.rotulo(v[0]) + (v.length > 1 ? ` +${v.length - 1}` : '');
+  };
 
   // Colunas do quadro: urgência (vencido / hoje / semana / futuro / concluído)
   type ColQuadro = { key: string; label: string; cor: string; empty: string; itens: Prazo[]; porPrioridade?: boolean };
@@ -1256,8 +1265,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 ['todos', <>Todos <span className="prazo-seg-n">{totalTodos}</span></>],
               ] as const, recorte, setRecorte, 'Recorte do quadro')}
               {filtrosAtivos.map(f => (
-                <button key={f.key} type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setFiltro(f.key, '')}>
-                  {f.label}: {f.rotulo(filtrosQuadro[f.key])} <X size={12} />
+                <button key={f.key} type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => limparFiltro(f.key)}>
+                  {f.label}: {resumoFiltro(f)} <X size={12} />
                 </button>
               ))}
               <div className="prazo-menu-wrap">
@@ -1280,13 +1289,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       )}
                     </div>
                     {FILTROS_QUADRO.map(f => (
-                      <label key={f.key} className={`prazo-fp-campo ${f.largo ? 'prazo-fp-campo--largo' : ''} ${filtrosQuadro[f.key] ? 'prazo-fp-campo--on' : ''}`}>
+                      <div key={f.key} className={`prazo-fp-campo ${f.largo ? 'prazo-fp-campo--largo' : ''} ${marcadosFiltro(f.key).length ? 'prazo-fp-campo--on' : ''}`}>
                         <span className="prazo-fp-rotulo">{f.label}</span>
-                        <select value={filtrosQuadro[f.key] || ''} onChange={e => setFiltro(f.key, e.target.value)}>
-                          <option value="">Todos</option>
-                          {opcoesFiltro(f).map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
-                        </select>
-                      </label>
+                        {/* name: abrir um fecha os outros (accordion nativo) */}
+                        <details name="prazo-fp" className="prazo-fp-multi">
+                          <summary title={marcadosFiltro(f.key).map(f.rotulo).join(', ')}>{resumoFiltro(f)}</summary>
+                          <div className="prazo-fp-opcoes">
+                            {opcoesFiltro(f).map(o => (
+                              <label key={o.key} className="prazo-fp-opcao">
+                                <input type="checkbox" checked={marcadosFiltro(f.key).includes(o.key)} onChange={() => alternarFiltro(f.key, o.key)} />
+                                <span>{o.label}</span><small>{o.n}</small>
+                              </label>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
                     ))}
                   </div>
                 )}
