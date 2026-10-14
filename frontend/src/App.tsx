@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle, Clock,
+  X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle,
   ShieldAlert, BarChart3, Zap, LogOut, Sun, Moon, Users, CalendarClock
 } from 'lucide-react';
 import { auth, apiFetch, API } from './firebase';
@@ -27,7 +27,6 @@ function App() {
   const [dbUser, setDbUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showNameModal, setShowNameModal] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
   const [toasts, setToasts] = useState<{ id: number, message: string, type: 'success' | 'error' | 'info' }[]>([]);
 
   // ── Sistema de Confirmação ──────────────────────────────────────
@@ -52,10 +51,6 @@ function App() {
   const [theme, setTheme] = useState(lsGet('lexgen_theme') || 'light');
   useEffect(() => { lsSet('lexgen_theme', theme); }, [theme]);
   useEffect(() => { lsSet('lexgen_active_tab', activeTab); }, [activeTab]);
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -317,8 +312,9 @@ function App() {
       <div className="lx-main">
         <div className="lx-header">
           <h2 className="lx-page-title">
-            {activeTab === 'dashboard' && 'Painel de Inteligência Jurídica'}
-            {activeTab === 'prazos' && 'Controle de Prazos'}
+            {activeTab === 'dashboard' && 'Hoje'}
+            {activeTab === 'prazos' && 'Prazos'}
+            {activeTab === 'perfil' && 'Perfil'}
             {activeTab === 'admin' && 'Painel de Administração'}
           </h2>
           <div className="lx-header-actions">
@@ -329,22 +325,6 @@ function App() {
             >
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} color="var(--gold)" />}
             </button>
-            <div className="app-datetime-pill">
-              <Clock size={15} className="app-icon-gold" />
-              <span className="app-capitalize">
-                {currentTime.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')}
-              </span>
-              <span className="app-opacity-40">•</span>
-              <span>{currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
-            <div className="app-header-user-mini">
-              <span className="app-header-username">
-                {dbUser?.name || currentUser?.displayName || 'Usuário'}
-              </span>
-              <div className="app-header-avatar">
-                {(dbUser?.name || currentUser?.displayName || 'U').charAt(0).toUpperCase()}
-              </div>
-            </div>
           </div>
         </div>
 
@@ -382,8 +362,6 @@ function App() {
         {activeTab === 'perfil' && (
           <div className="lx-single-panel app-perfil-panel">
             <div className="app-perfil-content">
-              <h2 className="app-perfil-title">Configurações de Perfil</h2>
-
               <div className="lx-dash-card app-perfil-card">
                 <div className="app-perfil-avatar-row">
                   <div className="app-perfil-avatar">
@@ -461,13 +439,6 @@ function App() {
 
                 </div>
               </div>
-
-              <button
-                onClick={handleLogout}
-                className="app-logout-btn"
-              >
-                <LogOut size={18} /> Sair da Conta
-              </button>
             </div>
           </div>
         )}

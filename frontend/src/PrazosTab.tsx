@@ -410,8 +410,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [menu, setMenu] = useState<string | null>(null);
   // Quadro: busca e filtro de prioridade
   const [buscaQuadro, setBuscaQuadro] = useState('');
-  // Filtros do quadro (aba "Filtros"): chave do filtro → valor escolhido ('' = todos)
-  const [filtrosQuadro, setFiltrosQuadro] = useState<Record<string, string>>({});
+  // Filtros do quadro (aba "Filtros"): chave do filtro → valores marcados (vazio = todos; vários = OU)
+  const [filtrosQuadro, setFiltrosQuadro] = useState<Record<string, string[]>>({});
 
   // Fecha menus ao clicar fora
   useEffect(() => {
@@ -820,7 +820,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     { key: 'orgao', label: 'Juizado / órgão', de: p => chaveOrgao(origemDe(p).orgao), rotulo: k => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k)), largo: true },
   ];
   const passaFiltros = (p: Prazo, exceto?: string) =>
-    FILTROS_QUADRO.every(f => f.key === exceto || !filtrosQuadro[f.key] || f.de(p) === filtrosQuadro[f.key]);
+    FILTROS_QUADRO.every(f => f.key === exceto || !filtrosQuadro[f.key]?.length || filtrosQuadro[f.key].includes(f.de(p)));
   const naBuscaQuadro = (p: Prazo) =>
     !buscaQuadro.trim() || buscaMatch({ numeroProcesso: p.caseReference, clienteExtraido: p.title }, buscaQuadro);
   const filtraPrazo = (p: Prazo) => naBuscaQuadro(p) && passaFiltros(p);
@@ -829,25 +829,35 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const opcoesFiltro = (f: FiltroQuadro) => {
     const n = new Map<string, number>();
     basePrazos.filter(p => passaFiltros(p, f.key)).forEach(p => { const k = f.de(p); n.set(k, (n.get(k) || 0) + 1); });
-    const atual = filtrosQuadro[f.key];
-    if (atual && !n.has(atual)) n.set(atual, 0);
+    (filtrosQuadro[f.key] || []).forEach(k => { if (!n.has(k)) n.set(k, 0); });
     const pos = (k: string) => f.ordem!.indexOf(k);
     return [...n.entries()]
       .sort((a, b) => (f.ordem ? pos(a[0]) - pos(b[0]) : b[1] - a[1] || f.rotulo(a[0]).localeCompare(f.rotulo(b[0]))))
       .map(([key, qtd]) => ({ key, label: f.rotulo(key), n: qtd }));
   };
-  const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]);
+  const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]?.length);
   const nFiltros = filtrosAtivos.length;
-  const setFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => ({ ...fs, [key]: valor }));
+  const marcadosFiltro = (key: string) => filtrosQuadro[key] || [];
+  const alternarFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => {
+    const atual = fs[key] || [];
+    return { ...fs, [key]: atual.includes(valor) ? atual.filter(v => v !== valor) : [...atual, valor] };
+  });
+  const limparFiltro = (key: string) => setFiltrosQuadro(fs => ({ ...fs, [key]: [] }));
+  // "Todos" | "Cáceres" | "Cáceres +2"
+  const resumoFiltro = (f: FiltroQuadro) => {
+    const v = marcadosFiltro(f.key);
+    return !v.length ? 'Todos' : f.rotulo(v[0]) + (v.length > 1 ? ` +${v.length - 1}` : '');
+  };
 
   // Colunas do quadro: urgência (vencido / hoje / semana / futuro / concluído)
   type ColQuadro = { key: string; label: string; cor: string; empty: string; itens: Prazo[]; porPrioridade?: boolean };
-  const COR_TEMPO: Record<string, string> = { triagem: '#7c3aed', vencido: '#dc2626', hoje: '#d97706', semana: '#2563eb', futuro: '#64748b', concluido: '#16a34a' };
+  const COR_TEMPO: Record<string, string> = { triagem: 'var(--urg-triagem)', vencido: 'var(--urg-vencido)', hoje: 'var(--urg-hoje)', semana: 'var(--urg-semana)', futuro: 'var(--urg-futuro)', concluido: 'var(--urg-ok)' };
   const colunasQuadro: ColQuadro[] = COLUMNS.map(c => {
     const itens = (groups[c.key] || []).filter(filtraPrazo);
     // Vencidos agrupados por prioridade quando alguém definiu prioridade
     const porPrioridade = c.key === 'vencido' && itens.some(p => p.prioridade);
-    return { key: c.key, label: c.label, cor: COR_TEMPO[c.key], empty: c.empty, itens: porPrioridade ? ordenarPorPrioridade(itens) : itens, porPrioridade };
+    const cor = itens.length === 0 && c.key !== 'concluido' ? 'var(--urg-futuro)' : COR_TEMPO[c.key];
+    return { key: c.key, label: c.label, cor, empty: c.empty, itens: porPrioridade ? ordenarPorPrioridade(itens) : itens, porPrioridade };
   });
 
   const PRIO_COR: Record<string, string> = { ALTA: '#b91c1c', MEDIA: '#b45309', BAIXA: '#667085', '': '#98a2b3' };
@@ -873,15 +883,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         <div className="prazo-card-head">
           <span className="prazo-card-title">{p.title}</span>
           {rotuloPrio(p.prioridade) && <span className={`prazo-prio prazo-prio--${p.prioridade!.toLowerCase()}`}>{rotuloPrio(p.prioridade)}</span>}
-          {p.bucket !== 'concluido' && (
-            <button type="button" className="prazo-icon-btn prazo-card-ok" title="Marcar como cumprido"
-              onClick={e => { e.stopPropagation(); setMoveModal({ prazo: p, targetStatus: 'CUMPRIDO' }); }}>
-              <Check size={14} />
-            </button>
-          )}
         </div>
         {p.caseReference && <div className="prazo-card-case">{p.caseReference}</div>}
-        {caminhoPje(p.origemPje) && <div className="prazo-card-pje" title="Onde estava no Painel do Advogado do PJe">PJe: {caminhoPje(p.origemPje)}</div>}
+        {caminhoPje(p.origemPje) && <div className="prazo-card-pje" title={`Onde estava no Painel do Advogado do PJe: ${caminhoPje(p.origemPje)}`}>PJe: {caminhoPje(p.origemPje)}</div>}
         <div className="prazo-card-meta">
           <CalendarClock size={13} />
           {p.bucket === 'triagem' ? (
@@ -905,16 +909,25 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             {tipo && <span className="prazo-tag prazo-tag--tipo">{tipo}</span>}
             {(origem?.tribunal || p.origemPje?.tribunal) && <span className="prazo-tag">{origem?.tribunal || p.origemPje?.tribunal}</span>}
           </div>
-          {(p.responsibleId || p.responsibleName) ? (
-            p.responsibleId && idxPessoa(p.responsibleId) >= 0
-              ? avatar(p.responsibleId, p.responsibleName, 'prazo-av--sm')
-              : <span className="prazo-card-resp">{p.responsibleName}</span>
-          ) : p.bucket !== 'concluido' && dbUser?.id ? (
-            <button type="button" className="prazo-card-pegar" title="Assumir este card e os demais sem dono do mesmo processo"
-              onClick={e => { e.stopPropagation(); pegar(p); }}>
-              Pegar
-            </button>
-          ) : null}
+          <div className="prazo-card-acoes">
+            {(p.responsibleId || p.responsibleName) ? (
+              p.responsibleId && idxPessoa(p.responsibleId) >= 0
+                ? avatar(p.responsibleId, p.responsibleName, 'prazo-av--sm')
+                : <span className="prazo-card-resp">{p.responsibleName}</span>
+            ) : p.bucket !== 'concluido' && dbUser?.id ? (
+              <button type="button" className="prazo-card-pegar" title="Assumir este card e os demais sem dono do mesmo processo"
+                onClick={e => { e.stopPropagation(); pegar(p); }}>
+                Pegar
+              </button>
+            ) : null}
+            {/* Com texto: só o ✓ não dizia o que fazia */}
+            {p.bucket !== 'concluido' && (
+              <button type="button" className="prazo-icon-btn prazo-card-ok" title="Marcar como cumprido"
+                onClick={e => { e.stopPropagation(); setMoveModal({ prazo: p, targetStatus: 'CUMPRIDO' }); }}>
+                <Check size={14} /> Concluir
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -933,7 +946,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   return (
     <div className="lx-single-panel prazo-panel">
       <div className="prazo-abas" role="tablist" aria-label="Controle de prazos">
-        {([['board', 'Quadro de prazos', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta'], ['inbox', 'Caixa de intimações', nSemData, 'prazo-aba-badge']] as const).map(([k, label, n, cls]) => (
+        {([['board', 'Quadro', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta'], ['inbox', 'Caixa de intimações', nSemData, 'prazo-aba-badge']] as const).map(([k, label, n, cls]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} className={`prazo-aba ${view === k ? 'prazo-aba--ativa' : ''}`} onClick={() => setView(k)}>
             {label}
             {n > 0 && <span className={cls}>{n}</span>}
@@ -1240,18 +1253,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         <>
           {/* ── Quadro: título, visão e resumo · busca, prioridade, mais, novo ── */}
           <div className="prazo-topo">
-            <div className="prazo-titulo">
-              <h1>Quadro de prazos</h1>
-              {!loading && (
-                <span className="prazo-resumo">
-                  <span className="prazo-resumo--vencido">{count('vencido')} vencido{count('vencido') !== 1 ? 's' : ''}</span>
-                  <span className="prazo-sep">·</span>
-                  <span className="prazo-resumo--hoje">{count('hoje')} hoje</span>
-                  <span className="prazo-sep">·</span>
-                  <span>{count('semana')} esta semana</span>
-                </span>
-              )}
-            </div>
             <div className="prazo-topo-acoes">
               <div className="prazo-busca">
                 <Search size={14} />
@@ -1264,8 +1265,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 ['todos', <>Todos <span className="prazo-seg-n">{totalTodos}</span></>],
               ] as const, recorte, setRecorte, 'Recorte do quadro')}
               {filtrosAtivos.map(f => (
-                <button key={f.key} type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setFiltro(f.key, '')}>
-                  {f.label}: {f.rotulo(filtrosQuadro[f.key])} <X size={12} />
+                <button key={f.key} type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => limparFiltro(f.key)}>
+                  {f.label}: {resumoFiltro(f)} <X size={12} />
                 </button>
               ))}
               <div className="prazo-menu-wrap">
@@ -1288,13 +1289,21 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                       )}
                     </div>
                     {FILTROS_QUADRO.map(f => (
-                      <label key={f.key} className={`prazo-fp-campo ${f.largo ? 'prazo-fp-campo--largo' : ''} ${filtrosQuadro[f.key] ? 'prazo-fp-campo--on' : ''}`}>
+                      <div key={f.key} className={`prazo-fp-campo ${f.largo ? 'prazo-fp-campo--largo' : ''} ${marcadosFiltro(f.key).length ? 'prazo-fp-campo--on' : ''}`}>
                         <span className="prazo-fp-rotulo">{f.label}</span>
-                        <select value={filtrosQuadro[f.key] || ''} onChange={e => setFiltro(f.key, e.target.value)}>
-                          <option value="">Todos</option>
-                          {opcoesFiltro(f).map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
-                        </select>
-                      </label>
+                        {/* name: abrir um fecha os outros (accordion nativo) */}
+                        <details name="prazo-fp" className="prazo-fp-multi">
+                          <summary title={marcadosFiltro(f.key).map(f.rotulo).join(', ')}>{resumoFiltro(f)}</summary>
+                          <div className="prazo-fp-opcoes">
+                            {opcoesFiltro(f).map(o => (
+                              <label key={o.key} className="prazo-fp-opcao">
+                                <input type="checkbox" checked={marcadosFiltro(f.key).includes(o.key)} onChange={() => alternarFiltro(f.key, o.key)} />
+                                <span>{o.label}</span><small>{o.n}</small>
+                              </label>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
                     ))}
                   </div>
                 )}

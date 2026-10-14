@@ -4,6 +4,7 @@ const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
 const { syncExpedientesPje, gerarPrazosDoPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
+const { parseBusca, buscaToWhere } = require('../services/buscaIntimacoes');
 
 /**
  * Estado da última sincronização com o DJEN. `stale` é calculado no servidor
@@ -69,6 +70,30 @@ router.get('/', async (req, res) => {
     } catch (error) {
         logger.error('[listIntimacoes] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao listar intimações.' });
+    }
+});
+
+// GET /api/intimacoes/busca?q=tribunal:TJMT antes:2026-05-01 prazo&ordem=antigos&offset=0&limit=25
+// Sintaxe estilo Discord (ver buscaIntimacoes.js). Paginado com total, como o total_results do Discord.
+router.get('/busca', async (req, res) => {
+    try {
+        const where = buscaToWhere(parseBusca(req.query.q));
+        const offset = Math.max(0, Math.trunc(Number(req.query.offset)) || 0);
+        const limit = Math.min(100, Math.max(1, Math.trunc(Number(req.query.limit)) || 25));
+        const [intimacoes, total] = await Promise.all([
+            prisma.intimacao.findMany({
+                where,
+                orderBy: { dataDisponibilizacao: req.query.ordem === 'antigos' ? 'asc' : 'desc' },
+                skip: offset,
+                take: limit,
+                include: { prazo: { select: { id: true, title: true, status: true, fatalDate: true, caseReference: true } } },
+            }),
+            prisma.intimacao.count({ where }),
+        ]);
+        res.json({ success: true, total, offset, limit, intimacoes: await anexarExpedientesPje(intimacoes) });
+    } catch (error) {
+        logger.error('[buscaIntimacoes] Erro:', error);
+        res.status(500).json({ success: false, error: 'Erro ao buscar intimações.' });
     }
 });
 
