@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   agruparIntimacoes, chaveAto, tipoBucket, mesAtual, nomeMes, areaDireito, AREAS, tribunaisPresentes, buscaMatch, formatarNumeroCnj,
-  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade, cardSemDono, caminhoPje,
+  relativeLabel, nomeProprio, iniciais, cargaPorPessoa, ordenarPorPrioridade, cardSemDono, caminhoPje, jurisdicaoDe,
   type Intimacao,
 } from './PrazosTab';
 
@@ -260,5 +260,55 @@ describe('caminhoPje', () => {
   it('expediente lido antes do caminho existir: nada', () => {
     expect(caminhoPje({ situacao: null })).toBeNull();
     expect(caminhoPje(null)).toBeNull();
+  });
+});
+
+describe('jurisdicaoDe', () => {
+  it('usa a jurisdição do PJe quando o expediente traz', () => {
+    expect(jurisdicaoDe('3ª VARA ESP. DA FAZENDA PÚBLICA DE CUIABÁ', 'TJMT', 'Cuiabá Cível')).toBe('CUIABÁ CÍVEL');
+  });
+
+  it('deriva a jurisdição do órgão do DJEN (TJMT), igual ao Painel do PJe', () => {
+    const casos: [string, string][] = [
+      ['3ª VARA CÍVEL DE CÁCERES', 'CÁCERES'],
+      ['1ª VARA CÍVEL DE CÁCERES - FAMÍLIA E SUCESSÕES', 'CÁCERES'],
+      ['4ª VARA CÍVEL DE CÁCERES - FAZENDA PÚBLICA', 'CÁCERES'],
+      ['JUIZADOS ESPECIAIS DE CÁCERES', 'CÁCERES JUIZADOS'],
+      ['3ª VARA ESP. DA FAZENDA PÚBLICA DE CUIABÁ', 'CUIABÁ CÍVEL'],
+      ['JUIZADO ESPECIAL DA FAZENDA PÚBLICA DE CUIABÁ', 'CUIABÁ JUIZADOS'],
+      ['3º JUIZADO ESPECIAL CÍVEL DE CUIABÁ', 'CUIABÁ JUIZADOS'],
+      ['JUIZADO ESPECIAL CRIMINAL E FAZENDÁRIO DE VÁRZEA GRANDE', 'VÁRZEA GRANDE JUIZADOS'],
+      ['VARA ÚNICA DE STO ANTÔNIO DO LEVERGER', 'STO ANTÔNIO DO LEVERGER'],
+      ["1ª VARA DE MIRASSOL D'OESTE", "MIRASSOL D'OESTE"],
+      ['NÚCLEO DE JUSTIÇA DIGITAL DOS JUIZADOS ESPECIAIS CÍVEIS', 'NÚCLEO DE JUSTIÇA DIGITAL DOS JUIZADOS ESPECIAIS'],
+      ['Primeira Turma Recursal', 'TURMA RECURSAL ÚNICA'],
+      ['Quarta Câmara de Direito Privado', 'TJMT - 2º GRAU'],
+      ['Vice-Presidência', 'TJMT - 2º GRAU'],
+    ];
+    casos.forEach(([orgao, esperado]) => expect(jurisdicaoDe(orgao, 'TJMT')).toBe(esperado));
+  });
+
+  it('TRF1 segue os nomes do PJe federal', () => {
+    expect(jurisdicaoDe('Juizado Especial Cível e Criminal Adjunto à 2ª Vara Federal da SSJ de Cáceres-MT', 'TRF1')).toBe('SUBSEÇÃO JUDICIÁRIA DE CÁCERES-MT');
+    expect(jurisdicaoDe('3ª Relatoria da 1ª Turma Recursal da SJMT', 'TRF1')).toBe('TURMA RECURSAL DOS JUIZADOS ESPECIAIS FEDERAIS DA SJMT');
+    expect(jurisdicaoDe('2ª Relatoria da 5ª Turma 4.0 - adjunta à 3ª Turma Recursal da Bahia', 'TRF1')).toBe('NÚCLEOS DE JUSTIÇA 4.0 (TRF1)');
+    expect(jurisdicaoDe('Núcleos de Justiça 4.0', 'TRF1 2º GRAU', 'Núcleos de Justiça 4.0')).toBe('NÚCLEOS DE JUSTIÇA 4.0 (TRF1)');
+    expect(jurisdicaoDe('x', 'TJMT', 'Núcleos de Justiça 4.0')).toBe('NÚCLEOS DE JUSTIÇA 4.0');
+    expect(jurisdicaoDe('8ª Vara Federal de Juizado Especial Cível da SJMT', 'TRF1')).toBe('SEÇÃO JUDICIÁRIA DE MATO GROSSO');
+    expect(jurisdicaoDe('Juizado Especial Cível Adjunto à 1ª Vara Federal da SSJ de Rondonópolis-MT', 'TRF1')).toBe('SUBSEÇÃO JUDICIÁRIA DE RONDONÓPOLIS-MT');
+    expect(jurisdicaoDe('Gab. 05 - DESEMBARGADOR FEDERAL RUI GONÇALVES', 'TRF1')).toBe('TRIBUNAL REGIONAL FEDERAL DA 1ª REGIÃO');
+  });
+
+  it('TRT23 leva sufixo (não soma com a comarca do TJMT); outros tribunais mantêm o órgão', () => {
+    expect(jurisdicaoDe('VARA DO TRABALHO DE CÁCERES', 'TRT23')).toBe('CÁCERES (TRT23)');
+    expect(jurisdicaoDe('2ª VARA DO TRABALHO DE CUIABÁ', 'TRT23')).toBe('CUIABÁ (TRT23)');
+    expect(jurisdicaoDe('Gabinete da Desembargadora X - 1ª Turma', 'TRT23')).toBe('1ª TURMA (TRT23)');
+    expect(jurisdicaoDe('2ª Turma', 'TRT23')).toBe('2ª TURMA (TRT23)');
+    expect(jurisdicaoDe('OJC de Análise de Recurso', 'TRT23')).toBe('OJC DE ANÁLISE DE RECURSO (TRT23)');
+    expect(jurisdicaoDe("VARA DO TRABALHO DE MIRASSOL D'OESTE", 'TRT23')).toBe('MIRASSOL D OESTE (TRT23)');
+    expect(jurisdicaoDe('SPF COORDENADORIA DE PROCESSAMENTO DE FEITOS DE DIREITO PRIVADO', 'STJ')).toBe('STJ');
+    expect(jurisdicaoDe('Gabinete do Ministro X', 'STF')).toBe('STF');
+    expect(jurisdicaoDe('VARA FEDERAL DE X', 'TRF3')).toBe('VARA FEDERAL DE X');
+    expect(jurisdicaoDe(null, 'TJMT')).toBe('SEM');
   });
 });
