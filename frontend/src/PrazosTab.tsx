@@ -155,6 +155,78 @@ function chaveOrgao(s?: string | null): string {
   return (s || '').trim().replace(/\s+/g, ' ').toUpperCase() || 'SEM';
 }
 
+// Jurisdições que aparecem no filtro mesmo sem nenhum prazo: lista do Painel do Advogado do
+// PJe do TJMT 1º grau. Jurisdição nova que chegar nos dados entra sozinha; esta lista é só a base.
+export const JURISDICOES = [
+  'ALTO ARAGUAIA', 'ALTO ARAGUAIA JUIZADOS', 'ARAPUTANGA', 'ARAPUTANGA JUIZADOS', 'ARENÁPOLIS',
+  'BARRA DO BUGRES', 'BARRA DO BUGRES JUIZADOS', 'CEJUSC DA FAZENDA PÚBLICA', 'COMODORO',
+  'CUIABÁ CÍVEL', 'CUIABÁ JUIZADOS', 'CÁCERES', 'CÁCERES JUIZADOS', 'DIAMANTINO', 'DIAMANTINO JUIZADOS',
+  'JAURU', 'JAURU JUIZADOS', 'JUARA', 'JUARA JUIZADOS', 'LUCAS DO RIO VERDE', 'LUCAS DO RIO VERDE JUIZADOS',
+  "MIRASSOL D'OESTE", "MIRASSOL D'OESTE JUIZADOS", 'NOBRES', 'NOVA UBIRATÃ JUIZADOS',
+  'NÚCLEO DE JUSTIÇA DIGITAL DOS JUIZADOS ESPECIAIS', 'NÚCLEOS DE JUSTIÇA 4.0', 'POCONÉ', 'PONTES E LACERDA',
+  'PORTO ESPERIDIÃO', 'RIO BRANCO', 'RIO BRANCO JUIZADOS', 'RONDONÓPOLIS JUIZADOS', 'ROSÁRIO OESTE',
+  'SINOP JUIZADOS', 'SORRISO', 'SORRISO JUIZADOS', 'STO ANTÔNIO DO LEVERGER', 'SÃO JOSÉ DOS QUATRO MARCOS',
+  'SÃO JOSÉ DOS QUATRO MARCOS JUIZADOS', 'TANGARÁ DA SERRA', 'VILA BELA DA SANTÍSSIMA TRINDADE JUIZADOS',
+  'VÁRZEA GRANDE', 'VÁRZEA GRANDE JUIZADOS',
+  // TJMT 2º grau
+  'TJMT - 2º GRAU', 'TURMA RECURSAL ÚNICA',
+  // TRF1 1º grau
+  'SEÇÃO JUDICIÁRIA DE MATO GROSSO', 'SUBSEÇÃO JUDICIÁRIA DE BARRA DO GARÇAS-MT', 'SUBSEÇÃO JUDICIÁRIA DE CÁCERES-MT',
+  'SUBSEÇÃO JUDICIÁRIA DE DIAMANTINO-MT', 'SUBSEÇÃO JUDICIÁRIA DE RONDONÓPOLIS-MT',
+  // TRF1 2º grau
+  'NÚCLEOS DE JUSTIÇA 4.0 (TRF1)', 'TRIBUNAL REGIONAL FEDERAL DA 1ª REGIÃO',
+  'TURMA RECURSAL DOS JUIZADOS ESPECIAIS FEDERAIS DA SJMT',
+  // TRT23 1º grau (sufixo: os nomes repetem as comarcas do TJMT)
+  'ALTO ARAGUAIA (TRT23)', 'CUIABÁ (TRT23)', 'CÁCERES (TRT23)', 'MIRASSOL D OESTE (TRT23)',
+  // TRT23 2º grau
+  '1ª TURMA (TRT23)', '2ª TURMA (TRT23)', 'OJC DE ANÁLISE DE RECURSO (TRT23)',
+] as const;
+
+// Jurisdição como no Painel do Advogado do PJe ("CÁCERES", "CÁCERES JUIZADOS", "CUIABÁ CÍVEL").
+// Expediente do PJe já traz pronta; intimação só do DJEN tem o órgão, então derivamos dele.
+// Órgão que não reconhecemos (TRT, STJ...) fica como está — não mistura com a comarca do TJMT.
+export function jurisdicaoDe(orgao?: string | null, tribunal?: string | null, jurisdicaoPje?: string | null): string {
+  const t = chaveTribunal(tribunal);
+  // Os dois PJe têm "Núcleos de Justiça 4.0": o do TRF1 leva o sufixo para não somar com o do TJMT
+  const nucleo40 = 'NÚCLEOS DE JUSTIÇA 4.0';
+  if (jurisdicaoPje?.trim()) {
+    const j = chaveOrgao(jurisdicaoPje);
+    return j === nucleo40 && t.startsWith('TRF1') ? `${nucleo40} (TRF1)` : j;
+  }
+  const o = chaveOrgao(orgao);
+  if (o === 'SEM') return o;
+  if (t === 'TJMT') {
+    if (o.includes('NÚCLEO DE JUSTIÇA DIGITAL')) return 'NÚCLEO DE JUSTIÇA DIGITAL DOS JUIZADOS ESPECIAIS';
+    if (o.includes('TURMA RECURSAL')) return 'TURMA RECURSAL ÚNICA';
+    if (/CÂMARA|PRESIDÊNCIA|ÓRGÃO ESPECIAL|TRIBUNAL PLENO|SEÇÃO/.test(o)) return 'TJMT - 2º GRAU';
+    const comarca = /.* DE (.+)$/.exec(o.replace(/ - .*$/, ''))?.[1];
+    if (!comarca) return o;
+    if (o.includes('JUIZADO')) return `${comarca} JUIZADOS`;
+    return comarca === 'CUIABÁ' ? 'CUIABÁ CÍVEL' : comarca;
+  }
+  if (t === 'TRF1') {
+    const ssj = /SSJ DE (.+)$/.exec(o)?.[1];
+    if (ssj) return `SUBSEÇÃO JUDICIÁRIA DE ${ssj}`;
+    if (o.includes('TURMA RECURSAL DA SJMT')) return 'TURMA RECURSAL DOS JUIZADOS ESPECIAIS FEDERAIS DA SJMT';
+    // Vara federal de Cuiabá ("... DA SJMT"): sede da seção, sem subseção no nome
+    if (/\bSJMT\b|SEÇÃO JUDICIÁRIA DE MATO GROSSO/.test(o)) return 'SEÇÃO JUDICIÁRIA DE MATO GROSSO';
+    if (o.includes('4.0')) return `${nucleo40} (TRF1)`;
+    if (o.includes('DESEMBARGADOR')) return 'TRIBUNAL REGIONAL FEDERAL DA 1ª REGIÃO';
+  }
+  // Tribunais superiores: uma jurisdição só, sem quebrar por coordenadoria/gabinete
+  if (t === 'STJ' || t === 'STF') return t;
+  if (t.startsWith('TRT23')) {
+    // "1ª VARA DO TRABALHO DE CUIABÁ" → "CUIABÁ (TRT23)"; o PJe do TRT grafa "MIRASSOL D OESTE" sem apóstrofo
+    const cidade = /VARA DO TRABALHO DE (.+)$/.exec(o)?.[1];
+    if (cidade) return `${cidade.replace(/['’]/g, ' ').replace(/\s+/g, ' ')} (TRT23)`;
+    // 2º grau: gabinete de desembargador cai na turma; "OJC" = análise de recurso de revista
+    const turma = /\b([12])ª TURMA\b/.exec(o)?.[1];
+    if (turma) return `${turma}ª TURMA (TRT23)`;
+    if (/\bOJC\b|ANÁLISE DE RECURSO/.test(o)) return 'OJC DE ANÁLISE DE RECURSO (TRT23)';
+  }
+  return o;
+}
+
 // Tribunal de uma intimação como chave de filtro ('SEM' quando o DJEN não informa)
 function chaveTribunal(t?: string | null): string {
   return (t || '').trim().toUpperCase() || 'SEM';
@@ -293,6 +365,7 @@ const origemDe = (p: Pick<Prazo, 'intimacoes' | 'origemPje'>) => {
   return {
     tribunal: o?.tribunal || p.origemPje?.tribunal,
     orgao: o?.orgao || p.origemPje?.orgao,
+    jurisdicao: jurisdicaoDe(o?.orgao || p.origemPje?.orgao, o?.tribunal || p.origemPje?.tribunal, p.origemPje?.jurisdicao),
     classe: o?.nomeClasse,
     tipo: o?.tipoDocumento || o?.tipoComunicacao || p.origemPje?.tipo,
   };
@@ -357,6 +430,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   // Confirmação de movimentação (aceita o prazo do quadro ou o vinculado a uma intimação).
   // Quem moveu é sempre o usuário logado — o backend ignora qualquer nome digitado.
+  // Clique no card: só os dados do processo (editar fica no botão do card)
+  const [infoCard, setInfoCard] = useState<Prazo | null>(null);
   const [moveModal, setMoveModal] = useState<{ prazo: Pick<Prazo, 'id' | 'title'> & { caseReference?: string | null }; targetStatus: string } | null>(null);
 
   // Importação
@@ -760,7 +835,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     (!filtraSemData || semData(g)) && (!intBusca.trim() || buscaMatch(g.rep, intBusca)));
   // Área, tribunal e órgão se combinam; a contagem de cada filtro já respeita os outros
   const naTribunal = (g: IntGroup) => !intTribunal || chaveTribunal(g.rep.tribunal) === intTribunal;
-  const naOrgao = (g: IntGroup) => !intOrgao || chaveOrgao(g.rep.orgao) === intOrgao;
+  const jurDe = (g: IntGroup) => jurisdicaoDe(g.rep.orgao, g.rep.tribunal, g.rep.expedientePje?.jurisdicao);
+  const naOrgao = (g: IntGroup) => !intOrgao || jurDe(g) === intOrgao;
   const baseAreas = gruposBuscados.filter(g => naTribunal(g) && naOrgao(g));
   const baseTribunais = gruposBuscados.filter(g => naArea(g, intArea) && naOrgao(g));
   const baseOrgaos = gruposBuscados.filter(g => naArea(g, intArea) && naTribunal(g));
@@ -771,11 +847,12 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     tribunaisOpcoes.push({ key: intTribunal, label: intTribunal === 'SEM' ? 'Sem tribunal' : intTribunal, n: 0 });
   }
   const nPorOrgao = new Map<string, number>();
-  baseOrgaos.forEach(g => { const k = chaveOrgao(g.rep.orgao); nPorOrgao.set(k, (nPorOrgao.get(k) || 0) + 1); });
-  if (intOrgao && !nPorOrgao.has(intOrgao)) nPorOrgao.set(intOrgao, 0);
-  const rotuloOrgao = (k: string) => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k));
+  baseOrgaos.forEach(g => { const k = jurDe(g); nPorOrgao.set(k, (nPorOrgao.get(k) || 0) + 1); });
+  [...JURISDICOES, intOrgao].forEach(k => { if (k && !nPorOrgao.has(k)) nPorOrgao.set(k, 0); });
+  const rotuloOrgao = (k: string) => (k === 'SEM' ? 'Sem jurisdição' : k);
+  // Ordem alfabética, como a lista de jurisdições do PJe
   const orgaosOpcoes = [...nPorOrgao.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) => a[0].localeCompare(b[0], 'pt'))
     .map(([key, n]) => ({ key, label: rotuloOrgao(key), n }));
   const rotuloArea = (k: string) => (k === 'minhas' ? '★ Minhas áreas' : AREAS.find(a => a.key === k)?.label || k);
   const nFiltrosInt = (intArea ? 1 : 0) + (intTribunal ? 1 : 0) + (intOrgao ? 1 : 0);
@@ -811,13 +888,13 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   });
 
   // Quadro: busca + filtros combináveis (aba "Filtros") valem para todas as colunas.
-  type FiltroQuadro = { key: string; label: string; de: (p: Prazo) => string; rotulo: (k: string) => string; ordem?: readonly string[]; largo?: boolean };
+  type FiltroQuadro = { key: string; label: string; de: (p: Prazo) => string; rotulo: (k: string) => string; ordem?: readonly string[]; alfa?: boolean; fixas?: readonly string[]; largo?: boolean };
   const FILTROS_QUADRO: FiltroQuadro[] = [
     { key: 'tipo', label: 'Tipo', de: p => tipoBucket({ tipoDocumento: origemDe(p).tipo }), rotulo: k => INT_COLUMNS.find(c => c.key === k)?.label || k, ordem: INT_COLUMNS.map(c => c.key) },
     { key: 'area', label: 'Área', rotulo: k => AREAS.find(a => a.key === k)?.label || k, ordem: AREAS.map(a => a.key), de: areaDoPrazo },
     { key: 'tribunal', label: 'Tribunal', de: p => chaveTribunal(origemDe(p).tribunal), rotulo: k => (k === 'SEM' ? 'Sem tribunal' : k) },
-    { key: 'prioridade', label: 'Prioridade', de: p => p.prioridade || 'SEM', rotulo: k => PRIORIDADES.find(x => x.key === k)?.label || 'Sem prioridade', ordem: [...PRIORIDADES.map(x => x.key), 'SEM'] },
-    { key: 'orgao', label: 'Juizado / órgão', de: p => chaveOrgao(origemDe(p).orgao), rotulo: k => (k === 'SEM' ? 'Sem órgão' : nomeProprio(k)), largo: true },
+    { key: 'prioridade', label: 'Prioridade', de: p => p.prioridade || 'SEM', rotulo: k => PRIORIDADES.find(x => x.key === k)?.label || 'Sem prioridade', ordem: [...PRIORIDADES.map(x => x.key), 'SEM'], fixas: [...PRIORIDADES.map(x => x.key), 'SEM'] },
+    { key: 'jurisdicao', label: 'Jurisdição', de: p => origemDe(p).jurisdicao, rotulo: k => (k === 'SEM' ? 'Sem jurisdição' : k), alfa: true, fixas: JURISDICOES, largo: true },
   ];
   const passaFiltros = (p: Prazo, exceto?: string) =>
     FILTROS_QUADRO.every(f => f.key === exceto || !filtrosQuadro[f.key]?.length || filtrosQuadro[f.key].includes(f.de(p)));
@@ -829,10 +906,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const opcoesFiltro = (f: FiltroQuadro) => {
     const n = new Map<string, number>();
     basePrazos.filter(p => passaFiltros(p, f.key)).forEach(p => { const k = f.de(p); n.set(k, (n.get(k) || 0) + 1); });
-    (filtrosQuadro[f.key] || []).forEach(k => { if (!n.has(k)) n.set(k, 0); });
+    [...(f.fixas || []), ...(filtrosQuadro[f.key] || [])].forEach(k => { if (!n.has(k)) n.set(k, 0); });
     const pos = (k: string) => f.ordem!.indexOf(k);
     return [...n.entries()]
-      .sort((a, b) => (f.ordem ? pos(a[0]) - pos(b[0]) : b[1] - a[1] || f.rotulo(a[0]).localeCompare(f.rotulo(b[0]))))
+      .sort((a, b) => (f.ordem ? pos(a[0]) - pos(b[0]) : f.alfa ? a[0].localeCompare(b[0], 'pt') : b[1] - a[1] || f.rotulo(a[0]).localeCompare(f.rotulo(b[0]))))
       .map(([key, qtd]) => ({ key, label: f.rotulo(key), n: qtd }));
   };
   const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]?.length);
@@ -865,7 +942,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const cardPrazo = (p: Prazo) => {
     const origem = p.intimacoes?.[0];
-    const tipo = origem?.tipoDocumento || origem?.tipoComunicacao || (p.type ? p.type.charAt(0) + p.type.slice(1).toLowerCase() : '');
     const movido = p.lastMovedBy ? `movido por ${p.lastMovedBy}${p.lastMovedAt ? ` · ${formatDate(p.lastMovedAt)}` : ''}` : undefined;
     return (
       <div
@@ -874,8 +950,8 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         draggable
         // setData é obrigatório: sem dado no dragstart o Firefox nem inicia o arraste
         onDragStart={e => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; onDragStart(p); }}
-        onClick={() => abrirEdicao(p)}
-        onKeyDown={e => { if (e.key === 'Enter') abrirEdicao(p); }}
+        onClick={() => setInfoCard(p)}
+        onKeyDown={e => { if (e.key === 'Enter') setInfoCard(p); }}
         role="button"
         tabIndex={0}
         title={movido}
@@ -906,7 +982,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         </div>
         <div className="prazo-card-foot">
           <div className="prazo-card-tags">
-            {tipo && <span className="prazo-tag prazo-tag--tipo">{tipo}</span>}
+            <button type="button" className="prazo-card-editar" title="Editar prazo"
+              onClick={e => { e.stopPropagation(); abrirEdicao(p); }}>
+              Editar prazo
+            </button>
             {(origem?.tribunal || p.origemPje?.tribunal) && <span className="prazo-tag">{origem?.tribunal || p.origemPje?.tribunal}</span>}
           </div>
           <div className="prazo-card-acoes">
@@ -1014,7 +1093,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 )}
                 {intOrgao && (
                   <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntOrgao('')}>
-                    Órgão: {rotuloOrgao(intOrgao)} <X size={12} />
+                    Jurisdição: {rotuloOrgao(intOrgao)} <X size={12} />
                   </button>
                 )}
                 <div className="prazo-menu-wrap">
@@ -1055,7 +1134,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                         </select>
                       </label>
                       <label className={`prazo-fp-campo prazo-fp-campo--largo ${intOrgao ? 'prazo-fp-campo--on' : ''}`}>
-                        <span className="prazo-fp-rotulo">Juizado / órgão</span>
+                        <span className="prazo-fp-rotulo">Jurisdição</span>
                         <select value={intOrgao} onChange={e => setIntOrgao(e.target.value)}>
                           <option value="">Todos ({baseOrgaos.length})</option>
                           {orgaosOpcoes.map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
@@ -1259,7 +1338,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 <input value={buscaQuadro} onChange={e => setBuscaQuadro(e.target.value)} placeholder="Buscar processo ou cliente…" aria-label="Buscar prazo por processo ou cliente" />
                 {buscaQuadro && <button type="button" className="prazo-busca-limpar" onClick={() => setBuscaQuadro('')} title="Limpar busca"><X size={14} /></button>}
               </div>
-              {dbUser?.id && segmento([
+              {dbUser?.id && segmento<typeof recorte>([
                 ['meus', <>Meus <span className="prazo-seg-n">{nRecorte('meus')}</span></>],
                 ['semDono', <>Sem dono <span className="prazo-seg-n">{nRecorte('semDono')}</span></>],
                 ['todos', <>Todos <span className="prazo-seg-n">{totalTodos}</span></>],
@@ -1493,6 +1572,26 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       )}
 
       {/* Prompt: quem movimentou */}
+      {infoCard && (
+        <div className="prazo-modal-overlay" onClick={() => setInfoCard(null)}>
+          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
+            <div className="prazo-modal-header">
+              <h3>{infoCard.title}</h3>
+              <button className="prazo-icon-btn" title="Fechar" onClick={() => setInfoCard(null)}><X size={18} /></button>
+            </div>
+            <div className="prazo-form">
+              <p className="prazo-move-desc"><strong>Processo:</strong> {infoCard.caseReference || 'não informado'}</p>
+              <p className="prazo-move-desc"><strong>Onde estava no Painel do Advogado do PJe:</strong> {caminhoPje(infoCard.origemPje) || 'não veio do PJe'}</p>
+              <p className="prazo-move-desc"><strong>Prazo limite:</strong> {formatDate(infoCard.fatalDate)}</p>
+              {infoCard.description && <p className="prazo-move-desc" style={{ whiteSpace: 'pre-line' }}><strong>Observações:</strong> {infoCard.description}</p>}
+            </div>
+            <div className="prazo-modal-footer">
+              <button className="lx-btn-tool" onClick={() => setInfoCard(null)} autoFocus>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {moveModal && (
         <div className="prazo-modal-overlay" onClick={() => setMoveModal(null)}>
           <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>

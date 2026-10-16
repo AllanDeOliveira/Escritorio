@@ -483,6 +483,8 @@
 .prazo-card-acoes { display: flex; align-items: center; gap: 6px; flex: none; }
 .prazo-card-pegar { flex: none; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--pz-acento-borda); background: var(--pz-acento-tint); color: var(--pz-acento-txt); cursor: pointer; }
 .prazo-card-pegar:hover { background: var(--pz-navy); border-color: var(--pz-navy); color: var(--pz-on-navy); }
+.prazo-card-editar { flex: none; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.prazo-card-editar:hover { border-color: var(--pz-navy); color: var(--pz-navy); }
 .prazo-card-ok { flex: none; display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 3px 8px; font-size: 12px; font-weight: 700; color: var(--urg-ok); }
 .prazo-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .prazo-tag { font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: var(--bg-input); color: var(--text-secondary); }
