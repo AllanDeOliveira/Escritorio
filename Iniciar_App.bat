@@ -12,7 +12,7 @@ echo Para encerrar o sistema inteiro depois, basta fechar esta janela ou apertar
 echo.
 
 :: O start abaixo eh apenas para abrir a aba do navegador no Chrome automaticamente apos 7 segundos
-start cmd /c "timeout /t 7 /nobreak > nul && start http://localhost:5173"
+start cmd /c "timeout /t 7 /nobreak > nul && start http://localhost:5180"
 
 :: O npx concurrently vai agrupar os logs de todos os servidores nesta mesma tela do CMD
 :: --restart-tries -1: se o backend cair por erro nao tratado, sobe de novo em 3s.

@@ -24,7 +24,7 @@ Dois processos:
 | Processo | Comando | Porta | Papel |
 |---|---|---|---|
 | **API** | `npm run dev` (em `backend/`) | 3001 | Express, rotas `/api/*`, crons DJEN e PJe |
-| **Frontend** | `npm run dev` (em `frontend/`) | 5173 | Vite |
+| **Frontend** | `npm run dev` (em `frontend/`) | 5180 | Vite |
 
 
 
@@ -81,7 +81,7 @@ Variáveis de ambiente — `backend/.env`:
 DATABASE_URL=                # postgresql://usuario:senha@localhost:5433/banco
 PORT=3001
 LOG_LEVEL=                   # opcional; debug | info | warn | error
-FRONTEND_URL=                # opcional; origem do CORS (padrão: localhost:5173)
+FRONTEND_URL=                # opcional; origem do CORS (padrão: localhost:5180)
 FIREBASE_PROJECT_ID=         # opcional; padrão é o projeto do frontend
 MNI_CERT_PATH=               # certificado A1 (.pfx) do robô do PJe
 MNI_CERT_SENHA=
@@ -99,7 +99,7 @@ Para subir os dois processos de uma vez, use o `Iniciar_App.bat` na raiz. Ou man
 
 ```bash
 cd backend  && npm run dev          # :3001
-cd frontend && npm run dev          # :5173
+cd frontend && npm run dev          # :5180
 ```
 
 Testes: `npm test` nos dois projetos.
