@@ -57,6 +57,21 @@ describe.skipIf(!noAudit)('gerarPrazosDoPje (integração, banco lexgen_audit)',
     expect(await prisma.prazo.findUnique({ where: { id: novo } })).toMatchObject({ source: 'PJE', status: 'PENDENTE' });
   });
 
+  it('intimação nova não é ligada a card na lixeira (ficaria invisível): vira card próprio', async () => {
+    const P4 = '00000044420018110004';
+    const lixo = await prisma.prazo.create({
+      data: { title: 'Excluído', caseReference: formatarCnj(P4), source: 'PJE', status: 'CANCELADO', fatalDate: dia(25) },
+    });
+    await prisma.expedientePje.create({ data: { tribunal: 'TJMT', idExpediente: '400', numeroProcesso: P4, tipo: 'Decisão', dataExpedicao: dia(10), prazoId: lixo.id } });
+    await prisma.intimacao.create({
+      data: { djenId: '__quadro_p4', numeroProcesso: formatarCnj(P4), tipoDocumento: 'Decisão', dataDisponibilizacao: dia(12), status: 'NOVA' },
+    });
+    await gerarPrazosDoPje();
+    const i = await prisma.intimacao.findUnique({ where: { djenId: '__quadro_p4' }, include: { prazo: true } });
+    expect(i.prazoId).not.toBe(lixo.id);
+    expect(i.prazo).toMatchObject({ source: 'DJEN', status: 'A_CONFIRMAR' });
+  });
+
   it('card "a confirmar" do DJEN continua sendo assumido pelo PJe (data limite do PJe)', async () => {
     const djen = await prisma.prazo.create({
       data: { title: 'Outro', caseReference: formatarCnj(P3), source: 'DJEN', status: 'A_CONFIRMAR', fatalDate: dia(12) },

@@ -425,6 +425,12 @@
   word-break: break-word;
 }
 
+/* Lixeira: um card excluído por linha, com o botão Restaurar à direita */
+.prazo-lixeira-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.prazo-lixeira-item:first-child { border-top: 0; }
+.prazo-lixeira-item > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.prazo-lixeira-item small { font-size: 12px; color: var(--pz-texto-3); }
+
 /* Painel "Filtros" do quadro */
 .prazo-fp {
   width: 400px;

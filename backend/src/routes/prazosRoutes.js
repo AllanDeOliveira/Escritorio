@@ -586,11 +586,17 @@ router.patch('/:id/pegar', async (req, res) => {
     }
 });
 
-// DELETE /api/prazos/:id - remove prazo
+// DELETE /api/prazos/:id — manda para a lixeira (CANCELADO), não apaga. Antes era exclusão
+// definitiva, sem registro de quem fez, e o robô não recriava o card: um clique errado
+// perdia um prazo judicial. Recupera com PUT status PENDENTE (statusAoReabrir).
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        await prisma.prazo.delete({ where: { id } });
+        const u = req.currentUser;
+        await prisma.prazo.update({
+            where: { id },
+            data: { status: 'CANCELADO', completedAt: null, lastMovedBy: u?.name || u?.email || 'desconhecido', lastMovedAt: new Date() },
+        });
         res.status(204).send();
     } catch (error) {
         if (error.code === 'P2025') {

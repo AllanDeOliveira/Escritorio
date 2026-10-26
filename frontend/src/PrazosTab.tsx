@@ -583,15 +583,43 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
   };
 
   const excluir = (p: Prazo) => {
-    (window as any).showConfirm(`Excluir o prazo "${p.title}"?`, async () => {
+    (window as any).showConfirm(`Excluir o prazo "${p.title}"? Ele vai para a lixeira (menu ⋯) e pode ser restaurado.`, async () => {
       try {
         const r = await apiFetch(`${API}/api/prazos/${p.id}`, { method: 'DELETE' });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error); // sucesso é 204 sem corpo
         setModalOpen(false);
-        showToast('Prazo excluído.', 'info');
+        showToast('Prazo movido para a lixeira.', 'info');
         carregar();
       } catch (e) { showToast((e as Error).message || 'Erro ao excluir.', 'error'); }
     });
+  };
+
+  // Lixeira: cards excluídos por pessoas (CANCELADO). Os que o robô cancelou ao juntar
+  // duplicados do DJEN ficam de fora — restaurar um deles recriaria a duplicata.
+  const [lixeira, setLixeira] = useState<Prazo[] | null>(null); // null = fechada
+  const abrirLixeira = async () => {
+    setLixeira([]);
+    try {
+      const d = await (await apiFetch(`${API}/api/prazos?status=CANCELADO`)).json();
+      if (!d.success) throw new Error();
+      setLixeira((d.prazos as Prazo[])
+        .filter(p => !p.lastMovedBy?.startsWith('Robô'))
+        .sort((a, b) => (b.lastMovedAt || '').localeCompare(a.lastMovedAt || '')));
+    } catch { setLixeira(null); showToast('Erro ao abrir a lixeira.', 'error'); }
+  };
+  const restaurar = async (p: Prazo) => {
+    try {
+      // O backend decide entre PENDENTE e "a confirmar" (card que nunca teve data fatal)
+      const r = await apiFetch(`${API}/api/prazos/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'PENDENTE', lastMovedBy: defaultMover || 'x' }),
+      });
+      if (!(await r.json()).success) throw new Error();
+      setLixeira(l => l && l.filter(x => x.id !== p.id));
+      showToast(`"${p.title}" voltou para o quadro.`, 'success');
+      carregar();
+    } catch { showToast('Erro ao restaurar.', 'error'); }
   };
 
   // ── Drag and drop ────────────────────────────────────────────────
@@ -938,6 +966,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
                     <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setImportOpen(true); }}>
                       <Upload size={14} /> Importar planilha
                     </button>
+                    <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); abrirLixeira(); }}>
+                      <Trash2 size={14} /> Lixeira
+                    </button>
                     {isAdmin && (
                       <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setPerfisOpen(true); }}>
                         <Users size={14} /> Perfis no quadro
@@ -1179,6 +1210,34 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
               <button className="lx-btn-primary" onClick={() => confirmarMovimentacao(moveModal)} autoFocus>
                 <Check size={16} /> Confirmar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lixeira: cards excluídos, com quem excluiu e quando */}
+      {lixeira && (
+        <div className="prazo-modal-overlay" onClick={() => setLixeira(null)}>
+          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
+            <div className="prazo-modal-header">
+              <h3>Lixeira</h3>
+              <button className="prazo-icon-btn" title="Fechar" onClick={() => setLixeira(null)}><X size={18} /></button>
+            </div>
+            <div className="prazo-form">
+              {lixeira.length === 0 ? (
+                <p className="prazo-move-desc">Nenhum prazo excluído.</p>
+              ) : lixeira.map(p => (
+                <div key={p.id} className="prazo-lixeira-item">
+                  <div>
+                    <strong>{p.title}</strong>
+                    {p.caseReference && <small>{p.caseReference}</small>}
+                    <small>excluído{p.lastMovedBy ? ` por ${p.lastMovedBy}` : ''}{p.lastMovedAt ? ` em ${formatDate(p.lastMovedAt)}` : ''}</small>
+                  </div>
+                  <button type="button" className="prazo-btn prazo-btn--ghost" onClick={() => restaurar(p)}>
+                    <Undo2 size={14} /> Restaurar
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -267,9 +267,10 @@ async function vincularIntimacoesAoPje() {
     const processos = [...new Set(novas.map((i) => soDigitos(i.numeroProcesso)).filter(Boolean))];
     if (!processos.length) return 0;
     const expedientes = await prisma.expedientePje.findMany({ where: { numeroProcesso: { in: processos }, prazoId: { not: null } } });
-    // Prazo excluído no quadro deixa o prazoId órfão no expediente: só vincula a prazo que existe
+    // Só vincula a card que existe e não está na lixeira (CANCELADO): intimação ligada a card
+    // excluído ficaria invisível — se for ato novo, é prazo perdido. Sem vínculo, vira card próprio.
     const vivos = new Set((await prisma.prazo.findMany({
-        where: { id: { in: [...new Set(expedientes.map((e) => e.prazoId))] } }, select: { id: true },
+        where: { id: { in: [...new Set(expedientes.map((e) => e.prazoId))] }, status: { not: 'CANCELADO' } }, select: { id: true },
     })).map((p) => p.id));
     const porProcesso = new Map();
     for (const e of expedientes) if (vivos.has(e.prazoId)) porProcesso.set(e.numeroProcesso, [...(porProcesso.get(e.numeroProcesso) || []), e]);
