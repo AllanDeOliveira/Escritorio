@@ -28,8 +28,33 @@ export interface SyncStatus {
   lastError: string | null;
   stale: boolean;
   criadas?: number;
-  /** Última leitura do Painel do PJe (cron ou botão) — tribunais que falharam. */
-  pje?: { lastAttemptAt: string | null; falhas: { tribunal: string; erro: string }[] };
+  /** Última leitura do Painel do PJe (cron ou botão) — tribunais que falharam e quando cada um leu pela última vez. */
+  pje?: { lastAttemptAt: string | null; falhas: { tribunal: string; erro: string }[]; ultimaLeitura?: Record<string, string | null> };
+}
+
+/**
+ * Faixa vermelha no topo de TODAS as abas enquanto algum tribunal não lê no PJe. Antes era uma
+ * linha âmbar só na página inicial, com o motivo num tooltip: o TJMT ficou 5 dias fora sem ninguém ver.
+ */
+export function AlertaPje({ pje, onIrAoQuadro }: { pje?: SyncStatus['pje']; onIrAoQuadro: () => void }) {
+  if (!pje?.lastAttemptAt || !pje.falhas?.length) return null;
+  return (
+    <div className="dash-sync dash-sync--stale alerta-pje" role="alert">
+      <OctagonAlert size={18} />
+      <span className="dash-sync-txt">
+        <strong>{`Robô do PJe sem ler ${pje.falhas.map(f => f.tribunal).join(', ')}`}</strong>
+        {' — prazos novos desse tribunal NÃO estão entrando no quadro.'}
+        {pje.falhas.map(f => (
+          <small key={f.tribunal} className="alerta-pje-motivo">
+            {`${f.tribunal}: última leitura ${tempoDesde(pje.ultimaLeitura?.[f.tribunal] ?? null)} · ${f.erro}`}
+          </small>
+        ))}
+      </span>
+      <button className="lx-btn-tool" onClick={onIrAoQuadro} title='O botão "Buscar prazos no PJe" fica no quadro'>
+        <RefreshCw size={14} /> Ir ao quadro
+      </button>
+    </div>
+  );
 }
 
 /** Prazo no digest. Usa `responsibleName` (texto livre) — a relação `responsible` não vem em /api/prazos. */
@@ -46,7 +71,7 @@ interface DashboardTabProps {
   erro: boolean;
   nomeUsuario: string;
   onRefresh: () => void;
-  onNavigate: (tab: string, opts?: { view?: 'board' | 'inbox' }) => void;
+  onNavigate: (tab: string) => void;
   sync: SyncStatus | null;
   onSyncNow: () => void;
   syncing: boolean;
@@ -173,20 +198,7 @@ export default function DashboardTab({
               ) : null
             )}
 
-            {/* PJe: o cron falha calado (só log) — aqui o tribunal fora fica visível até ler de novo */}
-            {sync?.pje?.lastAttemptAt && sync.pje.falhas?.length > 0 && (
-              <div className="dash-sync dash-sync--warn">
-                <AlertTriangle size={17} />
-                <span className="dash-sync-txt">
-                  PJe não leu <strong>{sync.pje.falhas.map(f => f.tribunal).join(', ')}</strong> na última busca
-                  ({tempoDesde(sync.pje.lastAttemptAt)}) — prazos desse tribunal podem estar faltando no quadro.
-                  {' '}<span title={sync.pje.falhas.map(f => `${f.tribunal}: ${f.erro}`).join('\n')} style={{ textDecoration: 'underline dotted', cursor: 'help' }}>ver motivo</span>
-                </span>
-                <button className="lx-btn-tool" onClick={() => onNavigate('prazos')} title='O botão "Buscar prazos no PJe" fica no quadro'>
-                  <RefreshCw size={14} /> Ir ao quadro
-                </button>
-              </div>
-            )}
+            {/* Falha do robô do PJe: faixa global no App (AlertaPje), em todas as abas */}
 
             <div className="dash-cards">
               {/* Cada nível tem ícone próprio: a urgência não depende só da cor */}
@@ -217,7 +229,7 @@ export default function DashboardTab({
                 {prazosHoje.length === 0 && listaPrazos(prazosSemana, 'Esta semana', 'dash-recentes-head--semana')}
               </div>
               <div className="dash-col">
-                <button className="dash-intimacoes" onClick={() => onNavigate('prazos', { view: 'inbox' })}>
+                <button className="dash-intimacoes" onClick={() => onNavigate('prazos')}>
                   <Inbox size={20} />
                   <span className="dash-intimacoes-txt">Intimações recebidas hoje (já no quadro)</span>
                   <span className={`dash-intimacoes-badge ${resumo.novas > 0 ? 'dash-intimacoes-badge--on' : ''}`}>{resumo.novas}</span>

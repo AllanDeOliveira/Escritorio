@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
-const { syncExpedientesPje, gerarPrazosDoPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
+const { syncExpedientesPje, gerarPrazosDoPje, soDigitos, melhorExpediente, teorEmTexto } = require('../services/pjePainel');
 const { parseBusca, buscaToWhere } = require('../services/buscaIntimacoes');
 
 /**
@@ -11,7 +11,12 @@ const { parseBusca, buscaToWhere } = require('../services/buscaIntimacoes');
  * para a regra viver num lugar só (isSyncStale).
  */
 async function syncStatusPayload() {
-    const s = await prisma.systemSettings.findFirst();
+    const [s, leituras] = await Promise.all([
+        prisma.systemSettings.findFirst(),
+        // Último expediente visto por tribunal = última leitura que funcionou. O alerta diz
+        // "sem ler há N dias" — "falhou na última busca" sozinho passou 5 dias sem ninguém notar.
+        prisma.expedientePje.groupBy({ by: ['tribunal'], _max: { vistoEm: true } }),
+    ]);
     const lastSuccessAt = s?.djenLastSyncAt || null;
     return {
         lastSuccessAt,
@@ -19,7 +24,11 @@ async function syncStatusPayload() {
         lastError: s?.djenLastError || null,
         criadas: s?.djenLastCriadas ?? 0,
         stale: isSyncStale(lastSuccessAt),
-        pje: { lastAttemptAt: s?.pjeLastAttemptAt || null, falhas: s?.pjeLastFalhas || [] },
+        pje: {
+            lastAttemptAt: s?.pjeLastAttemptAt || null,
+            falhas: s?.pjeLastFalhas || [],
+            ultimaLeitura: Object.fromEntries(leituras.map((l) => [l.tribunal, l._max.vistoEm])),
+        },
     };
 }
 
@@ -36,37 +45,25 @@ async function anexarExpedientesPje(intimacoes) {
     }));
 }
 
-// GET /api/intimacoes?mes=YYYY-MM — tudo que chegou (cada intimação já tem card no quadro).
-// ?resumo=1: só contadores e estado do sync, para o painel inicial (sem a lista pesada).
+// GET /api/intimacoes — painel inicial: "recebidas hoje" e estado dos robôs.
+// ?prazoId=<id>: as intimações de um card (teor e hash da certidão), para o modal do quadro.
+// A caixa de intimações (lista do mês inteiro) saiu: tudo vira card, ela só repetia o quadro.
 router.get('/', async (req, res) => {
     try {
-        // ?mes=YYYY-MM restringe pela data de disponibilização (mês local).
-        let porMes = {};
-        const mes = String(req.query.mes || '');
-        const mMes = mes.match(/^(\d{4})-(\d{2})$/);
-        if (mMes) {
-            const ano = Number(mMes[1]);
-            const mesIdx = Number(mMes[2]) - 1;
-            porMes = { dataDisponibilizacao: { gte: new Date(ano, mesIdx, 1), lt: new Date(ano, mesIdx + 1, 1) } };
+        if (typeof req.query.prazoId === 'string') {
+            const intimacoes = await prisma.intimacao.findMany({
+                where: { prazoId: req.query.prazoId },
+                orderBy: { dataDisponibilizacao: 'desc' },
+                select: { id: true, tipoDocumento: true, tipoComunicacao: true, tribunal: true, orgao: true, texto: true, hash: true, link: true, dataDisponibilizacao: true },
+            });
+            return res.json({ success: true, intimacoes: intimacoes.map((i) => ({ ...i, texto: teorEmTexto(i.texto) })) });
         }
         const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-        const [intimacoes, recebidasHoje, syncStatus] = await Promise.all([
-            req.query.resumo ? [] : prisma.intimacao.findMany({
-                where: porMes,
-                orderBy: { dataDisponibilizacao: 'desc' },
-                // Card vinculado: permite concluir/acompanhar direto da caixa
-                include: { prazo: { select: { id: true, title: true, status: true, fatalDate: true, caseReference: true } } },
-            }),
-            // Painel inicial: "recebidas hoje"
+        const [recebidasHoje, syncStatus] = await Promise.all([
             prisma.intimacao.count({ where: { createdAt: { gte: hoje } } }),
             syncStatusPayload(),
         ]);
-        res.json({
-            success: true,
-            intimacoes: await anexarExpedientesPje(intimacoes),
-            counts: { hoje: recebidasHoje },
-            syncStatus,
-        });
+        res.json({ success: true, counts: { hoje: recebidasHoje }, syncStatus });
     } catch (error) {
         logger.error('[listIntimacoes] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao listar intimações.' });

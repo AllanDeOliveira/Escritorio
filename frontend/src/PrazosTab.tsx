@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Check, Trash2, X, CalendarClock, Loader2, Upload, Download,
-  Inbox, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Search,
-  ChevronDown, Users, MoreHorizontal, SlidersHorizontal,
+  RefreshCw, ExternalLink, Search,
+  ChevronDown, Users, MoreHorizontal, SlidersHorizontal, Undo2,
 } from 'lucide-react';
 import './PrazosTab.css';
 import { apiFetch, API } from './firebase';
@@ -70,37 +70,10 @@ export interface Intimacao {
   clienteExtraido?: string | null;
   advogadoNome?: string | null;
   oabConsulta?: string | null;
-  status: string;
-  revisadoPor?: string | null;
-  prazo?: PrazoVinculado | null;
-  // Expediente do Painel do Advogado (robô com certificado): prazo e data limite calculados pelo PRÓPRIO PJe
-  expedientePje?: {
-    tribunal: string;
-    idExpediente: string;
-    prazoDias: number | null;
-    cienciaPendente: boolean;
-    dataCiencia: string | null;
-    dataLimite: string | null;
-  } & CaminhoPje | null;
-  // O processo já tem prazo criado pelo robô do PJe no quadro (possível duplicidade)
+  status?: string;
 }
 
-// Resumo do prazo gerado a partir da intimação (aba "Distribuídas")
-type PrazoVinculado = Pick<Prazo, 'id' | 'title' | 'status' | 'fatalDate'> & { caseReference?: string | null };
-
-
-// O DJEN publica o mesmo ato uma vez por destinatário/advogado; agrupamos essas
-// cópias num card só, e as ações valem para o grupo inteiro. A chave é
-// (processo + data + texto): agrupar só por texto colaria processos distintos
-// que compartilham teor genérico (ex.: "Intimação acerca da expedição do alvará").
-export type IntGroup = { rep: Intimacao; membros: Intimacao[]; ids: string[]; datas: string[] };
-
-export function chaveAto(i: Intimacao): string {
-  const data = i.dataDisponibilizacao ? i.dataDisponibilizacao.slice(0, 10) : '';
-  return `${i.numeroProcesso || ''}|${data}|${i.texto || i.id}`;
-}
-
-// Colunas do kanban da caixa de intimações, por tipo de ato.
+// Tipos de ato (filtro "Tipo" do quadro).
 export const INT_COLUMNS = [
   { key: 'intimacao', label: 'Intimações', cls: 'prazo-int-col--intimacao' },
   { key: 'decisao', label: 'Decisões', cls: 'prazo-int-col--decisao' },
@@ -110,17 +83,6 @@ export const INT_COLUMNS = [
 ] as const;
 
 type IntColKey = (typeof INT_COLUMNS)[number]['key'];
-
-// Helpers do filtro de mês da caixa ('YYYY-MM')
-export function mesAtual(): string {
-  return new Date().toLocaleDateString('sv-SE').slice(0, 7); // sv-SE = AAAA-MM-DD
-}
-
-export function nomeMes(mes: string): string {
-  const [y, m] = mes.split('-').map(Number);
-  const label = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
 
 // Classifica pelo tipoDocumento do DJEN. Substrings escolhidas sem acento de
 // propósito ("senten" pega Sentença; "decis" pega Decisão e suspensão;
@@ -232,16 +194,6 @@ function chaveTribunal(t?: string | null): string {
   return (t || '').trim().toUpperCase() || 'SEM';
 }
 
-// Tribunais presentes no recorte, do mais frequente ao menos (empate: alfabética).
-// Lista dinâmica: tribunal novo (TJBA, TST...) aparece sozinho.
-export function tribunaisPresentes(tribunais: (string | null | undefined)[]) {
-  const n = new Map<string, number>();
-  tribunais.forEach(t => { const k = chaveTribunal(t); n.set(k, (n.get(k) || 0) + 1); });
-  return [...n.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([key, qtd]) => ({ key, label: key === 'SEM' ? 'Sem tribunal' : key, n: qtd }));
-}
-
 // Banco como PARTE: rótulo de polo seguido de nome de banco, no cabeçalho do teor.
 // Banco só citado no corpo ("depósito no Banco do Brasil") não casa.
 const BANCO_PARTE = /\b(?:REQUERID|REQUERENTE|EXECUTAD|EXEQUENTE|R[ÉE]U|AUTOR|APELAD|APELANTE|RECORRID|RECORRENTE|EMBARGAD|EMBARGANTE|AGRAVAD|AGRAVANTE|RECLAMAD|IMPETRAD|POLO ATIVO|POLO PASSIVO)[A-Z()]*\s*[:-]\s*(?:BANCO|CAIXA ECON[ÔO]MICA|ITA[ÚU]|BRADESCO|SANTANDER|AGIBANK|BMG|CREFISA|NUBANK|SICREDI|SICOOB|AYMOR[ÉE])/;
@@ -276,24 +228,8 @@ export function buscaMatch(i: Pick<Intimacao, 'numeroProcesso' | 'clienteExtraid
   return dig.length > 0 && proc.replace(/\D/g, '').includes(dig);
 }
 
-// "10787986920238110001" → "1078798-69.2023.8.11.0001" (máscara CNJ)
-export function formatarNumeroCnj(n?: string | null): string {
-  const d = String(n || '').replace(/\D/g, '');
-  if (d.length !== 20) return String(n || '');
-  return `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}`;
-}
-
-// Nomes e classes chegam do DJEN em CAIXA ALTA; exibimos em capitalização de
-// nome próprio (partículas em minúsculas). Não usar em órgão/tribunal — siglas
-// como TJMT virariam "Tjmt".
+// Partículas de nome (da, de...) não viram inicial
 const PARTICULAS = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
-export function nomeProprio(s?: string | null): string {
-  return String(s || '')
-    .toLowerCase()
-    .split(/\s+/)
-    .map((w, i) => (i > 0 && PARTICULAS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
 
 export const PRIORIDADES = [
   { key: 'ALTA', label: 'Alta' },
@@ -314,42 +250,12 @@ export function iniciais(nome?: string | null): string {
   return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
 }
 
-// Carga de cada pessoa (prazos abertos e vencidos), para escolher para quem enviar.
-export function cargaPorPessoa(prazos: Pick<Prazo, 'responsibleId' | 'bucket'>[]) {
-  const m = new Map<string, { abertos: number; vencidos: number }>();
-  prazos.forEach(p => {
-    if (!p.responsibleId || p.bucket === 'concluido') return;
-    const c = m.get(p.responsibleId) || { abertos: 0, vencidos: 0 };
-    c.abertos++;
-    if (p.bucket === 'vencido') c.vencidos++;
-    m.set(p.responsibleId, c);
-  });
-  return m;
-}
-
-export function agruparIntimacoes(list: Intimacao[]): IntGroup[] {
-  const m = new Map<string, IntGroup>();
-  list.forEach(i => {
-    const k = chaveAto(i);
-    const d = i.dataDisponibilizacao ? formatDate(i.dataDisponibilizacao) : null;
-    const g = m.get(k);
-    if (g) {
-      g.membros.push(i);
-      g.ids.push(i.id);
-      if (d && !g.datas.includes(d)) g.datas.push(d);
-    } else {
-      m.set(k, { rep: i, membros: [i], ids: [i.id], datas: d ? [d] : [] });
-    }
-  });
-  return [...m.values()];
-}
-
 interface PrazosTabProps {
   currentUser: any;
   dbUser: any;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
-  // View inicial ao montar (deep-link do dashboard: card de intimações → 'inbox')
-  initialView?: 'board' | 'inbox';
+  // Depois de buscar no PJe/DJEN: o App relê o status (faixa de robô parado, badge)
+  onSincronizado?: () => void;
 }
 
 type Membro = { id: string; name?: string | null; email: string; noQuadro?: boolean };
@@ -413,7 +319,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export default function PrazosTab({ currentUser, dbUser, showToast, initialView = 'board' }: PrazosTabProps) {
+export default function PrazosTab({ currentUser, dbUser, showToast, onSincronizado }: PrazosTabProps) {
   const [todosGroups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
@@ -432,7 +338,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   // Quem moveu é sempre o usuário logado — o backend ignora qualquer nome digitado.
   // Clique no card: só os dados do processo (editar fica no botão do card)
   const [infoCard, setInfoCard] = useState<Prazo | null>(null);
-  const [moveModal, setMoveModal] = useState<{ prazo: Pick<Prazo, 'id' | 'title'> & { caseReference?: string | null }; targetStatus: string } | null>(null);
+  const [moveModal, setMoveModal] = useState<{ prazo: Pick<Prazo, 'id' | 'title' | 'status'> & { caseReference?: string | null }; targetStatus: string } | null>(null);
+  // Status de antes do "Concluir", para o "Desfazer" do card voltar a A_CONFIRMAR quando era o caso
+  // ponytail: só nesta sessão; após recarregar a página o Desfazer volta para PENDENTE (igual ao arraste)
+  const statusAntes = useRef(new Map<string, string>());
 
   // Importação
   const [importOpen, setImportOpen] = useState(false);
@@ -445,33 +354,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // Caixa de entrada de intimações (DJEN). Monta na view pedida pelo dashboard.
-  const [view, setView] = useState<'board' | 'inbox'>(initialView);
-  const [intimacoes, setIntimacoes] = useState<Intimacao[]>([]);
-  // Mês exibido na caixa ('' = todos). Abre no mês vigente.
-  const [intMes, setIntMes] = useState<string>(mesAtual);
-
-  const mudarMes = (delta: number) => {
-    const [y, m] = (intMes || mesAtual()).split('-').map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    setIntMes(d.toLocaleDateString('sv-SE').slice(0, 7)); // sv-SE = AAAA-MM-DD
-  };
-  const [intLoading, setIntLoading] = useState(true);
-  // Nº da última requisição da caixa: resposta atrasada de um mês anterior não sobrescreve a atual
-  const intReq = useRef(0);
   const [syncing, setSyncing] = useState(false);
   const [syncingPje, setSyncingPje] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [pubsAbertas, setPubsAbertas] = useState<string | null>(null);
-  // Filtro por área do direito na caixa ('' = todas; 'minhas' = áreas do usuário)
-  const [intArea, setIntArea] = useState<AreaKey | '' | 'minhas'>('');
-  // Filtro por tribunal na caixa ('' = todos; chave de chaveTribunal)
-  const [intTribunal, setIntTribunal] = useState('');
-  const [intOrgao, setIntOrgao] = useState('');
-  // Busca por número do processo ou cliente
-  const [intBusca, setIntBusca] = useState('');
-  // Distribuídas: abre só nas que viraram card "A confirmar" (sem data fatal)
-  const [intSemData, setIntSemData] = useState(true);
+  // Intimações do card aberto no modal (teor e certidão); null = carregando
+  const [infoInts, setInfoInts] = useState<Intimacao[] | null>(null);
 
   // Distribuição por área: cada pessoa tria as próprias áreas e fica com os prazos que gera
   const minhasAreas: AreaKey[] = dbUser?.areas || [];
@@ -498,10 +384,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   const defaultMover = dbUser?.name || currentUser?.displayName || currentUser?.email || '';
 
-  // Quem participa da distribuição abre no próprio recorte (caixa e quadro).
+  // Quem participa da distribuição abre no próprio recorte.
   // Roda quando o usuário carrega, que pode ser depois do mount.
   useEffect(() => {
-    if (dbUser?.areas?.length) { setIntArea('minhas'); setRecorte('meus'); }
+    if (dbUser?.areas?.length) setRecorte('meus');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbUser?.id]);
 
@@ -535,25 +421,18 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const carregarIntimacoes = useCallback(async () => {
-    const seq = ++intReq.current;
-    setIntLoading(true);
-    try {
-      const r = await apiFetch(`${API}/api/intimacoes${intMes ? `?mes=${intMes}` : ''}`);
-      const d = await r.json();
-      if (seq !== intReq.current) return; // já pediram outro mês/filtro depois desta
-      if (d.success) {
-        setIntimacoes(d.intimacoes);
-      }
-    } catch {
-      if (seq === intReq.current) showToast('Erro ao carregar intimações.', 'error');
-    } finally {
-      if (seq === intReq.current) setIntLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.email, intMes]);
-
-  useEffect(() => { carregarIntimacoes(); }, [carregarIntimacoes]);
+  // Modal do card: teor e certidão das intimações ligadas, buscados só quando o card abre
+  // (o quadro inteiro com o teor de cada intimação pesaria vários MB)
+  useEffect(() => {
+    if (!infoCard) return;
+    let vivo = true; // fechou ou abriu outro card antes da resposta: descarta
+    setInfoInts(null);
+    apiFetch(`${API}/api/intimacoes?prazoId=${encodeURIComponent(infoCard.id)}`)
+      .then(r => r.json())
+      .then(d => { if (vivo) setInfoInts(d.success ? d.intimacoes : []); })
+      .catch(() => { if (vivo) setInfoInts([]); });
+    return () => { vivo = false; };
+  }, [infoCard]);
 
   const sincronizarDjen = async () => {
     setSyncing(true);
@@ -571,7 +450,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
           ? `${d.criadas} nova(s) intimação(ões) · ${novosCards} card(s) novo(s) no quadro${erros}`
           : `Nada novo no DJEN desde a última busca. O que chegou hoje já está no quadro.${erros}`;
         showToast(msg, d.criadas > 0 ? 'success' : 'info');
-        carregarIntimacoes();
         carregar(); // o quadro pode ter ganhado cards
       } else {
         showToast(d.error || 'Falha ao consultar o DJEN.', 'error');
@@ -580,6 +458,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       showToast('Erro de conexão com o DJEN.', 'error');
     } finally {
       setSyncing(false);
+      onSincronizado?.();
     }
   };
 
@@ -595,10 +474,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         showToast(
           `${ok.map((t: any) => `${t.tribunal}: ${t.expedientes}`).join(' · ') || 'Nenhum tribunal respondeu'}`
             + ` · ${d.prazos?.criados ?? 0} prazo(s) novo(s) no quadro`
+            + `${d.prazos?.baixados ? ` · ${d.prazos.baixados} cumprido(s) (saíram do painel)` : ''}`
             + `${falhas.length ? ` · falhou: ${falhas.join(', ')}` : ''}`,
           falhas.length ? 'error' : 'success',
         );
-        carregarIntimacoes();
         carregar();
       } else {
         showToast(d.error || 'Falha ao ler o PJe.', 'error');
@@ -607,6 +486,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       showToast('Erro de conexão ao ler o PJe.', 'error');
     } finally {
       setSyncingPje(false);
+      onSincronizado?.(); // sucesso ou falha: a faixa vermelha do App reflete esta leitura na hora
     }
   };
 
@@ -735,21 +615,22 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
     setMoveModal({ prazo: d.prazo, targetStatus });
   };
 
-  const confirmarMovimentacao = async () => {
-    if (!moveModal) return;
+  // O botão "Concluir" chama direto (um clique); o arraste passa pelo modal de confirmação
+  const confirmarMovimentacao = async (mov: NonNullable<typeof moveModal>) => {
     try {
-      const r = await apiFetch(`${API}/api/prazos/${moveModal.prazo.id}`, {
+      const r = await apiFetch(`${API}/api/prazos/${mov.prazo.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         // lastMovedBy preenchido = "foi um arraste"; o backend grava o usuário autenticado
-        body: JSON.stringify({ status: moveModal.targetStatus, lastMovedBy: defaultMover || 'x' }),
+        body: JSON.stringify({ status: mov.targetStatus, lastMovedBy: defaultMover || 'x' }),
       });
       const d = await r.json();
       if (d.success) {
-        showToast(moveModal.targetStatus === 'CUMPRIDO' ? 'Prazo concluído!' : 'Prazo reaberto!', 'success');
+        if (mov.targetStatus === 'CUMPRIDO') statusAntes.current.set(mov.prazo.id, mov.prazo.status);
+        else statusAntes.current.delete(mov.prazo.id);
+        showToast(mov.targetStatus === 'CUMPRIDO' ? 'Prazo concluído!' : 'Prazo reaberto!', 'success');
         setMoveModal(null);
         carregar();
-        if (view === 'inbox') carregarIntimacoes(); // atualiza o chip do prazo vinculado
       } else {
         showToast('Erro ao mover prazo.', 'error');
       }
@@ -757,6 +638,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       showToast('Erro de conexão.', 'error');
     }
   };
+
+  const desfazerConclusao = (prazo: NonNullable<typeof moveModal>['prazo']) =>
+    confirmarMovimentacao({ prazo, targetStatus: statusAntes.current.get(prazo.id) || 'PENDENTE' });
 
   // "Pegar": assume o card e os demais sem dono do mesmo processo (rota /pegar)
   const pegar = async (p: Prazo) => {
@@ -821,41 +705,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
   const totalPrazos = COLUMNS.reduce((acc, c) => acc + (groups[c.key]?.length || 0), 0);
   const totalTodos = COLUMNS.reduce((acc, c) => acc + (todosGroups[c.key]?.length || 0), 0);
   const nRecorte = (r: 'meus' | 'semDono') => COLUMNS.reduce((acc, c) => acc + (todosGroups[c.key] || []).filter(p => recorteDe(p, r)).length, 0);
-  const count = (k: string) => groups[k]?.length || 0;
   const editandoTriagem = Boolean(editingId && groups.triagem?.some(p => p.id === editingId));
-  const grupos = useMemo(() => agruparIntimacoes(intimacoes), [intimacoes]);
-  // Área calculada uma vez por carga, não a cada chip/tecla (a regra lê o cabeçalho do teor)
-  const areaDe = useMemo(() => new Map(grupos.map(g => [g, areaDireito(g.rep)])), [grupos]);
-  const naArea = (g: IntGroup, filtro: AreaKey | '' | 'minhas') =>
-    !filtro || (filtro === 'minhas' ? minhasAreas.includes(areaDe.get(g)!) : areaDe.get(g) === filtro);
-  const semData = (g: IntGroup) => g.rep.prazo?.status === 'A_CONFIRMAR';
-  const nSemData = grupos.filter(semData).length;
-  const filtraSemData = intSemData;
-  const gruposBuscados = grupos.filter(g =>
-    (!filtraSemData || semData(g)) && (!intBusca.trim() || buscaMatch(g.rep, intBusca)));
-  // Área, tribunal e órgão se combinam; a contagem de cada filtro já respeita os outros
-  const naTribunal = (g: IntGroup) => !intTribunal || chaveTribunal(g.rep.tribunal) === intTribunal;
-  const jurDe = (g: IntGroup) => jurisdicaoDe(g.rep.orgao, g.rep.tribunal, g.rep.expedientePje?.jurisdicao);
-  const naOrgao = (g: IntGroup) => !intOrgao || jurDe(g) === intOrgao;
-  const baseAreas = gruposBuscados.filter(g => naTribunal(g) && naOrgao(g));
-  const baseTribunais = gruposBuscados.filter(g => naArea(g, intArea) && naOrgao(g));
-  const baseOrgaos = gruposBuscados.filter(g => naArea(g, intArea) && naTribunal(g));
-  const gruposFiltrados = baseTribunais.filter(naTribunal);
-  const tribunaisOpcoes = tribunaisPresentes(baseTribunais.map(g => g.rep.tribunal));
-  // O valor escolhido continua na lista mesmo se sumir do recorte (para dar para voltar a "Todos")
-  if (intTribunal && !tribunaisOpcoes.some(t => t.key === intTribunal)) {
-    tribunaisOpcoes.push({ key: intTribunal, label: intTribunal === 'SEM' ? 'Sem tribunal' : intTribunal, n: 0 });
-  }
-  const nPorOrgao = new Map<string, number>();
-  baseOrgaos.forEach(g => { const k = jurDe(g); nPorOrgao.set(k, (nPorOrgao.get(k) || 0) + 1); });
-  [...JURISDICOES, intOrgao].forEach(k => { if (k && !nPorOrgao.has(k)) nPorOrgao.set(k, 0); });
-  const rotuloOrgao = (k: string) => (k === 'SEM' ? 'Sem jurisdição' : k);
-  // Ordem alfabética, como a lista de jurisdições do PJe
-  const orgaosOpcoes = [...nPorOrgao.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0], 'pt'))
-    .map(([key, n]) => ({ key, label: rotuloOrgao(key), n }));
-  const rotuloArea = (k: string) => (k === 'minhas' ? '★ Minhas áreas' : AREAS.find(a => a.key === k)?.label || k);
-  const nFiltrosInt = (intArea ? 1 : 0) + (intTribunal ? 1 : 0) + (intOrgao ? 1 : 0);
 
   // Seletor de responsável: sem a lista da equipe, ao menos o próprio usuário
   const opcoesEquipe: Membro[] = equipe.length ? equipe : dbUser?.id ? [{ id: dbUser.id, name: dbUser.name, email: dbUser.email }] : [];
@@ -879,13 +729,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
       Mostrar mais ({total - limite(k)})
     </button>
   );
-
-  // Caixa: colunas por tipo de ato
-  const COR_ATO: Record<string, string> = { intimacao: '#b8902e', decisao: '#2563eb', sentenca: '#dc2626', despacho: '#7c3aed', outros: 'var(--text-primary)' };
-  const colunasInt = INT_COLUMNS.map(c => {
-    const itens = gruposFiltrados.filter(g => tipoBucket(g.rep) === c.key);
-    return { ...c, itens, visiveis: itens.slice(0, limite(`i:${c.key}`)) };
-  });
 
   // Quadro: busca + filtros combináveis (aba "Filtros") valem para todas as colunas.
   type FiltroQuadro = { key: string; label: string; de: (p: Prazo) => string; rotulo: (k: string) => string; ordem?: readonly string[]; alfa?: boolean; fixas?: readonly string[]; largo?: boolean };
@@ -1002,8 +845,14 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             {/* Com texto: só o ✓ não dizia o que fazia */}
             {p.bucket !== 'concluido' && (
               <button type="button" className="prazo-icon-btn prazo-card-ok" title="Marcar como cumprido"
-                onClick={e => { e.stopPropagation(); setMoveModal({ prazo: p, targetStatus: 'CUMPRIDO' }); }}>
+                onClick={e => { e.stopPropagation(); confirmarMovimentacao({ prazo: p, targetStatus: 'CUMPRIDO' }); }}>
                 <Check size={14} /> Concluir
+              </button>
+            )}
+            {p.bucket === 'concluido' && (
+              <button type="button" className="prazo-icon-btn prazo-card-ok" title="Desfazer a conclusão (volta para pendente)"
+                onClick={e => { e.stopPropagation(); desfazerConclusao(p); }}>
+                <Undo2 size={14} /> Desfazer
               </button>
             )}
           </div>
@@ -1024,312 +873,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
 
   return (
     <div className="lx-single-panel prazo-panel">
-      <div className="prazo-abas" role="tablist" aria-label="Controle de prazos">
-        {([['board', 'Quadro', count('vencido'), 'prazo-aba-badge prazo-aba-badge--alerta'], ['inbox', 'Caixa de intimações', nSemData, 'prazo-aba-badge']] as const).map(([k, label, n, cls]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k} className={`prazo-aba ${view === k ? 'prazo-aba--ativa' : ''}`} onClick={() => setView(k)}>
-            {label}
-            {n > 0 && <span className={cls}>{n}</span>}
-          </button>
-        ))}
-      </div>
-
-      {view === 'inbox' ? (
-        <>
-          {/* ── Caixa: título + busca, mês e DJEN ───────────────────────── */}
-          <div className="prazo-topo">
-            <div className="prazo-titulo">
-              <h1>Caixa de intimações</h1>
-              <span className="prazo-titulo-sub">
-                Tudo que chega vira card no quadro
-                {intMes ? ` · ${nomeMes(intMes)}` : ''}
-              </span>
-            </div>
-            <div className="prazo-topo-acoes">
-              <div className="prazo-busca">
-                <Search size={14} />
-                <input value={intBusca} onChange={e => setIntBusca(e.target.value)} placeholder="Buscar processo ou cliente…" aria-label="Buscar por número do processo ou cliente" />
-                {intBusca && (
-                  <button type="button" className="prazo-busca-limpar" onClick={() => setIntBusca('')} title="Limpar busca"><X size={14} /></button>
-                )}
-              </div>
-              <div className="prazo-mes">
-                <button type="button" className="prazo-mes-nav" onClick={() => mudarMes(-1)} title="Mês anterior"><ChevronLeft size={14} /></button>
-                <span className="prazo-mes-label">{intMes ? nomeMes(intMes) : 'Todos os meses'}</span>
-                <button type="button" className="prazo-mes-nav" onClick={() => mudarMes(1)} title="Próximo mês"><ChevronRight size={14} /></button>
-                <button type="button" className="prazo-mes-atual" onClick={() => setIntMes(intMes === mesAtual() ? '' : mesAtual())}>
-                  {intMes === mesAtual() ? 'Todos' : 'Mês atual'}
-                </button>
-              </div>
-              <button type="button" className="prazo-btn prazo-btn--navy" onClick={sincronizarDjen} disabled={syncing}>
-                {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
-                {syncing ? 'Consultando DJEN…' : 'Buscar novas no DJEN'}
-              </button>
-            </div>
-          </div>
-
-          {/* ── Sem data/todas · áreas · tribunal · órgão ─────────────────── */}
-          <div className="prazo-filtros">
-            <div className="prazo-filtros-esq">
-              {segmento(
-                [
-                  ['sem', <>Sem data <span className="prazo-seg-n">{nSemData}</span></>],
-                  ['todas', <>Todas <span className="prazo-seg-n">{grupos.length}</span></>],
-                ] as const,
-                intSemData ? 'sem' : 'todas',
-                k => setIntSemData(k === 'sem'),
-                'Data fatal do card',
-              )}
-              <span className="prazo-divisor" />
-              <div className="prazo-chips">
-                {intArea && (
-                  <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntArea('')}>
-                    Área: {rotuloArea(intArea)} <X size={12} />
-                  </button>
-                )}
-                {intTribunal && (
-                  <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntTribunal('')}>
-                    Tribunal: {intTribunal === 'SEM' ? 'Sem tribunal' : intTribunal} <X size={12} />
-                  </button>
-                )}
-                {intOrgao && (
-                  <button type="button" className="prazo-chip prazo-chip--on" title="Remover este filtro" onClick={() => setIntOrgao('')}>
-                    Jurisdição: {rotuloOrgao(intOrgao)} <X size={12} />
-                  </button>
-                )}
-                <div className="prazo-menu-wrap">
-                  <button
-                    type="button"
-                    className={`prazo-btn prazo-btn--ghost prazo-btn--sm ${nFiltrosInt ? 'prazo-filtro--on' : ''}`}
-                    aria-expanded={menu === 'filtros-caixa'}
-                    onClick={() => setMenu(menu === 'filtros-caixa' ? null : 'filtros-caixa')}
-                  >
-                    <SlidersHorizontal size={14} /> Filtros
-                    {nFiltrosInt > 0 && <span className="prazo-chip-n">{nFiltrosInt}</span>}
-                    <ChevronDown size={12} />
-                  </button>
-                  {menu === 'filtros-caixa' && (
-                    <div className="prazo-menu prazo-fp" role="dialog" aria-label="Filtros da caixa de intimações">
-                      <div className="prazo-fp-topo">
-                        <span className="prazo-fp-titulo"><SlidersHorizontal size={14} /> Filtros</span>
-                        {nFiltrosInt > 0 && (
-                          <button type="button" className="prazo-fp-limpar" onClick={() => { setIntArea(''); setIntTribunal(''); setIntOrgao(''); }}>Limpar</button>
-                        )}
-                      </div>
-                      <label className={`prazo-fp-campo ${intArea ? 'prazo-fp-campo--on' : ''}`}>
-                        <span className="prazo-fp-rotulo">Área</span>
-                        <select value={intArea} onChange={e => setIntArea(e.target.value as AreaKey | '' | 'minhas')}>
-                          <option value="">Todas ({baseAreas.length})</option>
-                          {minhasAreas.length > 0 && <option value="minhas">★ Minhas áreas ({baseAreas.filter(g => naArea(g, 'minhas')).length})</option>}
-                          {AREAS.map(a => {
-                            const n = baseAreas.filter(g => areaDe.get(g) === a.key).length;
-                            return (n > 0 || intArea === a.key) && <option key={a.key} value={a.key}>{a.label} ({n})</option>;
-                          })}
-                        </select>
-                      </label>
-                      <label className={`prazo-fp-campo ${intTribunal ? 'prazo-fp-campo--on' : ''}`}>
-                        <span className="prazo-fp-rotulo">Tribunal</span>
-                        <select value={intTribunal} onChange={e => setIntTribunal(e.target.value)}>
-                          <option value="">Todos ({baseTribunais.length})</option>
-                          {tribunaisOpcoes.map(t => <option key={t.key} value={t.key}>{t.label} ({t.n})</option>)}
-                        </select>
-                      </label>
-                      <label className={`prazo-fp-campo prazo-fp-campo--largo ${intOrgao ? 'prazo-fp-campo--on' : ''}`}>
-                        <span className="prazo-fp-rotulo">Jurisdição</span>
-                        <select value={intOrgao} onChange={e => setIntOrgao(e.target.value)}>
-                          <option value="">Todos ({baseOrgaos.length})</option>
-                          {orgaosOpcoes.map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
-                        </select>
-                      </label>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {intLoading ? (
-            <div className="prazo-loading"><Loader2 className="lx-spin" size={32} /></div>
-          ) : intimacoes.length === 0 ? (
-            <div className="prazo-empty-all">
-              <Inbox size={48} className="prazo-empty-icon" />
-              <h3>
-                Nenhuma intimação
-                {intMes ? ` em ${nomeMes(intMes)}` : ''}
-              </h3>
-              {intMes && <button className="lx-btn-tool" onClick={() => setIntMes('')}>Ver todos os meses</button>}
-            </div>
-          ) : gruposFiltrados.length === 0 ? (
-            <div className="prazo-empty-all">
-              <Search size={48} className="prazo-empty-icon" />
-              <h3>{filtraSemData && !intBusca.trim() ? 'Nada sem data' : 'Nenhum resultado'}{intBusca.trim() ? ` para "${intBusca.trim()}"` : ''}</h3>
-              {filtraSemData ? (
-                <>
-                  <p>{intBusca.trim() ? 'Pode estar entre as que já têm data fatal.' : `Todas as intimações ${intMes ? `de ${nomeMes(intMes)} ` : ''}já têm data fatal no quadro.`}</p>
-                  <button className="lx-btn-tool" onClick={() => setIntSemData(false)}>Ver todas</button>
-                </>
-              ) : intMes ? (
-                <>
-                  <p>Não encontrei em {nomeMes(intMes)} — o processo pode ter publicações em outro mês.</p>
-                  <button className="lx-btn-tool" onClick={() => setIntMes('')}>Buscar em todos os meses</button>
-                </>
-              ) : (
-                <p>Confira o número digitado ou limpe os filtros de área e tribunal.</p>
-              )}
-            </div>
-          ) : (
-            <div className="prazo-area-trabalho">
-              <div className="prazo-kanban prazo-kanban--caixa">
-                {colunasInt.map(col => (
-                  <section key={col.key} className="prazo-col" style={{ '--cor': COR_ATO[col.key] } as React.CSSProperties}>
-                    <header className="prazo-col-header">
-                      <span className="prazo-col-title">{col.label}</span>
-                      <span className="prazo-col-count">{col.itens.length}</span>
-                    </header>
-                    <div className="prazo-col-body">
-                      {col.itens.length === 0 && <div className="prazo-col-empty">Nenhuma</div>}
-                      {col.visiveis.map(g => {
-                        const i = g.rep;
-                        const tipo = i.tipoDocumento || i.tipoComunicacao;
-                        return (
-                          <div
-                            key={i.id}
-                            className="prazo-int-card"
-                          >
-                            <div className="prazo-int-head">
-                              <div className="prazo-int-id">
-                                <div className="prazo-int-linha">
-                                  <span className="prazo-int-cliente">{nomeProprio(i.clienteExtraido) || 'Cliente não identificado'}</span>
-                                  {g.datas.length > 0 && <span className="prazo-int-date">{g.datas.join(' · ')}</span>}
-                                </div>
-                                <div className="prazo-int-proc">
-                                  <span className="prazo-num">{formatarNumeroCnj(i.numeroProcesso) || 'Processo não identificado'}</span>
-                                  {i.nomeClasse && ` · ${nomeProprio(i.nomeClasse)}`}
-                                </div>
-                              </div>
-                            </div>
-
-                            {g.ids.length > 1 && pubsAbertas === i.id && (
-                              <ul className="prazo-int-pubs">
-                                {g.membros.map((pub, idx) => (
-                                  <li key={pub.id} className="prazo-int-pub">
-                                    <span className="prazo-int-pub-n">{idx + 1}.</span>
-                                    <span className="prazo-int-pub-dest">
-                                      {pub.orgao || pub.advogadoNome || 'destinatário não identificado'}
-                                      {pub.oabConsulta && <span className="prazo-int-pub-oab"> · OAB {pub.oabConsulta}</span>}
-                                    </span>
-                                    {(pub.hash || pub.link) && (
-                                      <a className="prazo-int-pub-link" href={pub.hash ? `${API_DJEN}/${pub.hash}/certidao` : linkSeguro(pub.link)} target="_blank" rel="noopener noreferrer" title="Certidão desta publicação (PDF)">
-                                        <ExternalLink size={12} /> certidão
-                                      </a>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-
-                            {i.texto && (
-                              <div
-                                className={`prazo-int-texto ${expandedId === i.id ? 'prazo-int-texto--full' : ''}`}
-                                role="button"
-                                tabIndex={0}
-                                title={expandedId === i.id ? 'Recolher o teor' : 'Ver o teor completo'}
-                                onClick={() => setExpandedId(expandedId === i.id ? null : i.id)}
-                                onKeyDown={e => { if (e.key === 'Enter') setExpandedId(expandedId === i.id ? null : i.id); }}
-                              >
-                                {i.texto}
-                              </div>
-                            )}
-
-                            {i.expedientePje && (() => {
-                              const e = i.expedientePje;
-                              const texto = e.dataLimite
-                                ? <>prazo {e.prazoDias} dias · limite <strong>{formatDate(e.dataLimite)}</strong></>
-                                : e.cienciaPendente ? <>prazo {e.prazoDias ?? '—'} dias · aguardando ciência</>
-                                : e.prazoDias === null ? <>sem prazo</>
-                                : <>prazo {e.prazoDias} dias</>;
-                              return (
-                                <div className="prazo-int-pje" title={`Expediente ${e.idExpediente} — dado lido do Painel do Advogado do PJe (${e.tribunal})`}>
-                                  <CalendarClock size={13} /> <span className="prazo-int-pje-fonte">PJe</span> {texto}
-                                  {caminhoPje(e) && <span className="prazo-int-pje-caminho">{caminhoPje(e)}</span>}
-                                </div>
-                              );
-                            })()}
-
-                            <div className="prazo-int-meta">
-                              <div className="prazo-int-tags">
-                                {i.tribunal && <span className="prazo-int-trib">{i.tribunal}</span>}
-                                {tipo && <span className="prazo-int-tipo" style={{ '--cor': COR_ATO[tipoBucket(i)] } as React.CSSProperties}><i className="prazo-dot" />{tipo}</span>}
-                                {g.ids.length > 1 && (
-                                  <button
-                                    type="button"
-                                    className={`prazo-int-extra ${pubsAbertas === i.id ? 'prazo-int-extra--on' : ''}`}
-                                    onClick={() => setPubsAbertas(pubsAbertas === i.id ? null : i.id)}
-                                    title="O tribunal publicou este mesmo ato uma vez por destinatário/advogado. Clique para ver todas."
-                                  >
-                                    ×{g.ids.length} publicações
-                                  </button>
-                                )}
-                              </div>
-                              {(i.hash || i.link) && (
-                                <a
-                                  className="prazo-int-abrir"
-                                  href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : linkSeguro(i.link)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={i.hash ? 'Abrir a certidão oficial da comunicação (PDF)' : 'Abrir no PJe do tribunal'}
-                                >
-                                  Abrir <ExternalLink size={12} />
-                                </a>
-                              )}
-                            </div>
-
-                            {i.prazo ? (
-                              <div className={`prazo-int-vinculo ${i.prazo.status === 'CUMPRIDO' ? 'prazo-int-vinculo--done' : ''}`}>
-                                {i.prazo.status === 'CUMPRIDO' ? <Check size={13} /> : <CalendarClock size={13} />}
-                                <span className="prazo-int-vinculo-titulo">{i.prazo.title}</span>
-                                <span className="prazo-int-vinculo-fatal">
-                                  {/* No A_CONFIRMAR o fatalDate é só o piso (publicação), não um prazo */}
-                                  {i.prazo.status === 'A_CONFIRMAR' ? 'sem data · a confirmar' : `prazo limite ${formatDate(i.prazo.fatalDate)}`}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="prazo-int-vinculo prazo-int-vinculo--orfao">
-                                <X size={13} /> <span>O prazo vinculado foi excluído do quadro.</span>
-                              </div>
-                            )}
-
-                            <div className="prazo-int-footer">
-                              {i.revisadoPor ? <span className="prazo-int-revisado">revisado por {i.revisadoPor}</span> : <span />}
-                              {i.prazo && (
-                                <div className="prazo-int-envio">
-                                  <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--sm" onClick={() => setView('board')}>Ver no quadro</button>
-                                  {i.prazo.status !== 'CUMPRIDO' && (
-                                    <button
-                                      type="button"
-                                      className="prazo-btn prazo-btn--navy prazo-btn--sm"
-                                      onClick={() => setMoveModal({ prazo: i.prazo!, targetStatus: 'CUMPRIDO' })}
-                                    >
-                                      <Check size={13} /> Concluir
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {mostrarMais(`i:${col.key}`, col.itens.length)}
-                    </div>
-                  </section>
-                ))}
-              </div>
-
-            </div>
-          )}
-
-        </>
-      ) : (
-        <>
           {/* ── Quadro: título, visão e resumo · busca, prioridade, mais, novo ── */}
           <div className="prazo-topo">
             <div className="prazo-topo-acoes">
@@ -1409,6 +952,11 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
                 {syncingPje ? <Loader2 className="lx-spin" size={14} /> : <CalendarClock size={14} />}
                 {syncingPje ? 'Lendo o PJe…' : 'Buscar prazos no PJe'}
               </button>
+              <button type="button" className="prazo-btn prazo-btn--ghost" onClick={sincronizarDjen} disabled={syncing}
+                title="Busca as intimações publicadas no DJEN; cada uma vira card no quadro">
+                {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
+                {syncing ? 'Consultando DJEN…' : 'Buscar no DJEN'}
+              </button>
               <button type="button" className="prazo-btn prazo-btn--navy" onClick={abrirNovo}><Plus size={15} /> Novo prazo</button>
             </div>
           </div>
@@ -1474,8 +1022,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
               })}
             </div>
           )}
-        </>
-      )}
 
       {/* Modal criar / editar */}
       {modalOpen && (
@@ -1571,7 +1117,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
         </div>
       )}
 
-      {/* Prompt: quem movimentou */}
+      {/* Dados do card + teor e certidão das intimações (o que antes só a caixa de intimações mostrava) */}
       {infoCard && (
         <div className="prazo-modal-overlay" onClick={() => setInfoCard(null)}>
           <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
@@ -1582,8 +1128,31 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             <div className="prazo-form">
               <p className="prazo-move-desc"><strong>Processo:</strong> {infoCard.caseReference || 'não informado'}</p>
               <p className="prazo-move-desc"><strong>Onde estava no Painel do Advogado do PJe:</strong> {caminhoPje(infoCard.origemPje) || 'não veio do PJe'}</p>
-              <p className="prazo-move-desc"><strong>Prazo limite:</strong> {formatDate(infoCard.fatalDate)}</p>
+              {/* No "a confirmar" a data é a publicação, não um prazo */}
+              <p className="prazo-move-desc"><strong>{infoCard.status === 'A_CONFIRMAR' ? 'Publicado em' : 'Prazo limite'}:</strong> {formatDate(infoCard.fatalDate)}</p>
               {infoCard.description && <p className="prazo-move-desc" style={{ whiteSpace: 'pre-line' }}><strong>Observações:</strong> {infoCard.description}</p>}
+              {infoInts === null ? (
+                <div className="prazo-loading"><Loader2 className="lx-spin" size={20} /></div>
+              ) : infoInts.length === 0 ? (
+                <p className="prazo-move-desc">Sem intimação do DJEN ligada a este card.</p>
+              ) : (
+                // O DJEN publica o mesmo ato uma vez por destinatário: mostra cada teor uma vez só
+                [...new Map(infoInts.map(i => [i.texto || i.id, i])).values()].map(i => (
+                  <div key={i.id} className="prazo-info-int">
+                    <div className="prazo-info-int-head">
+                      <strong>{i.tipoDocumento || i.tipoComunicacao || 'Intimação'}</strong>
+                      {[i.tribunal, i.dataDisponibilizacao && formatDate(i.dataDisponibilizacao)].filter(Boolean).join(' · ')}
+                      {(i.hash || linkSeguro(i.link)) && (
+                        <a href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : linkSeguro(i.link)} target="_blank" rel="noopener noreferrer"
+                          title={i.hash ? 'Certidão oficial da publicação (PDF)' : 'Abrir no PJe do tribunal'}>
+                          {i.hash ? 'Abrir certidão' : 'Abrir no tribunal'} <ExternalLink size={12} />
+                        </a>
+                      )}
+                    </div>
+                    {i.texto && <div className="prazo-info-int-texto">{i.texto}</div>}
+                  </div>
+                ))
+              )}
             </div>
             <div className="prazo-modal-footer">
               <button className="lx-btn-tool" onClick={() => setInfoCard(null)} autoFocus>Fechar</button>
@@ -1608,7 +1177,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, initialView 
             </div>
             <div className="prazo-modal-footer">
               <button className="lx-btn-tool" onClick={() => setMoveModal(null)}>Cancelar</button>
-              <button className="lx-btn-primary" onClick={confirmarMovimentacao} autoFocus>
+              <button className="lx-btn-primary" onClick={() => confirmarMovimentacao(moveModal)} autoFocus>
                 <Check size={16} /> Confirmar
               </button>
             </div>

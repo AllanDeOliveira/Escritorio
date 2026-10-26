@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
-import DashboardTab, { type Resumo, type SyncStatus } from './DashboardTab';
+import DashboardTab, { AlertaPje, type Resumo, type SyncStatus } from './DashboardTab';
 
 const props = {
   loading: false,
@@ -144,19 +144,37 @@ describe('DashboardTab — heartbeat do sync', () => {
     expect(html).not.toContain('dash-sync');
   });
 
-  it('PJe com tribunal que falhou mostra aviso com o tribunal, mesmo com DJEN ok', () => {
-    const html = render({
-      resumo: resumo(),
-      sync: { ...syncOk, pje: { lastAttemptAt: agora, falhas: [{ tribunal: 'TRF1 2º GRAU', erro: 'HTTP 503' }] } },
+});
+
+describe('AlertaPje — faixa global de robô parado', () => {
+  const alerta = (pje: SyncStatus['pje']) => renderToString(<AlertaPje pje={pje} onIrAoQuadro={() => {}} />);
+  const cincoDiasAtras = new Date(Date.now() - 5 * 24 * 3600_000).toISOString();
+
+  it('tribunal que falhou: vermelho, há quantos dias está sem ler e o motivo à vista (não em tooltip)', () => {
+    const html = alerta({
+      lastAttemptAt: agora,
+      falhas: [{ tribunal: 'TJMT', erro: 'HTTP 403 "TJMT - Acesso Negado"' }],
+      ultimaLeitura: { TJMT: cincoDiasAtras, TRF1: agora },
     });
-    expect(html).toContain('PJe não leu');
-    expect(html).toContain('TRF1 2º GRAU');
-    expect(html).toContain('HTTP 503');
+    expect(html).toContain('dash-sync--stale');
+    expect(html).toContain('sem ler TJMT');
+    expect(html).toContain('há 5 dias');
+    expect(html).toContain('Acesso Negado');
+    expect(html).not.toContain('TRF1');
   });
 
-  it('PJe sem falhas não mostra aviso', () => {
-    const html = render({ resumo: resumo(), sync: { ...syncOk, pje: { lastAttemptAt: agora, falhas: [] } } });
-    expect(html).not.toContain('PJe não leu');
+  it('tribunal nunca lido diz "nunca", não inventa data', () => {
+    expect(alerta({ lastAttemptAt: agora, falhas: [{ tribunal: 'TRF1', erro: 'x' }] })).toContain('última leitura nunca');
+  });
+
+  it('sem falhas (ou sem leitura do PJe) não mostra nada', () => {
+    expect(alerta({ lastAttemptAt: agora, falhas: [] })).toBe('');
+    expect(alerta(undefined)).toBe('');
+  });
+
+  it('a página inicial não repete o aviso (a faixa é do App)', () => {
+    const html = render({ resumo: resumo(), sync: { ...syncOk, pje: { lastAttemptAt: agora, falhas: [{ tribunal: 'TJMT', erro: 'x' }] } } });
+    expect(html).not.toContain('sem ler TJMT');
   });
 });
 

@@ -56,6 +56,15 @@ function linhas(html) {
         .split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
+// Teor do DJEN vem em HTML (<p>, <br>, <center><h2>…): o modal do card mostra texto.
+// Tag de bloco vira quebra de linha; inline (<b>, <i>, <a>) só some, sem partir a frase.
+const TAG_BLOCO = /<\/?(?:p|div|br|h[1-6]|center|li|tr|table|blockquote)\b[^>]*>/gi;
+function teorEmTexto(html) {
+    if (!html) return html;
+    return decodificar(html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '').replace(TAG_BLOCO, '\n').replace(/<[^>]+>/g, ''))
+        .split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+}
+
 // Links com A4J.AJAX.Submit: { rotulo, total, form, params }
 function linksA4j(html) {
     const out = [];
@@ -467,6 +476,61 @@ async function gerarCardsDoDjen() {
     return criados;
 }
 
+// ── Baixa automática ───────────────────────────────────────────────────────
+// Expediente respondido sai das abas de "pendentes de resposta": se a leitura do tribunal foi
+// completa e ele não apareceu, o card vira CUMPRIDO sem ninguém clicar em "Concluir".
+// Sair do painel só prova resposta se não pode ter sido o prazo que acabou: o que vence sem
+// resposta passa 10 dias em "Cujo prazo findou…" e depois some também. Então nada de baixa para
+// quem estava nessa aba, nem para quem venceu há mais de 10 dias (robô parado nesse meio-tempo).
+const BAIXA_ROBO = 'Robô PJe (saiu do painel)';
+const JANELA_FINDOU_MS = 10 * 24 * 60 * 60 * 1000;
+function saiuRespondido(e, agora) {
+    if (ABA_FINDOU.test(e.situacao || '')) return false;
+    return !e.dataLimite || new Date(e.dataLimite).getTime() >= agora.getTime() - JANELA_FINDOU_MS;
+}
+
+async function darBaixaNosQueSairam(tribunal, agora) {
+    const sairam = await prisma.expedientePje.findMany({
+        where: { tribunal, prazoId: { not: null }, vistoEm: { lt: agora } },
+        select: { prazoId: true, situacao: true, dataLimite: true },
+    });
+    const candidatos = [...new Set(sairam.filter((e) => saiuRespondido(e, agora)).map((e) => e.prazoId))];
+    if (!candidatos.length) return 0;
+    // Card que junta N expedientes só fecha quando todos saíram respondidos.
+    // ponytail: expediente de outro tribunal/grau no mesmo card conta como presente (card misto é raro; fica aberto)
+    const todos = await prisma.expedientePje.findMany({
+        where: { prazoId: { in: candidatos } },
+        select: { prazoId: true, tribunal: true, vistoEm: true, situacao: true, dataLimite: true },
+    });
+    const presos = new Set(todos
+        .filter((e) => e.tribunal !== tribunal || e.vistoEm >= agora || !saiuRespondido(e, agora))
+        .map((e) => e.prazoId));
+    const r = await prisma.prazo.updateMany({
+        where: { id: { in: candidatos.filter((id) => !presos.has(id)) }, status: { in: ['PENDENTE', 'A_CONFIRMAR'] } },
+        data: { status: 'CUMPRIDO', completedAt: agora, lastMovedBy: BAIXA_ROBO, lastMovedAt: agora },
+    });
+    return r.count;
+}
+
+// Rede de segurança: expediente que voltou ao painel desfaz a baixa do robô (nunca a de uma pessoa)
+async function reabrirOsQueVoltaram(tribunal, agora) {
+    const voltaram = await prisma.expedientePje.findMany({
+        where: { tribunal, prazoId: { not: null }, vistoEm: { gte: agora } },
+        select: { prazoId: true, dataLimite: true },
+    });
+    let n = 0;
+    for (const comData of [true, false]) {
+        const ids = voltaram.filter((e) => Boolean(e.dataLimite) === comData).map((e) => e.prazoId);
+        if (!ids.length) continue;
+        const r = await prisma.prazo.updateMany({
+            where: { id: { in: ids }, status: 'CUMPRIDO', lastMovedBy: BAIXA_ROBO },
+            data: { status: comData ? 'PENDENTE' : 'A_CONFIRMAR', completedAt: null, lastMovedBy: 'Robô PJe (voltou ao painel)', lastMovedAt: agora },
+        });
+        n += r.count;
+    }
+    return n;
+}
+
 // ── Sincronização ──────────────────────────────────────────────────────────
 let emAndamento = false;
 
@@ -481,6 +545,8 @@ async function syncExpedientesPje() {
     const resultado = [];
     let prazos;
     let atualizados = 0;
+    let baixados = 0;
+    let reabertos = 0;
     try {
         for (const t of TRIBUNAIS) {
             try {
@@ -514,6 +580,11 @@ async function syncExpedientesPje() {
                         atualizados += r.count;
                     }
                 }
+                // Só com a leitura inteira: caixa lida pela metade faria "sumir" expediente que está lá
+                if (!incompletas.length && itens.length) {
+                    reabertos += await reabrirOsQueVoltaram(t.sigla, agora);
+                    baixados += await darBaixaNosQueSairam(t.sigla, agora);
+                }
                 resultado.push({
                     tribunal: t.sigla,
                     expedientes: itens.length,
@@ -528,8 +599,8 @@ async function syncExpedientesPje() {
         // Mesmo com um tribunal fora do ar, o que foi lido já vai para o quadro
         let erroQuadro;
         try {
-            prazos = { ...(await gerarPrazosDoPje()), atualizados };
-            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${prazos.djen} card(s) do DJEN a confirmar, ${prazos.juntados} duplicado(s) juntado(s), ${atualizados} data(s) atualizada(s)`);
+            prazos = { ...(await gerarPrazosDoPje()), atualizados, baixados, reabertos };
+            logger.info(`[PJe] quadro: ${prazos.criados} prazo(s) criado(s), ${prazos.vinculadas} intimação(ões) vinculada(s), ${prazos.djen} card(s) do DJEN a confirmar, ${prazos.juntados} duplicado(s) juntado(s), ${atualizados} data(s) atualizada(s), ${baixados} cumprido(s) por sair do painel, ${reabertos} reaberto(s)`);
         } catch (e) {
             erroQuadro = e;
             resultado.push({ tribunal: 'Quadro de prazos', erro: e.message });
@@ -548,5 +619,5 @@ async function syncExpedientesPje() {
 
 module.exports = {
     syncExpedientesPje, gerarPrazosDoPje, lerExpedientes, parseLista, linksA4j, decodificar, configurado, alvoPermitido,
-    soDigitos, formatarCnj, melhorExpediente, escolherSituacoes,
+    soDigitos, formatarCnj, melhorExpediente, escolherSituacoes, saiuRespondido, teorEmTexto,
 };

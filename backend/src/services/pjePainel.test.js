@@ -2,7 +2,47 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseLista, linksA4j, alvoPermitido, decodificar, melhorExpediente, formatarCnj, escolherSituacoes } = require('./pjePainel');
+const { parseLista, linksA4j, alvoPermitido, decodificar, melhorExpediente, formatarCnj, escolherSituacoes, saiuRespondido, teorEmTexto } = require('./pjePainel');
+
+describe('teorEmTexto (teor do DJEN em HTML → texto do modal)', () => {
+    it('processo sigiloso (HTML real do DJEN): sem tags, um bloco por linha', () => {
+        expect(teorEmTexto('<center><h2>Processo sigiloso</h2></b><p>Para visualização do documento consulte os autos digitais</p></center>'))
+            .toBe('Processo sigiloso\nPara visualização do documento consulte os autos digitais');
+    });
+
+    it('tag inline some sem partir a frase; entidades decodificadas; <br> quebra linha', () => {
+        expect(teorEmTexto('Intimação de <b>FULANO</b> &amp; Cia, n&ordm; 1:<br/>prazo de <i>15</i>&nbsp;dias'))
+            .toBe('Intimação de FULANO & Cia, nº 1:\nprazo de 15 dias');
+    });
+
+    it('texto puro passa intacto; vazio continua vazio', () => {
+        expect(teorEmTexto('DECISÃO Vistos. Cite-se.')).toBe('DECISÃO Vistos. Cite-se.');
+        expect(teorEmTexto(null)).toBeNull();
+    });
+});
+
+describe('saiuRespondido (baixa automática)', () => {
+    const agora = new Date(2026, 9, 26, 12);
+    const dia = (d) => new Date(2026, 9, d);
+    const pend = 'Apenas pendentes de resposta';
+
+    it('saiu antes de vencer, ou sem data limite: foi respondido', () => {
+        expect(saiuRespondido({ situacao: pend, dataLimite: dia(30) }, agora)).toBe(true);
+        expect(saiuRespondido({ situacao: 'Sem prazo', dataLimite: null }, agora)).toBe(true);
+    });
+
+    it('venceu há menos de 10 dias e não passou por "findou": foi respondido', () => {
+        expect(saiuRespondido({ situacao: pend, dataLimite: dia(20) }, agora)).toBe(true);
+    });
+
+    it('NUNCA dá baixa em quem estava em "Cujo prazo findou" (some do painel após 10 dias sem resposta)', () => {
+        expect(saiuRespondido({ situacao: 'Cujo prazo findou nos últimos 10 dias - sem resposta', dataLimite: dia(25) }, agora)).toBe(false);
+    });
+
+    it('venceu há mais de 10 dias: pode ter saído de "findou" com o robô parado — não dá baixa', () => {
+        expect(saiuRespondido({ situacao: pend, dataLimite: dia(10) }, agora)).toBe(false);
+    });
+});
 
 // Estrutura real do painel (TRF1, set/2026), com dados fictícios
 const linha = (miolo) => `<tr class="rich-table-row rich-table-firstrow"><td>${miolo}</td></tr>`;

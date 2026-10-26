@@ -9,7 +9,7 @@ import AdminPanel from './AdminPanel';
 import LoginScreen from './LoginScreen';
 import NameCaptureModal from './NameCaptureModal';
 import PrazosTab from './PrazosTab';
-import DashboardTab, { resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
+import DashboardTab, { AlertaPje, resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
 
 // Só contas do escritório (o servidor confere de novo; aqui é para não montar a tela à toa)
 const DOMINIO = '@jvo.adv.br';
@@ -145,8 +145,6 @@ function App() {
   const [listaHoje, setListaHoje] = useState<PrazoLite[]>([]);
   const [listaSemana, setListaSemana] = useState<PrazoLite[]>([]);
   const [syncing, setSyncing] = useState(false);
-  // View inicial ao entrar na aba Prazos (deep-link do card de intimações → caixa)
-  const [prazosInitialView, setPrazosInitialView] = useState<'board' | 'inbox'>('board');
 
   // Depende do dbUser (não do login do Firebase): o /sync precisa ter criado o usuário
   // antes, senão o primeiro acesso de alguém novo recebia 403 e abria em erro.
@@ -218,10 +216,7 @@ function App() {
     }
   }, [dbUser?.id, carregarResumo]);
 
-  const handleDashboardNavigate = (tab: string, opts?: { view?: 'board' | 'inbox' }) => {
-    if (tab === 'prazos') setPrazosInitialView(opts?.view || 'board');
-    setActiveTab(tab);
-  };
+  const handleDashboardNavigate = (tab: string) => setActiveTab(tab);
 
 
 
@@ -253,7 +248,7 @@ function App() {
             <BarChart3 size={24} />
             <span className="lx-nav-text">Página Inicial</span>
           </button>
-          <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} onClick={() => { setPrazosInitialView('board'); setActiveTab('prazos'); }}>
+          <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} onClick={() => setActiveTab('prazos')}>
             <CalendarClock size={24} />
             <span className="lx-nav-text">Prazos</span>
             {resumo && (resumo.vencido + resumo.hoje) > 0 && (
@@ -328,6 +323,8 @@ function App() {
           </div>
         </div>
 
+        <AlertaPje pje={sync?.pje} onIrAoQuadro={() => handleDashboardNavigate('prazos')} />
+
         {/* ── Aba: Admin ────────────────────────────────────────────── */}
         {activeTab === 'admin' && dbUser?.role === 'admin' && (
           <AdminPanel />
@@ -354,7 +351,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} initialView={prazosInitialView} />
+          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} />
         )}
 
 

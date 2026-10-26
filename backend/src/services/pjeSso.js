@@ -105,9 +105,12 @@ function criarCliente() {
     async function ir(url, { method = 'GET', headers = {}, body } = {}) {
         for (let saltos = 0; saltos < 15; saltos++) {
             const host = new URL(url).hostname;
+            const cookie = cookieDe(host);
             const res = await fetch(url, {
                 method, body, redirect: 'manual', signal: AbortSignal.timeout(90000),
-                headers: { 'User-Agent': 'Mozilla/5.0', Cookie: cookieDe(host), ...headers },
+                // Sem cookie, sem cabeçalho: desde 21/10/2026 o firewall do TJMT responde
+                // 403 "Acesso Negado" a `Cookie:` vazio (o TRF1 aceita) — o robô ficou 5 dias sem o TJMT.
+                headers: { 'User-Agent': 'Mozilla/5.0', ...(cookie && { Cookie: cookie }), ...headers },
             });
             guardar(host, res);
             const loc = res.headers.get('location');
@@ -145,7 +148,11 @@ async function loginCertificado({
     async function entrar(pagina) {
         const action = pagina.texto.match(/id="loginForm"[^>]*action="([^"]+)"/);
         const desafio = pagina.texto.match(/autenticar\('([^']*)',\s*'([^']*)'\)/);
-        if (!action || !desafio) throw new Error(`Tela de login do SSO não reconhecida (${pagina.url})`);
+        if (!action || !desafio) {
+            // Status e título no erro: "não reconhecida" sozinho escondeu um 403 do firewall por 5 dias
+            const titulo = (pagina.texto.match(/<title>([\s\S]*?)<\/title>/i) || [])[1]?.trim();
+            throw new Error(`Tela de login do SSO não reconhecida (HTTP ${pagina.status}${titulo ? ` "${titulo}"` : ''}, ${pagina.url})`);
+        }
         const mensagem = desafio[2];
         const token = crypto.randomUUID();
 
@@ -203,4 +210,4 @@ async function loginCertificado({
     return { cliente, pjeUrl, paginaInicial: final };
 }
 
-module.exports = { loginCertificado, lerPfx, pkiPathBase64, assinarDesafio, totp };
+module.exports = { loginCertificado, lerPfx, pkiPathBase64, assinarDesafio, totp, criarCliente };

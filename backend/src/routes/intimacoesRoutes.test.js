@@ -47,30 +47,19 @@ describe('intimacoesRoutes (integração)', () => {
     await new Promise((resolve) => server.close(resolve));
   });
 
-  it('?mes restringe pela data de disponibilização', async () => {
-    const mai = await get('/api/intimacoes?mes=2001-05');
-    expect(mai.success).toBe(true);
-    expect(mai.intimacoes.map((i) => i.djenId).sort()).toEqual([`${PFX}a1`, `${PFX}a2`, `${PFX}b`]);
-    const jun = await get('/api/intimacoes?mes=2001-06');
-    expect(jun.intimacoes.map((i) => i.djenId)).toEqual([`${PFX}c`]);
+  it('?prazoId traz só as intimações do card, com teor e hash (modal do quadro)', async () => {
+    const { id } = await prisma.prazo.findFirst({ where: { title: TITULO_PRAZO } });
+    const d = await get(`/api/intimacoes?prazoId=${id}`);
+    expect(d.success).toBe(true);
+    expect(d.intimacoes).toHaveLength(2); // a1 e a2; b e c não são deste card
+    expect(d.intimacoes[0]).toMatchObject({ texto: 'TXT-A' });
+    expect(d.intimacoes[0]).toHaveProperty('hash');
   });
 
-  it('?mes inválido é ignorado (retorna sem recorte)', async () => {
-    const d = await get('/api/intimacoes?mes=banana');
-    const ids = d.intimacoes.map((i) => i.djenId);
-    [`${PFX}a1`, `${PFX}a2`, `${PFX}b`, `${PFX}c`].forEach((id) => expect(ids).toContain(id));
-  });
-
-  it('cada intimação traz o card vinculado (título e situação)', async () => {
-    const d = await get('/api/intimacoes?mes=2001-05');
-    const a1 = d.intimacoes.find((i) => i.djenId === `${PFX}a1`);
-    expect(a1.prazo).toMatchObject({ title: TITULO_PRAZO, status: 'A_CONFIRMAR' });
-  });
-
-  it('?resumo=1 devolve só contadores e sync, sem a lista', async () => {
+  it('sem prazoId devolve só contadores e sync, nunca a lista inteira', async () => {
     const d = await get('/api/intimacoes?resumo=1');
     expect(d.success).toBe(true);
-    expect(d.intimacoes).toEqual([]);
+    expect(d.intimacoes).toBeUndefined();
     expect(typeof d.counts.hoje).toBe('number');
     expect(d.syncStatus).toBeTruthy();
   });

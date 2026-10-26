@@ -102,6 +102,9 @@
   border-color: rgba(239, 68, 68, 0.4);
   color: var(--urg-vencido);
 }
+/* Faixa global do App (todas as abas), logo abaixo do cabeçalho */
+.alerta-pje { margin: 0.75rem 1.5rem 0; }
+.alerta-pje-motivo { display: block; margin-top: 0.2rem; opacity: 0.8; word-break: break-word; }
 .dash-sync--warn .dash-sync-txt,
 .dash-sync--stale .dash-sync-txt { color: var(--text-primary); }
 
