@@ -289,17 +289,26 @@ async function vincularIntimacoesAoPje() {
 const meiaNoite = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
 // O robô não lê "pendentes de ciência": o DJEN publica antes de o expediente aparecer
-// no painel, e o ato já tem card "a confirmar" do DJEN. O PJe assume esse card (data,
-// status, descrição) em vez de abrir um 2º — dono e intimações vinculadas ficam.
+// no painel, e o ato já tem card do DJEN. O PJe assume esse card em vez de abrir um 2º —
+// dono e intimações vinculadas ficam. Vale também para o card cuja data alguém já
+// confirmou à mão (PENDENTE): antes só o "a confirmar" contava e o PJe duplicava o card.
 async function cardDoDjen(caseReference, e) {
-    const cards = (await prisma.prazo.findMany({
-        where: { source: 'DJEN', status: 'A_CONFIRMAR', caseReference },
-        select: { id: true, fatalDate: true, intimacoes: { select: { tipoDocumento: true, tipoComunicacao: true }, take: 1 } },
-    // fatalDate do card do DJEN é a disponibilização: mesmo critério de proximidade do vínculo
-    })).map((c) => ({ ...c, dataExpedicao: c.fatalDate }));
+    const cards = await prisma.prazo.findMany({
+        where: { source: 'DJEN', status: { in: ['A_CONFIRMAR', 'PENDENTE'] }, caseReference },
+        select: { id: true, status: true, fatalDate: true, intimacoes: { select: { tipoDocumento: true, tipoComunicacao: true, dataDisponibilizacao: true }, take: 1 } },
+    });
+    if (!cards.length) return null;
+    // Card do DJEN já ligado a um expediente é de outro ato (o mesmo ato a N destinatários
+    // é pego antes, pelo expediente irmão): assumir de novo esconderia um prazo novo
+    const ligados = new Set((await prisma.expedientePje.findMany({
+        where: { prazoId: { in: cards.map((c) => c.id) } }, select: { prazoId: true },
+    })).map((x) => x.prazoId));
+    // Proximidade pela disponibilização no DJEN (o fatalDate do card confirmado já é o prazo)
+    const livres = cards.filter((c) => !ligados.has(c.id))
+        .map((c) => ({ ...c, dataExpedicao: c.intimacoes[0]?.dataDisponibilizacao || c.fatalDate }));
     const ref = { dataDisponibilizacao: e.dataExpedicao };
     // Mesmo tipo de ato primeiro: o processo pode ter Decisão e Sentença na mesma quinzena
-    return melhorExpediente(ref, cards.filter((c) => mesmoTipo(tipoDoCard(c), e.tipo))) || melhorExpediente(ref, cards);
+    return melhorExpediente(ref, livres.filter((c) => mesmoTipo(tipoDoCard(c), e.tipo))) || melhorExpediente(ref, livres);
 }
 
 // "Intimação de pauta" (DJEN) = "Intimação de Pauta" (PJe): compara sem caixa nem acento
@@ -380,10 +389,15 @@ async function gerarQuadro() {
     for (const e of novos) try {
         const caseReference = formatarCnj(e.numeroProcesso);
         const fatalDate = e.dataLimite || meiaNoite(e.dataExpedicao || e.vistoEm);
-        const existente = caseReference && await prisma.prazo.findFirst({
-            where: { source: 'PJE', caseReference, fatalDate },
-            select: { id: true },
+        // Mesmo ato a N destinatários = expediente irmão (mesmo processo, tribunal, tipo e dia
+        // de expedição) que já tem card. Antes era processo + data: Decisão e Intimação de
+        // pauta do mesmo dia viravam um card só e uma delas sumia.
+        const irmao = e.numeroProcesso && await prisma.expedientePje.findFirst({
+            where: { id: { not: e.id }, tribunal: e.tribunal, numeroProcesso: e.numeroProcesso, tipo: e.tipo, dataExpedicao: e.dataExpedicao, prazoId: { not: null } },
+            select: { prazoId: true },
         });
+        // Se o card do irmão foi excluído, o id órfão fica aqui também: exclusão é decisão humana
+        const existente = irmao ? { id: irmao.prazoId } : null;
         const doPje = {
             source: 'PJE',
             status: e.dataLimite ? 'PENDENTE' : 'A_CONFIRMAR',
@@ -395,7 +409,10 @@ async function gerarQuadro() {
         };
         const djen = !existente && caseReference && await cardDoDjen(caseReference, e);
         const prazo = existente
-            || (djen && await prisma.prazo.update({ where: { id: djen.id }, data: doPje }))
+            || (djen && (djen.status === 'A_CONFIRMAR'
+                ? await prisma.prazo.update({ where: { id: djen.id }, data: doPje })
+                // Data confirmada à mão é decisão humana: só liga o expediente ao card
+                : djen))
             || await prisma.prazo.create({
                 data: {
                     title: e.destinatario || caseReference || `Expediente ${e.idExpediente}`,

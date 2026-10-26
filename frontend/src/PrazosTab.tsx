@@ -338,10 +338,7 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
   // Quem moveu é sempre o usuário logado — o backend ignora qualquer nome digitado.
   // Clique no card: só os dados do processo (editar fica no botão do card)
   const [infoCard, setInfoCard] = useState<Prazo | null>(null);
-  const [moveModal, setMoveModal] = useState<{ prazo: Pick<Prazo, 'id' | 'title' | 'status'> & { caseReference?: string | null }; targetStatus: string } | null>(null);
-  // Status de antes do "Concluir", para o "Desfazer" do card voltar a A_CONFIRMAR quando era o caso
-  // ponytail: só nesta sessão; após recarregar a página o Desfazer volta para PENDENTE (igual ao arraste)
-  const statusAntes = useRef(new Map<string, string>());
+  const [moveModal, setMoveModal] = useState<{ prazo: Pick<Prazo, 'id' | 'title'> & { caseReference?: string | null }; targetStatus: string } | null>(null);
 
   // Importação
   const [importOpen, setImportOpen] = useState(false);
@@ -626,8 +623,6 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
       });
       const d = await r.json();
       if (d.success) {
-        if (mov.targetStatus === 'CUMPRIDO') statusAntes.current.set(mov.prazo.id, mov.prazo.status);
-        else statusAntes.current.delete(mov.prazo.id);
         showToast(mov.targetStatus === 'CUMPRIDO' ? 'Prazo concluído!' : 'Prazo reaberto!', 'success');
         setMoveModal(null);
         carregar();
@@ -639,8 +634,9 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
     }
   };
 
+  // O backend decide: card que nunca teve data fatal volta para "a confirmar" (statusAoReabrir)
   const desfazerConclusao = (prazo: NonNullable<typeof moveModal>['prazo']) =>
-    confirmarMovimentacao({ prazo, targetStatus: statusAntes.current.get(prazo.id) || 'PENDENTE' });
+    confirmarMovimentacao({ prazo, targetStatus: 'PENDENTE' });
 
   // "Pegar": assume o card e os demais sem dono do mesmo processo (rota /pegar)
   const pegar = async (p: Prazo) => {
@@ -680,7 +676,10 @@ export default function PrazosTab({ currentUser, dbUser, showToast, onSincroniza
       const d = await r.json();
       if (d.success) {
         const ign = d.ignoredNoDate ? ` · ${d.ignoredNoDate} sem data/título ignorada(s)` : '';
-        const falhas = d.errors?.length ? ` · ${d.errors.length} linha(s) com erro: ${d.errors.slice(0, 2).join('; ')}` : '';
+        // errors vem como [{ titulo, erro }] — join direto imprimia "[object Object]"
+        const falhas = d.errors?.length
+          ? ` · ${d.errors.length} linha(s) com erro: ${d.errors.slice(0, 2).map((e: { titulo: string; erro: string }) => `${e.titulo} (${e.erro})`).join('; ')}`
+          : '';
         showToast(`${d.imported} prazo(s) importado(s)!${ign}${falhas}`, falhas ? 'error' : d.imported > 0 ? 'success' : 'info');
         setImportOpen(false);
         carregar();

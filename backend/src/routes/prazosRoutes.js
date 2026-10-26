@@ -172,6 +172,21 @@ function validateCreate(body) {
     return errors;
 }
 
+/**
+ * Status de um card concluído que alguém reabriu (Desfazer / arrastar de volta). Card que nunca
+ * teve data fatal — o fatalDate é só o piso: publicação no DJEN, ou expedição no PJe sem data
+ * limite — volta para A_CONFIRMAR. Como PENDENTE, o piso no passado o jogava em vencidoAntigo
+ * e ele sumia do quadro na hora. Data limite do PJe ou data posta à mão: PENDENTE.
+ */
+function statusAoReabrir(prazo, expedientes, intimacoes) {
+    const dia = (d) => { if (!d) return NaN; const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+    const fatal = dia(prazo.fatalDate);
+    if (expedientes.some((e) => dia(e.dataLimite) === fatal)) return 'PENDENTE';
+    const piso = expedientes.some((e) => !e.dataLimite && dia(e.dataExpedicao || e.vistoEm) === fatal)
+        || (!expedientes.length && intimacoes.some((i) => dia(i.dataDisponibilizacao) === fatal));
+    return piso ? 'A_CONFIRMAR' : 'PENDENTE';
+}
+
 // Erros do Prisma que são culpa da entrada, não do servidor: viram 400 com motivo
 function erroDeEntrada(error) {
     if (error.code === 'P2003') return 'Responsável, processo ou cliente informado não existe.';
@@ -494,6 +509,16 @@ router.put('/:id', async (req, res) => {
             data.lastMovedBy = req.currentUser?.name || req.currentUser?.email || String(body.lastMovedBy).trim();
             data.lastMovedAt = new Date();
         }
+        // Reabertura sem data nova: o card sem data fatal volta para "a confirmar" (statusAoReabrir)
+        if (data.status === 'PENDENTE' && body.fatalDate === undefined) {
+            const atual = await prisma.prazo.findUnique({
+                where: { id }, select: { status: true, fatalDate: true, intimacoes: { select: { dataDisponibilizacao: true } } },
+            });
+            if (atual && (atual.status === 'CUMPRIDO' || atual.status === 'CANCELADO')) {
+                const expedientes = await prisma.expedientePje.findMany({ where: { prazoId: id }, select: { dataLimite: true, dataExpedicao: true, vistoEm: true } });
+                data.status = statusAoReabrir(atual, expedientes, atual.intimacoes);
+            }
+        }
 
         const prazo = await prisma.prazo.update({
             where: { id },
@@ -579,3 +604,4 @@ router.delete('/:id', async (req, res) => {
 module.exports = router;
 module.exports.parseImportDate = parseImportDate; // exposto para teste
 module.exports.enrich = enrich; // exposto para teste
+module.exports.statusAoReabrir = statusAoReabrir; // exposto para teste
