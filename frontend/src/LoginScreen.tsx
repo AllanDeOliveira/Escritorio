@@ -52,7 +52,7 @@ export default function LoginScreen({ onLogin, systemName }: { onLogin: (u: Usua
           value={senha} onChange={e => setSenha(e.target.value)} required
         />
 
-        <button id="btn-login" type="submit" className="lx-btn-google" disabled={loading}>
+        <button id="btn-login" type="submit" className="lx-btn-entrar" disabled={loading}>
           {loading && <Loader2 size={20} className="lx-spin" />}
           {loading ? 'Entrando...' : 'Entrar'}
         </button>

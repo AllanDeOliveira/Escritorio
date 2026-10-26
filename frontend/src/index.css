@@ -1278,3 +1278,26 @@ body {
 }
 .lx-login-input::placeholder { color: rgba(255, 255, 255, 0.4); }
 .lx-login-input:focus { border-color: rgba(208, 170, 100, 0.7); }
+/* Botão "Entrar": classe própria. O .lx-btn-google está definido duas vezes neste arquivo e a
+   2ª pintava o texto de cinza-escuro sobre o cartão escuro (ficava ilegível). */
+.lx-btn-entrar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.8rem 1.25rem;
+  border: none;
+  border-radius: 10px;
+  background: #d0aa64;
+  color: #111111;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+.lx-btn-entrar:hover:not(:disabled) { background: #dcb977; }
+.lx-btn-entrar:active:not(:disabled) { transform: scale(0.98); }
+.lx-btn-entrar:disabled { opacity: 0.6; cursor: wait; }
