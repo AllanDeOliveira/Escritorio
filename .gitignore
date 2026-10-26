@@ -51,3 +51,6 @@ graphify-out/
 backups/
 
 desktop.ini
+
+# memória local dos agentes do Claude Code (anotações de revisão; fica só na máquina)
+.claude/agent-memory/
