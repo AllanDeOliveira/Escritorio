@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Users, ShieldAlert } from 'lucide-react';
 
-import { apiFetch, API } from './firebase';
+import { apiFetch, API } from './api';
 import './AdminPanel.css';
 
 export default function AdminPanel() {

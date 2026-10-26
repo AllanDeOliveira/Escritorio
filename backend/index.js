@@ -1,4 +1,6 @@
 // .env é carregado via --env-file-if-exists=.env nos scripts do package.json
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { lerConfig, salvarConfig } = require('./src/config/escritorioConfig');
@@ -6,6 +8,7 @@ const prisma = require('./src/infra/prismaClient');
 const logger = require('./src/infra/logger');
 
 // Auth imports
+const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const { requireAdmin } = require('./src/middleware/requireAdmin');
 const { requireUser } = require('./src/middleware/requireUser');
@@ -32,6 +35,9 @@ async function recuperarRodadasPerdidas() {
 }
 
 const app = express();
+// O túnel do Cloudflare roda nesta máquina: confia só nele para X-Forwarded-Proto (cookie
+// Secure via req.secure) e X-Forwarded-For (IP real no limite de tentativas do login).
+app.set('trust proxy', 'loopback');
 const allowedOrigins = process.env.FRONTEND_URL
     ? [process.env.FRONTEND_URL]
     : ['http://localhost:5180', 'http://localhost:3000'];
@@ -40,12 +46,23 @@ app.use(cors({
     origin: allowedOrigins,
     credentials: true
 }));
+// Login é por cookie: outro site poderia disparar POST/PUT/DELETE no nome de quem está logado.
+// O cookie já é SameSite=Lax; além disso, escrita só vem da própria página (mesmo host) ou do Vite em dev.
+app.use((req, res, next) => {
+    const origem = req.headers.origin;
+    if (!origem || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+    let host = null;
+    try { host = new URL(origem).hostname; } catch { /* Origin inválida */ }
+    if (host === req.hostname || allowedOrigins.includes(origem)) return next();
+    res.status(403).json({ success: false, error: 'Origem não permitida.' });
+});
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 // Express 5 deixa req.body undefined sem corpo JSON; as rotas leem body.campo direto
 app.use((req, _res, next) => { if (req.body === undefined) req.body = {}; next(); });
 
 // Auth routes
+app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', requireAdmin);
 
@@ -90,6 +107,18 @@ const prazosRoutes = require('./src/routes/prazosRoutes');
 app.use('/api/prazos', requireUser, prazosRoutes);
 const intimacoesRoutes = require('./src/routes/intimacoesRoutes');
 app.use('/api/intimacoes', requireUser, intimacoesRoutes);
+
+// Servidor (túnel do Cloudflare): o backend serve o frontend compilado
+// (frontend/dist) no mesmo endereço da API — um endereço só no túnel, sem CORS nem Vite.
+// Em desenvolvimento quem serve a tela é o Vite (5180); isto só responde se o build existir.
+const DIST = path.join(__dirname, '..', 'frontend', 'dist');
+if (fs.existsSync(path.join(DIST, 'index.html'))) {
+    // Arquivos de /assets têm hash no nome: podem ficar em cache "para sempre"
+    app.use('/assets', express.static(path.join(DIST, 'assets'), { immutable: true, maxAge: '1y' }));
+    app.use(express.static(DIST, { index: false }));
+    // Qualquer caminho fora de /api abre a tela (o app não tem rotas próprias, mas recarregar não pode dar 404)
+    app.get(/^\/(?!api(\/|$)).*/, (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
+}
 
 // Handler final: JSON malformado, corpo grande demais etc. Sem stack trace na
 // resposta (o padrão do Express mostra quando NODE_ENV não é 'production').

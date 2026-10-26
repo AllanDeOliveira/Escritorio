@@ -3,16 +3,12 @@ import {
   X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle,
   ShieldAlert, BarChart3, Zap, LogOut, Sun, Moon, Users, CalendarClock
 } from 'lucide-react';
-import { auth, apiFetch, API } from './firebase';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { apiFetch, API, type Usuario } from './api';
 import AdminPanel from './AdminPanel';
 import LoginScreen from './LoginScreen';
 import NameCaptureModal from './NameCaptureModal';
 import PrazosTab from './PrazosTab';
 import DashboardTab, { AlertaPje, resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
-
-// Só contas do escritório (o servidor confere de novo; aqui é para não montar a tela à toa)
-const DOMINIO = '@jvo.adv.br';
 
 // localStorage pode lançar (janela privada do Safari, cota cheia) — nunca derruba a tela por isso
 const lsGet = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
@@ -23,8 +19,7 @@ function App() {
     const salva = lsGet('lexgen_active_tab');
     return ['dashboard', 'prazos', 'perfil', 'admin'].includes(salva) ? salva : 'dashboard';
   });
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [dbUser, setDbUser] = useState<any>(null);
+  const [dbUser, setDbUser] = useState<Usuario | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showNameModal, setShowNameModal] = useState(false);
   const [toasts, setToasts] = useState<{ id: number, message: string, type: 'success' | 'error' | 'info' }[]>([]);
@@ -52,54 +47,38 @@ function App() {
   useEffect(() => { lsSet('lexgen_theme', theme); }, [theme]);
   useEffect(() => { lsSet('lexgen_active_tab', activeTab); }, [activeTab]);
 
+  const entrou = (u: Usuario) => {
+    setDbUser(u);
+    setShowNameModal(!u.name); // conta sem nome de exibição: pede uma vez
+  };
+  // Logout, sessão expirada ou usuário desativado: nada do usuário anterior pode sobrar na tela
+  const saiu = () => {
+    setDbUser(null);
+    setShowNameModal(false);
+    setResumo(null);
+    setSync(null);
+    setListaHoje([]);
+    setListaSemana([]);
+  };
+
+  // Sessão em cookie httpOnly: ao abrir, o backend diz quem está logado (401 = mostra o login)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      // Conta de fora do domínio: sai antes de montar a tela (a LoginScreen mostra o aviso)
-      if (user && !(user.email || '').toLowerCase().endsWith(DOMINIO)) {
-        await signOut(auth);
-        setAuthLoading(false);
-        return;
-      }
-      setCurrentUser(user);
-      if (!user) {
-        // Logout ou troca de conta na mesma aba: nada do usuário anterior pode sobrar
-        setDbUser(null);
-        setShowNameModal(false);
-        setResumo(null);
-        setSync(null);
-        setListaHoje([]);
-        setListaSemana([]);
-      }
-      if (user && user.email) {
-        try {
-          const r = await apiFetch(`${API}/api/users/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: user.email, name: user.displayName })
-          });
-          const d = await r.json();
-          if (d.success) {
-            setDbUser(d.user);
-            if (d.needsName || d.isNew) {
-              setShowNameModal(true);
-            }
-          }
-        } catch (e) {
-          console.error("Erro ao sincronizar usuário", e);
-        }
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
+    apiFetch(`${API}/api/auth/me`)
+      .then(r => r.json())
+      .then(d => { if (d.success) entrou(d.user); })
+      .catch(() => { /* backend fora do ar: fica no login */ })
+      .finally(() => setAuthLoading(false));
+    // Qualquer chamada que receba 401 (apiFetch) derruba para o login
+    window.addEventListener('sessao-expirada', saiu);
+    return () => window.removeEventListener('sessao-expirada', saiu);
   }, []);
 
   const handleSaveName = async (name: string) => {
-    if (!currentUser || !currentUser.email) return;
     try {
-      const r = await apiFetch(`${API}/api/users/sync`, {
-        method: 'POST',
+      const r = await apiFetch(`${API}/api/users/me`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: currentUser.email, name, forceUpdate: true })
+        body: JSON.stringify({ name })
       });
       const d = await r.json();
       if (d.success) {
@@ -113,9 +92,26 @@ function App() {
     }
   };
 
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [senhaNova, setSenhaNova] = useState('');
+  const trocarSenha = async () => {
+    try {
+      const r = await apiFetch(`${API}/api/users/me/senha`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ atual: senhaAtual, nova: senhaNova }),
+      });
+      const d = await r.json();
+      if (!d.success) return showToast(d.error || 'Erro ao trocar a senha.', 'error');
+      setSenhaAtual('');
+      setSenhaNova('');
+      showToast('Senha trocada. Os outros navegadores onde você estava logado foram desconectados.', 'success');
+    } catch { showToast('Erro ao trocar a senha.', 'error'); }
+  };
+
   const handleLogout = async () => {
-    await signOut(auth);
-    setCurrentUser(null);
+    await apiFetch(`${API}/api/auth/logout`, { method: 'POST' }).catch(() => { /* sai da tela mesmo assim */ });
+    saiu();
   };
 
 
@@ -146,8 +142,7 @@ function App() {
   const [listaSemana, setListaSemana] = useState<PrazoLite[]>([]);
   const [syncing, setSyncing] = useState(false);
 
-  // Depende do dbUser (não do login do Firebase): o /sync precisa ter criado o usuário
-  // antes, senão o primeiro acesso de alguém novo recebia 403 e abria em erro.
+  // Só busca com alguém logado (sem sessão o backend responde 401 e a tela volta ao login)
   const carregarResumo = useCallback(async () => {
     if (!dbUser?.id) return;
     setResumoLoading(true);
@@ -229,8 +224,8 @@ function App() {
     );
   }
 
-  if (!currentUser) {
-    return <LoginScreen onLogin={() => { }} systemName={systemName} />;
+  if (!dbUser) {
+    return <LoginScreen onLogin={entrou} systemName={systemName} />;
   }
 
   return (
@@ -272,20 +267,16 @@ function App() {
         </div>
 
         <div className="lx-sidebar-footer">
-          <div className="lx-user-badge" title={dbUser?.name || currentUser?.displayName || 'Usuário'}>
-            {currentUser?.photoURL ? (
-              <img src={currentUser.photoURL} alt="Avatar" className="lx-avatar-img app-avatar-img" />
-            ) : (
-              <div className="lx-user-avatar">
-                {(dbUser?.name || currentUser?.displayName || currentUser?.email || 'U').charAt(0).toUpperCase()}
-              </div>
-            )}
+          <div className="lx-user-badge" title={dbUser.name || 'Usuário'}>
+            <div className="lx-user-avatar">
+              {(dbUser.name || dbUser.email || 'U').charAt(0).toUpperCase()}
+            </div>
             <div className="lx-user-info app-user-info">
               <span className="lx-user-name app-truncate-120">
-                {dbUser?.name || currentUser?.displayName || 'Usuário'}
+                {dbUser.name || 'Usuário'}
               </span>
               <span className="lx-user-role app-truncate-120">
-                {currentUser?.email || 'JVO'}
+                {dbUser.email}
               </span>
             </div>
             <button
@@ -337,7 +328,7 @@ function App() {
             resumo={resumo}
             loading={resumoLoading}
             erro={resumoErro}
-            nomeUsuario={dbUser?.name || currentUser?.displayName || ''}
+            nomeUsuario={dbUser.name || ''}
             onRefresh={carregarResumo}
             onNavigate={handleDashboardNavigate}
             sync={sync}
@@ -351,7 +342,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab currentUser={currentUser} dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} />
+          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} />
         )}
 
 
@@ -366,7 +357,7 @@ function App() {
                   </div>
                   <div>
                     <div className="app-perfil-name">{dbUser?.name}</div>
-                    <div className="app-perfil-email">{currentUser?.email}</div>
+                    <div className="app-perfil-email">{dbUser.email}</div>
                   </div>
                 </div>
 
@@ -393,6 +384,17 @@ function App() {
                       </button>
                     </div>
                   </div>
+
+                  <form className="app-perfil-section" onSubmit={e => { e.preventDefault(); trocarSenha(); }}>
+                    <div className="app-perfil-section-title">Trocar senha</div>
+                    <div className="app-perfil-section-col">
+                      <input type="password" autoComplete="current-password" placeholder="Senha atual" aria-label="Senha atual"
+                        className="app-perfil-input-sm" value={senhaAtual} onChange={e => setSenhaAtual(e.target.value)} required />
+                      <input type="password" autoComplete="new-password" placeholder="Senha nova (mín. 8 caracteres)" aria-label="Senha nova"
+                        className="app-perfil-input-sm" value={senhaNova} onChange={e => setSenhaNova(e.target.value)} minLength={8} required />
+                      <button type="submit" className="lx-btn-tool app-save-config-btn">Trocar senha</button>
+                    </div>
+                  </form>
 
                   {dbUser?.role === 'admin' && (
                     <div className="app-perfil-section">

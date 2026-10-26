@@ -34,7 +34,7 @@ Dois processos:
 
 **Backend** — Node 20+, Express 5, Prisma 5 + PostgreSQL, `xlsx`, `node-cron`, `pino`. Testes em Vitest.
 
-**Frontend** — React 18 + Vite 6 + TypeScript, Firebase Auth (Google). Sem router: navegação por aba, com estado persistido em localStorage.
+**Frontend** — React 18 + Vite 6 + TypeScript. Sem router: navegação por aba, com estado persistido em localStorage. Em produção o próprio backend serve o build (`frontend/dist`) no mesmo endereço da API.
 
 **Banco** — PostgreSQL via Prisma, 5 models com nomes de tabela em português.
 
@@ -48,7 +48,6 @@ Dois processos:
 |---|---|
 | **DJEN / Comunica PJe** | Intimações por OAB, sem autenticação. As OABs monitoradas ficam em `backend/config/djen.json`. Cron 06:30, dias úteis |
 | **Painel do Advogado do PJe** | Robô com certificado A1 + TOTP lê os expedientes pendentes (TJMT e TRF1, 1º e 2º grau) e cria os prazos no quadro com a data limite que o próprio PJe calcula. **Somente leitura**: nunca toma ciência nem abre o ato. Cron 06:40 e 12:40, dias úteis |
-| **Firebase Auth** | Login com Google no frontend; o backend valida o ID token e só aceita `@jvo.adv.br` |
 
 > [!CAUTION]
 > **O robô do PJe só lê, de propósito.**
@@ -82,7 +81,6 @@ DATABASE_URL=                # postgresql://usuario:senha@localhost:5433/banco
 PORT=3001
 LOG_LEVEL=                   # opcional; debug | info | warn | error
 FRONTEND_URL=                # opcional; origem do CORS (padrão: localhost:5180)
-FIREBASE_PROJECT_ID=         # opcional; padrão é o projeto do frontend
 MNI_CERT_PATH=               # certificado A1 (.pfx) do robô do PJe
 MNI_CERT_SENHA=
 PJE_TOTP_SECRET=             # 2FA do SSO do PJe; sem ele o robô não roda
@@ -103,6 +101,14 @@ cd frontend && npm run dev          # :5180
 ```
 
 Testes: `npm test` nos dois projetos.
+
+**Primeiro acesso:** o login é por e-mail e senha (sem Google/Firebase). Crie o primeiro administrador — a senha é pedida no terminal, sem aparecer:
+
+```bash
+cd backend && npm run criar-admin -- voce@jvo.adv.br "Seu Nome"
+```
+
+Depois, o admin cadastra o resto da equipe (nome, e-mail e senha inicial) em Prazos › ⋯ › **Equipe e acessos**, onde também desativa quem sai do escritório. Cada um troca a própria senha na aba Perfil.
 
 ---
 
@@ -131,8 +137,8 @@ O `.gitignore` já cobre tudo isso. Antes de adicionar exceção com `!`, consid
 
 ## 🚧 Limitações conhecidas
 
-- A autenticação valida o ID token do Firebase no backend (`src/infra/auth.js`) e só aceita contas `@jvo.adv.br` com e-mail verificado. O papel de admin continua vindo da tabela de usuários.
-- A config do Firebase está fixa no código do frontend, não parametrizada por ambiente.
+- Login próprio (`src/infra/auth.js`): senha com scrypt, sessão de 30 dias em cookie httpOnly (o banco guarda só o SHA-256 do token), limite de tentativas por IP e por e-mail, e escrita recusada quando a requisição vem de outro site. Os limites ficam em memória (um processo só).
+- Esqueceu a senha: o admin redefine em "Equipe e acessos" (não há recuperação por e-mail).
 
 ---
 
@@ -145,7 +151,7 @@ backend/
     djen.json               OABs monitoradas
   prisma/schema.prisma      5 models
   src/
-    infra/                  prisma singleton, auth (Firebase), logger
+    infra/                  prisma singleton, auth (senha + sessão), logger
     middleware/             requireUser, requireAdmin
     routes/                 prazos, intimacoes, user
     services/               djen, pjePainel (robô), pjeSso (login A1 + TOTP)

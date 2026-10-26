@@ -6,29 +6,35 @@ const express = require('express');
 const router = require('./userRoutes');
 const prisma = require('../infra/prismaClient');
 const auth = require('../infra/auth');
-// Stub do Firebase: o "token" é o próprio e-mail; 'nao-verificado:' simula e-mail não verificado.
-auth.verificarToken = async (t) => {
-  if (t === 'invalido') throw new Error('token inválido');
-  const naoVerif = t.startsWith('nao-verificado:');
-  return { email: naoVerif ? t.slice(15) : t, email_verified: !naoVerif };
-};
-const bearer = (email) => ({ authorization: `Bearer ${email}` });
 
 const EMAIL = '__test_userroutes__@jvo.adv.br';
+const ADMIN = '__test_userroutes_admin__@jvo.adv.br';
+const NOVO = '__test_userroutes_novo__@jvo.adv.br';
+const SENHA = 'senha-atual-123';
+const cookies = {};
+const ids = {};
 
 let server;
 let base;
 
-const req = (method, path, body, email = EMAIL) =>
+const req = (method, path, body, quem = 'membro') =>
   fetch(`${base}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(email ? bearer(email) : {}) },
+    headers: { 'Content-Type': 'application/json', ...(quem ? { cookie: cookies[quem] } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-describe('userRoutes — equipe e minhas áreas (integração)', () => {
+describe('userRoutes (integração)', () => {
   beforeAll(async () => {
-    await prisma.user.upsert({ where: { email: EMAIL }, update: { areas: [] }, create: { email: EMAIL, name: 'Tester Áreas' } });
+    for (const [quem, email, role] of [['membro', EMAIL, 'member'], ['admin', ADMIN, 'admin']]) {
+      const u = await prisma.user.upsert({
+        where: { email },
+        update: { areas: [], role, ativo: true, passwordHash: await auth.hashSenha(SENHA) },
+        create: { email, name: quem === 'membro' ? 'Tester Áreas' : 'Tester Admin', role, passwordHash: await auth.hashSenha(SENHA) },
+      });
+      ids[quem] = u.id;
+      cookies[quem] = `${auth.COOKIE}=${await auth.criarSessao(u.id)}`;
+    }
     const app = express();
     app.use(express.json());
     app.use('/api/users', router); // montado sem middleware, como no index.js
@@ -37,64 +43,59 @@ describe('userRoutes — equipe e minhas áreas (integração)', () => {
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: EMAIL } });
+    await prisma.user.deleteMany({ where: { email: { in: [EMAIL, ADMIN, NOVO] } } });
     await prisma.$disconnect();
     await new Promise((resolve) => server.close(resolve));
   });
 
-  it('GET /api/users sem identificação → 401 (a rota exige usuário mesmo com o router aberto)', async () => {
-    const r = await req('GET', '/api/users', undefined, null);
-    expect(r.status).toBe(401);
+  it('GET /api/users sem sessão → 401 (cada rota exige usuário)', async () => {
+    expect((await req('GET', '/api/users', undefined, null)).status).toBe(401);
   });
 
-  it('GET /api/users lista a equipe só com id, nome, e-mail e noQuadro', async () => {
+  it('GET /api/users lista a equipe sem dado sensível (nada de hash de senha)', async () => {
     const d = await (await req('GET', '/api/users')).json();
-    expect(d.success).toBe(true);
     const eu = d.users.find((u) => u.email === EMAIL);
-    expect(Object.keys(eu).sort()).toEqual(['email', 'id', 'name', 'noQuadro']);
-    expect(eu.name).toBe('Tester Áreas');
+    expect(Object.keys(eu).sort()).toEqual(['ativo', 'email', 'id', 'name', 'noQuadro']);
   });
 
-  it('PUT /api/users/me/areas salva as áreas sem duplicar', async () => {
-    const r = await req('PUT', '/api/users/me/areas', { areas: ['bancario', 'fazenda', 'bancario'] });
-    expect(r.status).toBe(200);
-    expect((await r.json()).areas).toEqual(['bancario', 'fazenda']);
-    const u = await prisma.user.findUnique({ where: { email: EMAIL } });
-    expect(u.areas).toEqual(['bancario', 'fazenda']);
-  });
-
-  it('PUT /api/users/me/areas com área desconhecida → 400 listando a inválida, nada muda', async () => {
+  it('PUT /me/areas salva sem duplicar; área desconhecida → 400 e nada muda', async () => {
+    expect((await (await req('PUT', '/api/users/me/areas', { areas: ['bancario', 'fazenda', 'bancario'] })).json()).areas).toEqual(['bancario', 'fazenda']);
     const r = await req('PUT', '/api/users/me/areas', { areas: ['bancario', 'criminal'] });
     expect(r.status).toBe(400);
     expect((await r.json()).error).toContain('criminal');
+    expect((await prisma.user.findUnique({ where: { email: EMAIL } })).areas).toEqual(['bancario', 'fazenda']);
+  });
+
+  it('PUT /me troca o nome de exibição (sem devolver o hash)', async () => {
+    const d = await (await req('PUT', '/api/users/me', { name: '  Novo Nome  ' })).json();
+    expect(d.user.name).toBe('Novo Nome');
+    expect(d.user).not.toHaveProperty('passwordHash');
+  });
+
+  it('PUT /me/senha: exige a senha atual e o mínimo de 8 caracteres', async () => {
+    expect((await req('PUT', '/api/users/me/senha', { atual: 'errada', nova: 'nova-senha-123' })).status).toBe(400);
+    expect((await req('PUT', '/api/users/me/senha', { atual: SENHA, nova: 'curta' })).status).toBe(400);
+    expect((await req('PUT', '/api/users/me/senha', { atual: SENHA, nova: 'nova-senha-123' })).status).toBe(200);
     const u = await prisma.user.findUnique({ where: { email: EMAIL } });
-    expect(u.areas).toEqual(['bancario', 'fazenda']);
+    expect(await auth.verificarSenha(u.passwordHash, 'nova-senha-123')).toBe(true);
+    // a sessão de quem trocou continua valendo
+    expect((await req('GET', '/api/users')).status).toBe(200);
   });
 
-  it('PUT /api/users/me/areas sem lista → 400', async () => {
-    const r = await req('PUT', '/api/users/me/areas', { areas: 'bancario' });
-    expect(r.status).toBe(400);
+  it('POST /api/users: membro → 403; admin cria com senha (o hash não volta na resposta)', async () => {
+    expect((await req('POST', '/api/users', { email: NOVO, name: 'Novo', senha: 'inicial-123' })).status).toBe(403);
+    expect((await req('POST', '/api/users', { email: NOVO, name: 'Novo', senha: 'curta' }, 'admin')).status).toBe(400);
+    const r = await req('POST', '/api/users', { email: NOVO, name: 'Novo', senha: 'inicial-123' }, 'admin');
+    expect(r.status).toBe(201);
+    expect((await r.json()).user).not.toHaveProperty('passwordHash');
+    const u = await prisma.user.findUnique({ where: { email: NOVO } });
+    expect(await auth.verificarSenha(u.passwordHash, 'inicial-123')).toBe(true);
   });
 
-  it('POST /api/users/sync sem token → 401 e não cria ninguém', async () => {
-    const intruso = '__test_intruso__@jvo.adv.br';
-    const r = await fetch(`${base}/api/users/sync`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: intruso }),
-    });
-    expect(r.status).toBe(401);
-    expect(await prisma.user.findUnique({ where: { email: intruso } })).toBeNull();
-  });
-
-  it('POST /api/users/sync de fora do domínio → 403', async () => {
-    const r = await req('POST', '/api/users/sync', {}, 'intruso@gmail.com');
-    expect(r.status).toBe(403);
-  });
-
-  it('POST /api/users/sync usa o e-mail do token, não o do corpo', async () => {
-    const outro = '__test_outro__@jvo.adv.br';
-    const d = await (await req('POST', '/api/users/sync', { email: outro })).json();
-    expect(d.user.email).toBe(EMAIL);
-    expect(await prisma.user.findUnique({ where: { email: outro } })).toBeNull();
+  it('admin desativa um membro: a sessão dele cai na hora; não pode desativar a si mesmo', async () => {
+    expect((await req('PUT', `/api/users/${ids.admin}/ativo`, { ativo: false }, 'admin')).status).toBe(400);
+    expect((await req('PUT', `/api/users/${ids.membro}/ativo`, { ativo: false }, 'admin')).status).toBe(200);
+    expect((await req('GET', '/api/users')).status).toBe(401);
+    expect(await prisma.sessao.count({ where: { userId: ids.membro } })).toBe(0);
   });
 });

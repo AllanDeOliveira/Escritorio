@@ -1,26 +1,14 @@
-const prisma = require('../infra/prismaClient');
-const logger = require('../infra/logger');
-const auth = require('../infra/auth');
+const { requireUser } = require('./requireUser');
 
-/** Como requireUser (ID token do Firebase verificado), mas exige role === 'admin'. */
-async function requireAdmin(req, res, next) {
-    try {
-        const r = await auth.emailDoToken(req);
-        if (r.error) return res.status(r.status).json({ success: false, error: r.error });
-
-        const user = await prisma.user.findUnique({ where: { email: r.email } });
-
-        if (!user || user.role !== 'admin') {
+/** Como requireUser (sessão válida de usuário ativo), mas exige role === 'admin'. */
+function requireAdmin(req, res, next) {
+    return requireUser(req, res, () => {
+        if (req.currentUser.role !== 'admin') {
             return res.status(403).json({ success: false, error: 'Acesso restrito a administradores' });
         }
-
-        req.adminUser = user;
-        req.currentUser = user;
+        req.adminUser = req.currentUser;
         next();
-    } catch (err) {
-        logger.error('Erro ao verificar permissão de admin:', err);
-        return res.status(500).json({ success: false, error: 'Erro interno ao verificar permissão' });
-    }
+    });
 }
 
 module.exports = { requireAdmin };

@@ -1247,3 +1247,34 @@ body {
 .lx-pop-in { animation: lx-pop-in 0.25s ease-out; }
 .lx-fade-up { animation: lx-fade-up 0.3s ease-out; }
 .lx-toast { animation: lx-slide-in 0.25s ease-out; }
+
+/* Login com e-mail e senha (sem Google/Firebase): aviso dourado e campos no tom do cartão escuro */
+.lx-login-aviso {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  background: rgba(208, 170, 100, 0.08);
+  border: 1px solid rgba(208, 170, 100, 0.25);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.6);
+}
+.lx-login-aviso svg { color: #d0aa64; flex-shrink: 0; }
+.lx-login-input {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  font-size: 0.95rem;
+  outline: none;
+}
+.lx-login-input::placeholder { color: rgba(255, 255, 255, 0.4); }
+.lx-login-input:focus { border-color: rgba(208, 170, 100, 0.7); }

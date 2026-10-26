@@ -388,12 +388,15 @@
 .prazo-import-tpl, .prazo-import-up { width: 100%; justify-content: center; }
 .prazo-import-hint { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; border-top: 1px solid var(--border); padding-top: 0.75rem; }
 
-/* Modal "Perfis no quadro" (admin) */
+/* Modal "Equipe e acessos" (admin) */
 .prazo-perfis { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
 .prazo-perfil { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.5rem; border-radius: 7px; cursor: pointer; color: var(--text-primary); }
 .prazo-perfil:hover { background: var(--bg-input); }
 .prazo-perfil input { accent-color: var(--pz-navy); width: 16px; height: 16px; margin: 0; }
-.prazo-perfil-novo { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.prazo-perfil--inativo { opacity: 0.55; }
+.prazo-btn--perfil { margin-left: auto; height: 28px; padding: 0 10px; font-size: 12px; }
+/* nome | e-mail na 1ª linha; senha | botão na 2ª */
+.prazo-perfil-novo { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .prazo-perfis-titulo { grid-column: 1 / -1; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
 .prazo-perfil-novo input { min-width: 0; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.82rem; }
 

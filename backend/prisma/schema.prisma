@@ -14,10 +14,25 @@ model User {
   role           String            @default("member") // admin | member
   areas          String[]          @default([]) // áreas que a pessoa tria (chaves de AREAS no PrazosTab.tsx)
   noQuadro       Boolean           @default(false) // tem coluna no quadro de prazos "Por pessoa" (admin define)
+  passwordHash   String? // scrypt (infra/auth.js); null = ainda sem senha, não entra
+  ativo          Boolean           @default(true) // false = ex-funcionário: login recusado e sessões apagadas
   createdAt      DateTime          @default(now())
   prazos         Prazo[]
+  sessoes        Sessao[]
 
   @@map("usuarios")
+}
+
+// Sessão de login (cookie httpOnly). O id é o SHA-256 do token: o banco nunca guarda o token em si.
+model Sessao {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime // renovada com o uso: 30 dias parado e expira
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessoes")
 }
 
 model SystemSettings {

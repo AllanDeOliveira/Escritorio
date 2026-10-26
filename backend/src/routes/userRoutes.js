@@ -8,12 +8,14 @@ const { requireAdmin } = require('../middleware/requireAdmin');
 
 // Espelho das chaves de AREAS em frontend/src/PrazosTab.tsx — mudou lá, muda aqui.
 const AREAS_VALIDAS = ['fazenda', 'previdenciario', 'bancario', 'trabalhista', 'civel', 'outras'];
+const SENHA_MIN = 8;
+const senhaFraca = (s) => typeof s !== 'string' || s.length < SENHA_MIN || s.length > 200;
+const CAMPOS_EQUIPE = { id: true, name: true, email: true, noQuadro: true, ativo: true };
 
-// Equipe para o seletor de responsável. requireUser por rota: o router é
-// montado aberto porque /sync roda antes do login.
+// Equipe para o seletor de responsável e para os perfis (admin)
 router.get('/', requireUser, async (req, res) => {
     try {
-        const users = await prisma.user.findMany({ select: { id: true, name: true, email: true, noQuadro: true }, orderBy: { name: 'asc' } });
+        const users = await prisma.user.findMany({ select: CAMPOS_EQUIPE, orderBy: { name: 'asc' } });
         res.json({ success: true, users });
     } catch (error) {
         logger.error('Erro na rota GET /api/users:', error);
@@ -21,7 +23,7 @@ router.get('/', requireUser, async (req, res) => {
     }
 });
 
-// Áreas que o usuário logado tria (filtro "Minhas áreas" da caixa de intimações)
+// Áreas que o usuário logado tria (filtro "Minhas áreas")
 router.put('/me/areas', requireUser, async (req, res) => {
     try {
         const { areas } = req.body || {};
@@ -36,20 +38,52 @@ router.put('/me/areas', requireUser, async (req, res) => {
     }
 });
 
-// Admin cadastra um perfil no quadro de prazos (pode ser alguém que ainda não entrou:
-// quando a pessoa fizer login com esse e-mail, o /sync encontra o mesmo registro).
+// Nome de exibição do próprio usuário
+router.put('/me', requireUser, async (req, res) => {
+    try {
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        if (!name) return res.status(400).json({ success: false, error: 'Informe o nome.' });
+        const user = await prisma.user.update({ where: { id: req.currentUser.id }, data: { name } });
+        res.json({ success: true, user: auth.usuarioPublico(user) });
+    } catch (error) {
+        logger.error('Erro na rota PUT /api/users/me:', error);
+        res.status(500).json({ success: false, error: 'Erro ao salvar o nome.' });
+    }
+});
+
+// Troca da própria senha: exige a atual. As outras sessões (outros navegadores) caem; esta continua.
+router.put('/me/senha', requireUser, async (req, res) => {
+    try {
+        const { atual, nova } = req.body || {};
+        if (!(await auth.verificarSenha(req.currentUser.passwordHash, atual))) return res.status(400).json({ success: false, error: 'Senha atual incorreta.' });
+        if (senhaFraca(nova)) return res.status(400).json({ success: false, error: `A senha nova precisa ter ao menos ${SENHA_MIN} caracteres.` });
+        await prisma.user.update({ where: { id: req.currentUser.id }, data: { passwordHash: await auth.hashSenha(nova) } });
+        await prisma.sessao.deleteMany({ where: { userId: req.currentUser.id, id: { not: auth.idDoToken(auth.lerCookie(req)) } } });
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Erro na rota PUT /api/users/me/senha:', error);
+        res.status(500).json({ success: false, error: 'Erro ao trocar a senha.' });
+    }
+});
+
+// Admin cadastra uma pessoa (nome, e-mail de login e senha inicial). O mesmo e-mail de novo com
+// senha redefine a senha dela (e derruba as sessões abertas).
 router.post('/', requireAdmin, async (req, res) => {
     try {
         const email = String(req.body?.email || '').trim().toLowerCase();
         const name = String(req.body?.name || '').trim();
+        const senha = req.body?.senha;
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ success: false, error: 'E-mail inválido.' });
         if (!name) return res.status(400).json({ success: false, error: 'Informe o nome.' });
+        if (senhaFraca(senha)) return res.status(400).json({ success: false, error: `A senha precisa ter ao menos ${SENHA_MIN} caracteres.` });
+        const passwordHash = await auth.hashSenha(senha);
         const user = await prisma.user.upsert({
             where: { email },
-            update: { noQuadro: true },
-            create: { email, name, noQuadro: true },
-            select: { id: true, name: true, email: true, noQuadro: true },
+            update: { name, passwordHash, noQuadro: true },
+            create: { email, name, passwordHash, noQuadro: true },
+            select: CAMPOS_EQUIPE,
         });
+        await prisma.sessao.deleteMany({ where: { userId: user.id, id: { not: auth.idDoToken(auth.lerCookie(req)) } } });
         res.status(201).json({ success: true, user });
     } catch (error) {
         logger.error('Erro na rota POST /api/users:', error);
@@ -61,11 +95,7 @@ router.post('/', requireAdmin, async (req, res) => {
 router.put('/:id/quadro', requireAdmin, async (req, res) => {
     try {
         if (typeof req.body?.noQuadro !== 'boolean') return res.status(400).json({ success: false, error: 'noQuadro deve ser true ou false.' });
-        const user = await prisma.user.update({
-            where: { id: req.params.id },
-            data: { noQuadro: req.body.noQuadro },
-            select: { id: true, name: true, email: true, noQuadro: true },
-        });
+        const user = await prisma.user.update({ where: { id: req.params.id }, data: { noQuadro: req.body.noQuadro }, select: CAMPOS_EQUIPE });
         res.json({ success: true, user });
     } catch (error) {
         if (error.code === 'P2025') return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
@@ -74,51 +104,18 @@ router.put('/:id/quadro', requireAdmin, async (req, res) => {
     }
 });
 
-// Sincroniza o usuário (Cria ou Retorna)
-// O e-mail vem do ID token verificado (conta @jvo.adv.br), nunca do corpo.
-router.post('/sync', async (req, res) => {
+// Admin ativa/desativa (ex-funcionário): desativado não entra, e as sessões abertas caem na hora
+router.put('/:id/ativo', requireAdmin, async (req, res) => {
     try {
-        const r = await auth.emailDoToken(req);
-        if (r.error) return res.status(r.status).json({ success: false, error: r.error });
-        const { email } = r;
-        // Só string não vazia vira nome: "   " gravado deixava o usuário sem nome e sem o modal
-        const name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim() : null;
-        const forceUpdate = Boolean(req.body?.forceUpdate);
-
-        // Verifica se o usuário existe
-        let user = await prisma.user.findUnique({
-            where: { email }
-        });
-
-        let isNew = false;
-
-        if (!user) {
-            // Se o usuário não existe, cria um novo
-            user = await prisma.user.create({
-                data: {
-                    email,
-                    name: name || null, // Se vier sem nome, ficará null
-                }
-            });
-            isNew = true;
-        } else if (name && (!user.name || forceUpdate)) {
-            // Se o usuário existe mas não tinha nome salvo (ou foi forçado), atualiza
-            user = await prisma.user.update({
-                where: { email },
-                data: { name }
-            });
-        }
-
-        return res.json({ 
-            success: true, 
-            user, 
-            isNew, 
-            needsName: !user.name 
-        });
-
+        if (typeof req.body?.ativo !== 'boolean') return res.status(400).json({ success: false, error: 'ativo deve ser true ou false.' });
+        if (!req.body.ativo && req.params.id === req.currentUser.id) return res.status(400).json({ success: false, error: 'Você não pode desativar a própria conta.' });
+        const user = await prisma.user.update({ where: { id: req.params.id }, data: { ativo: req.body.ativo }, select: CAMPOS_EQUIPE });
+        if (!user.ativo) await prisma.sessao.deleteMany({ where: { userId: user.id } });
+        res.json({ success: true, user });
     } catch (error) {
-        logger.error("Erro na rota /api/users/sync:", error);
-        return res.status(500).json({ success: false, error: 'Erro interno ao sincronizar usuário.' });
+        if (error.code === 'P2025') return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+        logger.error('Erro na rota PUT /api/users/:id/ativo:', error);
+        res.status(500).json({ success: false, error: 'Erro ao atualizar o usuário.' });
     }
 });
 
