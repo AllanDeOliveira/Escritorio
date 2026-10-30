@@ -55,6 +55,18 @@ async function usuarioDaSessao(token) {
 
 const encerrarSessao = (token) => prisma.sessao.deleteMany({ where: { id: idDoToken(token) } });
 
+// Token do robô do PJe (robo-pje/ no PC com o certificado): mesmo esquema das sessões —
+// o token cru vai só para o PC; o banco guarda o SHA-256. Só vale nas rotas do robô (requireRobo).
+const gerarTokenRobo = () => `jvo_robo_${crypto.randomBytes(32).toString('base64url')}`;
+
+async function usuarioDoTokenRobo(token) {
+    if (!token) return null;
+    const t = await prisma.tokenRobo.findUnique({ where: { hash: idDoToken(token) }, include: { user: true } });
+    if (!t || t.revogadoEm || !t.user.ativo) return null;
+    await prisma.tokenRobo.update({ where: { id: t.id }, data: { ultimoUsoEm: new Date() } });
+    return t.user;
+}
+
 /** Valor do cookie de sessão (sem dependência: o cabeçalho é "a=1; b=2"). */
 function lerCookie(req) {
     for (const par of String(req.headers.cookie || '').split(';')) {
@@ -83,6 +95,6 @@ function usuarioPublico(u) {
 }
 
 module.exports = {
-    hashSenha, verificarSenha, criarSessao, usuarioDaSessao, encerrarSessao, idDoToken,
+    hashSenha, verificarSenha, criarSessao, usuarioDaSessao, encerrarSessao, idDoToken, gerarTokenRobo, usuarioDoTokenRobo,
     lerCookie, gravarCookie, apagarCookie, usuarioPublico, COOKIE,
 };

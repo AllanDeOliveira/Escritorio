@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseLista, linksA4j, alvoPermitido, decodificar, melhorExpediente, formatarCnj, escolherSituacoes, saiuRespondido, teorEmTexto } = require('./pjePainel');
+const { parseLista, linksA4j, alvoPermitido, decodificar, escolherSituacoes, teorEmTexto } = require('./pjeLeitura');
+const { melhorExpediente, formatarCnj, saiuRespondido } = require('./pjePainel');
 
 describe('teorEmTexto (teor do DJEN em HTML → texto do modal)', () => {
     it('processo sigiloso (HTML real do DJEN): sem tags, um bloco por linha', () => {

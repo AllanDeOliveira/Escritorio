@@ -7,6 +7,7 @@ import { apiFetch, API, type Usuario } from './api';
 import AdminPanel from './AdminPanel';
 import LoginScreen from './LoginScreen';
 import NameCaptureModal from './NameCaptureModal';
+import RoboPjePerfil from './RoboPjePerfil';
 import PrazosTab from './PrazosTab';
 import DashboardTab, { AlertaPje, resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
 
@@ -342,7 +343,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} />
+          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} pje={sync?.pje} />
         )}
 
 
@@ -395,6 +396,8 @@ function App() {
                       <button type="submit" className="lx-btn-tool app-save-config-btn">Trocar senha</button>
                     </div>
                   </form>
+
+                  <RoboPjePerfil showToast={showToast} />
 
                   {dbUser?.role === 'admin' && (
                     <div className="app-perfil-section">

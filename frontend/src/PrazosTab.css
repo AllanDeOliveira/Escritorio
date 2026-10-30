@@ -59,6 +59,8 @@
 .prazo-btn--navy { background: var(--pz-navy); color: var(--pz-on-navy); }
 .prazo-btn--navy:hover:not(:disabled) { background: var(--pz-navy-hover); }
 .prazo-btn--ghost { background: var(--bg-card); border-color: var(--border); color: var(--text-secondary); font-weight: 500; }
+/* Última leitura do PJe (o robô roda no PC do certificado): informação, não botão */
+.prazo-pje-info { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; font-size: 12.5px; color: var(--pz-texto-3); cursor: help; white-space: nowrap; }
 .prazo-btn--ghost:hover:not(:disabled) { color: var(--text-primary); border-color: var(--pz-texto-3); }
 .prazo-btn--perigo { margin-right: auto; background: transparent; color: #dc2626; padding: 0 10px; }
 .prazo-btn--perigo:hover:not(:disabled) { background: rgba(239, 68, 68, 0.1); }

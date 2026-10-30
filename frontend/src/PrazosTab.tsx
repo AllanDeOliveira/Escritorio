@@ -253,8 +253,10 @@ export function iniciais(nome?: string | null): string {
 interface PrazosTabProps {
   dbUser: Usuario;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
-  // Depois de buscar no PJe/DJEN: o App relê o status (faixa de robô parado, badge)
+  // Depois de buscar no DJEN: o App relê o status (faixa de robô parado, badge)
   onSincronizado?: () => void;
+  // Última leitura do PJe enviada pelo robô de um PC (do status que o App já carrega)
+  pje?: { lastAttemptAt: string | null; lastBy?: string | null };
 }
 
 type Membro = { id: string; name?: string | null; email: string; noQuadro?: boolean; ativo?: boolean };
@@ -318,7 +320,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export default function PrazosTab({ dbUser, showToast, onSincronizado }: PrazosTabProps) {
+export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: PrazosTabProps) {
   const [todosGroups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
@@ -351,7 +353,6 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado }: PrazosT
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const [syncing, setSyncing] = useState(false);
-  const [syncingPje, setSyncingPje] = useState(false);
   // Intimações do card aberto no modal (teor e certidão); null = carregando
   const [infoInts, setInfoInts] = useState<Intimacao[] | null>(null);
 
@@ -458,33 +459,11 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado }: PrazosT
     }
   };
 
-  // Lê o Painel do Advogado (certificado A1) e traz prazos/datas limite oficiais do PJe
-  const sincronizarPje = async () => {
-    setSyncingPje(true);
-    try {
-      const r = await apiFetch(`${API}/api/intimacoes/sync-pje`, { method: 'POST' });
-      const d = await r.json();
-      if (d.success) {
-        const ok = d.resultado.filter((t: any) => !t.erro);
-        const falhas = d.resultado.filter((t: any) => t.erro).map((t: any) => t.tribunal);
-        showToast(
-          `${ok.map((t: any) => `${t.tribunal}: ${t.expedientes}`).join(' · ') || 'Nenhum tribunal respondeu'}`
-            + ` · ${d.prazos?.criados ?? 0} prazo(s) novo(s) no quadro`
-            + `${d.prazos?.baixados ? ` · ${d.prazos.baixados} cumprido(s) (saíram do painel)` : ''}`
-            + `${falhas.length ? ` · falhou: ${falhas.join(', ')}` : ''}`,
-          falhas.length ? 'error' : 'success',
-        );
-        carregar();
-      } else {
-        showToast(d.error || 'Falha ao ler o PJe.', 'error');
-      }
-    } catch {
-      showToast('Erro de conexão ao ler o PJe.', 'error');
-    } finally {
-      setSyncingPje(false);
-      onSincronizado?.(); // sucesso ou falha: a faixa vermelha do App reflete esta leitura na hora
-    }
-  };
+  // O PJe não é lido daqui: o robô roda no PC de quem tem o certificado (robo-pje/) e envia a
+  // leitura ao servidor. A tela só mostra quando foi a última e quem enviou.
+  const ultimaLeituraPje = pje?.lastAttemptAt
+    ? `${new Date(pje.lastAttemptAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${pje.lastBy ? ` por ${pje.lastBy}` : ''}`
+    : 'nenhuma ainda';
 
   const marcarNoQuadro = async (u: Membro, noQuadro: boolean) => {
     try {
@@ -990,11 +969,10 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado }: PrazosT
                   </div>
                 )}
               </div>
-              <button type="button" className="prazo-btn prazo-btn--ghost" onClick={sincronizarPje} disabled={syncingPje}
-                title="Lê o Painel do Advogado (certificado digital) e traz o prazo e a data limite calculados pelo PJe">
-                {syncingPje ? <Loader2 className="lx-spin" size={14} /> : <CalendarClock size={14} />}
-                {syncingPje ? 'Lendo o PJe…' : 'Buscar prazos no PJe'}
-              </button>
+              <span className="prazo-pje-info"
+                title={`Os prazos do PJe são lidos pelo robô no PC de quem tem o certificado (06:40 e 12:40, dias úteis). Última leitura: ${ultimaLeituraPje}.`}>
+                <CalendarClock size={14} /> PJe: {ultimaLeituraPje}
+              </span>
               <button type="button" className="prazo-btn prazo-btn--ghost" onClick={sincronizarDjen} disabled={syncing}
                 title="Busca as intimações publicadas no DJEN; cada uma vira card no quadro">
                 {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}

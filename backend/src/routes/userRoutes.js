@@ -66,6 +66,47 @@ router.put('/me/senha', requireUser, async (req, res) => {
     }
 });
 
+// ── Token do robô do PJe (aba Perfil) ──────────────────────────────────────
+// O robô roda sozinho às 06:40 no PC com o certificado: em vez de guardar a senha do Central
+// lá, guarda um token que só serve para pedir a vez e enviar a leitura (requireRobo).
+const CAMPOS_TOKEN = { id: true, criadoEm: true, ultimoUsoEm: true, revogadoEm: true };
+
+router.get('/me/tokens-robo', requireUser, async (req, res) => {
+    try {
+        const tokens = await prisma.tokenRobo.findMany({ where: { userId: req.currentUser.id }, select: CAMPOS_TOKEN, orderBy: { criadoEm: 'desc' } });
+        res.json({ success: true, tokens });
+    } catch (error) {
+        logger.error('Erro na rota GET /api/users/me/tokens-robo:', error);
+        res.status(500).json({ success: false, error: 'Erro ao listar os tokens.' });
+    }
+});
+
+// O token cru aparece só nesta resposta: o banco guarda o SHA-256
+router.post('/me/tokens-robo', requireUser, async (req, res) => {
+    try {
+        const token = auth.gerarTokenRobo();
+        const t = await prisma.tokenRobo.create({ data: { userId: req.currentUser.id, hash: auth.idDoToken(token) }, select: CAMPOS_TOKEN });
+        res.status(201).json({ success: true, token, ...t });
+    } catch (error) {
+        logger.error('Erro na rota POST /api/users/me/tokens-robo:', error);
+        res.status(500).json({ success: false, error: 'Erro ao gerar o token.' });
+    }
+});
+
+router.delete('/me/tokens-robo/:id', requireUser, async (req, res) => {
+    try {
+        const r = await prisma.tokenRobo.updateMany({
+            where: { id: req.params.id, userId: req.currentUser.id, revogadoEm: null }, // só o próprio
+            data: { revogadoEm: new Date() },
+        });
+        if (!r.count) return res.status(404).json({ success: false, error: 'Token não encontrado (ou já revogado).' });
+        res.status(204).send();
+    } catch (error) {
+        logger.error('Erro na rota DELETE /api/users/me/tokens-robo/:id:', error);
+        res.status(500).json({ success: false, error: 'Erro ao revogar o token.' });
+    }
+});
+
 // Admin cadastra uma pessoa (nome, e-mail de login e senha inicial). O mesmo e-mail de novo com
 // senha redefine a senha dela (e derruba as sessões abertas).
 router.post('/', requireAdmin, async (req, res) => {

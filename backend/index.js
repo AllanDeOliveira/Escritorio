@@ -15,7 +15,9 @@ const { requireUser } = require('./src/middleware/requireUser');
 
 const cron = require('node-cron');
 const { syncIntimacoesSafe, isSyncStale } = require('./src/services/djenService');
-const { syncExpedientesPje, gerarPrazosDoPje, configurado: pjeConfigurado } = require('./src/services/pjePainel');
+const { gerarPrazosDoPje } = require('./src/services/pjePainel');
+// O PJe NÃO é lido aqui: o robô roda no PC de quem tem o certificado e envia a leitura (robo-pje/)
+const pjeLeituraRoutes = require('./src/routes/pjeLeituraRoutes');
 
 // node-cron não recupera rodada perdida: PC desligado às 06:30 era um dia sem intimação
 // nova até alguém clicar em "Buscar". Ao subir, roda o que ficou para trás.
@@ -24,11 +26,6 @@ async function recuperarRodadasPerdidas() {
     if (process.env.DISABLE_DJEN_CRON !== 'true' && isSyncStale(s?.djenLastSyncAt)) {
         logger.info('[DJEN] rodada perdida: sincronizando ao subir...');
         await syncIntimacoesSafe().catch((e) => logger.error('[DJEN] rodada perdida falhou:', e));
-    }
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-    if (process.env.DISABLE_PJE_CRON !== 'true' && pjeConfigurado() && !(s?.pjeLastAttemptAt >= hoje)) {
-        logger.info('[PJe] rodada perdida: lendo o painel ao subir...');
-        await syncExpedientesPje();
     }
     // Rede de segurança: intimação que ficou NOVA por qualquer falha anterior vira card
     await gerarPrazosDoPje();
@@ -56,6 +53,8 @@ app.use((req, res, next) => {
     if (host === req.hostname || allowedOrigins.includes(origem)) return next();
     res.status(403).json({ success: false, error: 'Origem não permitida.' });
 });
+// Robô do PJe (vez + leitura): antes do JSON global, porque a leitura passa de 1 MB (lê com limite de 10 MB)
+app.use('/api/intimacoes/pje', pjeLeituraRoutes);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 // Express 5 deixa req.body undefined sem corpo JSON; as rotas leem body.campo direto
@@ -169,22 +168,8 @@ app.listen(PORT, (err) => {
         logger.info('Cron do DJEN agendado: 06:30, dias úteis (America/Cuiaba).');
     }
 
-    // Painel do Advogado do PJe (prazos e datas limite oficiais) — só onde o
-    // certificado A1 + chave TOTP estão configurados; sem eles o sync se recusa sozinho.
-    if (process.env.DISABLE_PJE_CRON === 'true') {
-        logger.info('Cron do PJe desativado (DISABLE_PJE_CRON=true).');
-    } else {
-        cron.schedule('40 6,12 * * 1-5', async () => {
-            try {
-                const r = await syncExpedientesPje();
-                if (r.skipped) logger.warn(`[PJe cron] Pulado: ${r.motivo}`);
-                else logger.info(`[PJe cron] ${JSON.stringify(r.resultado)}`);
-            } catch (e) {
-                logger.error('[PJe cron] Falhou:', e);
-            }
-        }, { timezone: 'America/Cuiaba' });
-        logger.info('Cron do PJe agendado: 06:40 e 12:40, dias úteis (America/Cuiaba).');
-    }
+    // Painel do Advogado do PJe: sem cron aqui. O robô de cada PC com o certificado é agendado
+    // no Windows (npm run robo-pje -- agendar) e pede a vez em POST /api/intimacoes/pje/vez.
 
     recuperarRodadasPerdidas().catch((e) => logger.error('[boot] recuperação de rodadas perdidas falhou:', e));
 });

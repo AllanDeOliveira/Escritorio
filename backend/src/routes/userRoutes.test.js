@@ -92,6 +92,20 @@ describe('userRoutes (integração)', () => {
     expect(await auth.verificarSenha(u.passwordHash, 'inicial-123')).toBe(true);
   });
 
+  it('token do robô: aparece uma vez só, a lista não traz o hash, só o dono revoga', async () => {
+    const r = await req('POST', '/api/users/me/tokens-robo');
+    expect(r.status).toBe(201);
+    const { token, id } = await r.json();
+    expect(token).toMatch(/^jvo_robo_/);
+    expect((await auth.usuarioDoTokenRobo(token)).email).toBe(EMAIL);
+    const lista = (await (await req('GET', '/api/users/me/tokens-robo')).json()).tokens;
+    expect(lista.find((t) => t.id === id)).not.toHaveProperty('hash');
+    expect(JSON.stringify(lista)).not.toContain(token);
+    expect((await req('DELETE', `/api/users/me/tokens-robo/${id}`, undefined, 'admin')).status).toBe(404); // de outro usuário
+    expect((await req('DELETE', `/api/users/me/tokens-robo/${id}`)).status).toBe(204);
+    expect(await auth.usuarioDoTokenRobo(token)).toBeNull();
+  });
+
   it('admin desativa um membro: a sessão dele cai na hora; não pode desativar a si mesmo', async () => {
     expect((await req('PUT', `/api/users/${ids.admin}/ativo`, { ativo: false }, 'admin')).status).toBe(400);
     expect((await req('PUT', `/api/users/${ids.membro}/ativo`, { ativo: false }, 'admin')).status).toBe(200);

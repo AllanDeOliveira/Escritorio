@@ -22,7 +22,8 @@ function rodar(entrada) {
   });
 }
 
-describe('npm run criar-admin', () => {
+// Sobe um processo Node e faz scrypt (lento de propósito): com a suíte em paralelo passa dos 5 s padrão
+describe('npm run criar-admin', { timeout: 30_000 }, () => {
   afterAll(async () => {
     await prisma.user.deleteMany({ where: { email: EMAIL } });
     await prisma.$disconnect();

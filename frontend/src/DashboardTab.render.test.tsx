@@ -167,6 +167,14 @@ describe('AlertaPje — faixa global de robô parado', () => {
     expect(alerta({ lastAttemptAt: agora, falhas: [{ tribunal: 'TRF1', erro: 'x' }] })).toContain('última leitura nunca');
   });
 
+  it('robô parado (PC desligado não manda falha): vermelho pelo atraso, dizendo quem leu por último', () => {
+    const html = alerta({ lastAttemptAt: cincoDiasAtras, lastBy: 'TI', stale: true, falhas: [] });
+    expect(html).toContain('dash-sync--stale');
+    expect(html).toContain('sem enviar leitura há 5 dias');
+    expect(html).toContain('PC com o certificado');
+    expect(html).toContain('enviada por TI');
+  });
+
   it('sem falhas (ou sem leitura do PJe) não mostra nada', () => {
     expect(alerta({ lastAttemptAt: agora, falhas: [] })).toBe('');
     expect(alerta(undefined)).toBe('');

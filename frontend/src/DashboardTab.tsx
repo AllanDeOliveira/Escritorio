@@ -29,7 +29,13 @@ export interface SyncStatus {
   stale: boolean;
   criadas?: number;
   /** Última leitura do Painel do PJe (cron ou botão) — tribunais que falharam e quando cada um leu pela última vez. */
-  pje?: { lastAttemptAt: string | null; falhas: { tribunal: string; erro: string }[]; ultimaLeitura?: Record<string, string | null> };
+  pje?: {
+    lastAttemptAt: string | null;
+    lastBy?: string | null; // quem enviou a última leitura (robô do PC com o certificado)
+    stale?: boolean; // sem leitura na rodada esperada: robô parado / PC desligado
+    falhas: { tribunal: string; erro: string }[];
+    ultimaLeitura?: Record<string, string | null>;
+  };
 }
 
 /**
@@ -37,20 +43,34 @@ export interface SyncStatus {
  * linha âmbar só na página inicial, com o motivo num tooltip: o TJMT ficou 5 dias fora sem ninguém ver.
  */
 export function AlertaPje({ pje, onIrAoQuadro }: { pje?: SyncStatus['pje']; onIrAoQuadro: () => void }) {
-  if (!pje?.lastAttemptAt || !pje.falhas?.length) return null;
+  if (!pje) return null;
+  // O robô roda no PC de quem tem o certificado: PC desligado não manda falha nenhuma, só atrasa
+  const parado = Boolean(pje.stale);
+  const falhas = pje.lastAttemptAt ? pje.falhas || [] : [];
+  if (!parado && !falhas.length) return null;
   return (
     <div className="dash-sync dash-sync--stale alerta-pje" role="alert">
       <OctagonAlert size={18} />
       <span className="dash-sync-txt">
-        <strong>{`Robô do PJe sem ler ${pje.falhas.map(f => f.tribunal).join(', ')}`}</strong>
-        {' — prazos novos desse tribunal NÃO estão entrando no quadro.'}
-        {pje.falhas.map(f => (
+        {parado ? (
+          <>
+            <strong>{`Robô do PJe sem enviar leitura ${pje.lastAttemptAt ? tempoDesde(pje.lastAttemptAt) : 'até agora'}`}</strong>
+            {' — prazos novos do PJe NÃO estão entrando no quadro. O PC com o certificado pode estar desligado ou sem ninguém logado.'}
+            {pje.lastBy && <small className="alerta-pje-motivo">{`Última leitura enviada por ${pje.lastBy}.`}</small>}
+          </>
+        ) : (
+          <>
+            <strong>{`Robô do PJe sem ler ${falhas.map(f => f.tribunal).join(', ')}`}</strong>
+            {' — prazos novos desse tribunal NÃO estão entrando no quadro.'}
+          </>
+        )}
+        {falhas.map(f => (
           <small key={f.tribunal} className="alerta-pje-motivo">
             {`${f.tribunal}: última leitura ${tempoDesde(pje.ultimaLeitura?.[f.tribunal] ?? null)} · ${f.erro}`}
           </small>
         ))}
       </span>
-      <button className="lx-btn-tool" onClick={onIrAoQuadro} title='O botão "Buscar prazos no PJe" fica no quadro'>
+      <button className="lx-btn-tool" onClick={onIrAoQuadro} title="A última leitura do PJe aparece no topo do quadro">
         <RefreshCw size={14} /> Ir ao quadro
       </button>
     </div>

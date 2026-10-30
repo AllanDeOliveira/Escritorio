@@ -1225,6 +1225,10 @@ body {
 .app-perfil-section-title-sm { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; }
 .app-perfil-section-col { display: flex; flex-direction: column; gap: 0.75rem; }
 .app-perfil-sublabel { font-size: 0.75rem; color: var(--text-muted); }
+/* Perfil › Robô do PJe: token recém-gerado (aparece uma vez) e tokens ativos */
+.app-robo-token { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.75rem 0; padding: 0.75rem; border-radius: 8px; background: var(--bg-input); font-size: 0.8rem; }
+.app-robo-token code { flex: 1 1 100%; word-break: break-all; font-size: 0.8rem; }
+.app-robo-linha { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 0.5rem 0; font-size: 0.8rem; color: var(--text-secondary); }
 .app-perfil-input-sm { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-shell); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); margin-top: 0.25rem; }
 .app-save-config-btn { justify-content: center; background: rgba(208, 170, 100, 0.1); color: var(--gold); border: 1px solid rgba(208, 170, 100, 0.2); }
 .app-limit-box { padding: 1rem; background: rgba(16, 185, 129, 0.05); border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.1); }

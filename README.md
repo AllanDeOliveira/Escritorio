@@ -23,8 +23,9 @@ Dois processos:
 
 | Processo | Comando | Porta | Papel |
 |---|---|---|---|
-| **API** | `npm run dev` (em `backend/`) | 3001 | Express, rotas `/api/*`, crons DJEN e PJe |
+| **API** | `npm run dev` (em `backend/`) | 3001 | Express, rotas `/api/*`, cron do DJEN |
 | **Frontend** | `npm run dev` (em `frontend/`) | 5180 | Vite |
+| **Robô do PJe** | `npm run robo-pje -- rodar` (em `robo-pje/`) | — | No PC de quem tem o certificado; envia a leitura à API |
 
 
 
@@ -47,7 +48,7 @@ Dois processos:
 | Serviço | O que faz |
 |---|---|
 | **DJEN / Comunica PJe** | Intimações por OAB, sem autenticação. As OABs monitoradas ficam em `backend/config/djen.json`. Cron 06:30, dias úteis |
-| **Painel do Advogado do PJe** | Robô com certificado A1 + TOTP lê os expedientes pendentes (TJMT e TRF1, 1º e 2º grau) e cria os prazos no quadro com a data limite que o próprio PJe calcula. **Somente leitura**: nunca toma ciência nem abre o ato. Cron 06:40 e 12:40, dias úteis |
+| **Painel do Advogado do PJe** | O robô (`robo-pje/`) roda **no PC de quem tem o certificado A1**, lê os expedientes pendentes (TJMT e TRF1, 1º e 2º grau) e envia só a lista ao servidor, que cria e baixa os prazos com a data limite que o próprio PJe calcula. **O servidor nunca guarda certificado, senha nem 2FA.** **Somente leitura**: nunca toma ciência nem abre o ato. Tarefa do Windows 06:40 e 12:40, dias úteis |
 
 > [!CAUTION]
 > **O robô do PJe só lê, de propósito.**
@@ -59,7 +60,7 @@ O DJEN devolve HTTP 500 "sistema ocupado" com frequência; o cliente já trata c
 
 ## 🔧 Rodando localmente
 
-**Pré-requisitos:** Node 20+, Docker Desktop. Para o robô do PJe, o certificado A1 (.pfx) do advogado e o segredo TOTP do SSO.
+**Pré-requisitos:** Node 20+, Docker Desktop. O certificado do PJe não entra aqui: fica no PC do robô (ver [Robô do PJe](#-robô-do-pje)).
 
 ```bash
 cp .env.example .env      # preencha POSTGRES_* e PGADMIN_* (lidos pelo compose)
@@ -81,12 +82,7 @@ DATABASE_URL=                # postgresql://usuario:senha@localhost:5433/banco
 PORT=3001
 LOG_LEVEL=                   # opcional; debug | info | warn | error
 FRONTEND_URL=                # opcional; origem do CORS (padrão: localhost:5180)
-MNI_CERT_PATH=               # certificado A1 (.pfx) do robô do PJe
-MNI_CERT_SENHA=
-PJE_TOTP_SECRET=             # 2FA do SSO do PJe; sem ele o robô não roda
-PJE_URL=                     # opcional; padrão TJMT 1º grau
 DISABLE_DJEN_CRON=           # true desliga a busca automática
-DISABLE_PJE_CRON=            # true desliga a busca automática
 ```
 
 O `.env.example` da raiz lista todas com comentários. O frontend não precisa de `.env` quando o backend roda em `localhost:3001`; em outro endereço, defina `VITE_API_URL` em `frontend/.env`.
@@ -109,6 +105,27 @@ cd backend && npm run criar-admin -- voce@jvo.adv.br "Seu Nome"
 ```
 
 Depois, o admin cadastra o resto da equipe (nome, e-mail e senha inicial) em Prazos › ⋯ › **Equipe e acessos**, onde também desativa quem sai do escritório. Cada um troca a própria senha na aba Perfil.
+
+---
+
+## 🤖 Robô do PJe
+
+Roda no PC de quem tem o certificado A1 (design: `docs/superpowers/specs/2026-10-30-robo-pje-local-design.md`). O servidor só recebe a lista de expedientes.
+
+```bash
+cd robo-pje
+npm install
+npm run robo-pje -- configurar   # endereço do Central, token do robô, .pfx, senha e segredo do 2FA
+npm run robo-pje -- rodar        # lê agora e envia (mostra o resumo)
+npm run robo-pje -- agendar      # tarefa do Windows: 06:40 e 12:40, segunda a sexta
+npm run robo-pje -- esquecer     # apaga as credenciais deste PC
+```
+
+- **Token do robô:** gerado na aba **Perfil** do Central (aparece uma vez só; revogue lá se vazar). Só serve para pedir a vez e enviar a leitura — não abre o sistema.
+- **Credenciais no PC:** cifradas com a proteção de dados do Windows (DPAPI) em `%APPDATA%\CentralJVO\robo.json` — só abrem naquele usuário, naquele PC. Nunca em `.env`.
+- **Vários PCs, um certificado (o do Dr. Jesus):** antes de entrar no PJe o robô pede a **vez** ao servidor, que só concede se ninguém estiver lendo e a última leitura tiver mais de **10 minutos**. Assim logins em sequência não bloqueiam a conta do advogado, e vários PCs agendados às 06:40 leem uma vez só.
+- **Endereço do Central:** com o servidor no mesmo PC, `http://localhost:3001`. Em outro PC, precisa de endereço fixo (o link temporário do Cloudflare muda a cada reinício).
+- Log local: `%APPDATA%\CentralJVO\robo.log`. A última leitura (quando e por quem) aparece no topo do quadro; leitura atrasada acende a faixa vermelha.
 
 ---
 

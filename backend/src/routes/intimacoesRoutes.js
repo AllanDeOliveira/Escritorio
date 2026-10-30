@@ -3,7 +3,8 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
-const { syncExpedientesPje, gerarPrazosDoPje, soDigitos, melhorExpediente, teorEmTexto } = require('../services/pjePainel');
+const { gerarPrazosDoPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
+const { teorEmTexto } = require('../services/pjeLeitura');
 const { parseBusca, buscaToWhere } = require('../services/buscaIntimacoes');
 
 /**
@@ -26,6 +27,10 @@ async function syncStatusPayload() {
         stale: isSyncStale(lastSuccessAt),
         pje: {
             lastAttemptAt: s?.pjeLastAttemptAt || null,
+            lastBy: s?.pjeLastBy || null, // quem enviou a última leitura (robô do PC)
+            // Mesma régua do DJEN (rodada da manhã do último dia útil): o robô parado num PC
+            // desligado não manda falha nenhuma — só o atraso denuncia
+            stale: isSyncStale(s?.pjeLastAttemptAt),
             falhas: s?.pjeLastFalhas || [],
             ultimaLeitura: Object.fromEntries(leituras.map((l) => [l.tribunal, l._max.vistoEm])),
         },
@@ -115,32 +120,6 @@ router.post('/sync', async (req, res) => {
     }
 });
 
-// POST /api/intimacoes/sync-pje — lê o Painel do Advogado (certificado A1) e
-// atualiza prazos/datas limite oficiais. Só leitura no PJe (ver pjePainel.js).
-// Login com certificado A1 + 2FA do advogado: logins em sequência podem bloquear a
-// conta no tribunal. O cron já roda às 06:40 e 12:40; manual, no máximo 1 a cada 10 min.
-const PJE_INTERVALO_MS = 10 * 60 * 1000;
-let pjeUltimaManual = 0;
-
-router.post('/sync-pje', async (_req, res) => {
-    try {
-        const espera = pjeUltimaManual + PJE_INTERVALO_MS - Date.now();
-        if (espera > 0) {
-            return res.status(429).json({ success: false, error: `O PJe foi consultado há pouco. Tente de novo em ${Math.ceil(espera / 60000)} min.` });
-        }
-        const r = await syncExpedientesPje();
-        if (!r.skipped) pjeUltimaManual = Date.now();
-        if (r.skipped) {
-            const error = r.motivo === 'já em andamento'
-                ? 'Alguém já está buscando os prazos no PJe. Aguarde uns 2 minutos e recarregue a caixa.'
-                : `PJe não sincronizado: ${r.motivo}`;
-            return res.status(409).json({ success: false, error });
-        }
-        res.json({ success: true, resultado: r.resultado, prazos: r.prazos });
-    } catch (error) {
-        logger.error('[syncPje] Erro:', error);
-        res.status(500).json({ success: false, error: 'Erro ao ler o Painel do PJe.' });
-    }
-});
+// O PJe não é lido pelo servidor: ver pjeLeituraRoutes (vez + leitura enviada pelo robô do PC).
 
 module.exports = router;

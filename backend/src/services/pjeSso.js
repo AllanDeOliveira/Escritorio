@@ -12,11 +12,9 @@
  * O SSO exige 2FA (TOTP) para usuários externos. O robô gera o código a partir
  * da chave secreta do autenticador (a mesma do QR code do Google Authenticator).
  *
- * Config (backend/.env): MNI_CERT_PATH, MNI_CERT_SENHA (mesmo certificado do MNI)
- *                        PJE_TOTP_SECRET (chave base32 do autenticador)
- *                        PJE_URL (opcional; padrão TJMT 1º grau)
+ * Credenciais chegam por parâmetro (robo-pje, no PC de quem tem o certificado):
+ * nada de .env — o servidor do Central nunca guarda certificado, senha nem 2FA.
  */
-const fs = require('fs');
 const crypto = require('crypto');
 const forge = require('node-forge');
 
@@ -133,12 +131,8 @@ const desescapar = (s) => s.replace(/&amp;/g, '&');
 // ou o fallback intranet→internet) não podem repetir o código — o Keycloak recusa reuso.
 let ultimoOtp = null;
 
-async function loginCertificado({
-    pjeUrl = process.env.PJE_URL || PJE_URL_PADRAO,
-    pfx = fs.readFileSync(process.env.MNI_CERT_PATH),
-    senhaPfx = process.env.MNI_CERT_SENHA,
-    segredoTotp = process.env.PJE_TOTP_SECRET,
-} = {}) {
+async function loginCertificado({ pjeUrl = PJE_URL_PADRAO, pfx, senhaPfx, segredoTotp } = {}) {
+    if (!pfx || !senhaPfx) throw new Error('Credenciais do certificado não informadas (configure o robô do PJe neste PC: npm run robo-pje -- configurar)');
     const { chavePem, cadeia } = lerPfx(pfx, senhaPfx);
     const cliente = criarCliente();
 
@@ -180,7 +174,7 @@ async function loginCertificado({
         // 4. Segundo fator (o SSO recusa o mesmo código duas vezes: espera a próxima janela de 30 s)
         const formOtp = final.texto.match(/id="kc-otp-login-form"[^>]*action="([^"]+)"/);
         if (formOtp) {
-            if (!segredoTotp) throw new Error('SSO pediu 2FA e PJE_TOTP_SECRET não está configurado');
+            if (!segredoTotp) throw new Error('SSO pediu 2FA e o segredo do 2FA não foi configurado no robô (npm run robo-pje -- configurar)');
             while (totp(segredoTotp) === ultimoOtp) await new Promise((r) => setTimeout(r, 1000));
             ultimoOtp = totp(segredoTotp);
             final = await cliente.ir(desescapar(formOtp[1]), {

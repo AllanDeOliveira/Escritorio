@@ -84,4 +84,34 @@ describe.skipIf(!noAudit)('gerarPrazosDoPje (integração, banco lexgen_audit)',
     expect(await cardDe('300')).toBe(djen.id);
     expect(await prisma.prazo.findUnique({ where: { id: djen.id } })).toMatchObject({ source: 'PJE', status: 'PENDENTE', fatalDate: dia(27) });
   });
+
+  // gravarLeitura recebe o que o robô do PC leu (já validado pela rota). Tribunal só deste caso,
+  // com datas atuais (a baixa automática ignora o que venceu há mais de 10 dias).
+  it('gravarLeitura: cria os cards; tribunal com erro não mexe; leitura incompleta não dá baixa; completa dá', async () => {
+    const { gravarLeitura } = require('./pjePainel');
+    const T = 'TRF1 2º GRAU';
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const daqui = (n) => new Date(hoje.getTime() + n * 86_400_000);
+    const lido = (idExpediente, numeroProcesso) => ({
+      idExpediente, numeroProcesso, tipo: 'Intimação', destinatario: 'Cliente', meio: 'Sistema', orgao: '1ª Turma', partes: 'A X B',
+      dataExpedicao: hoje, prazoDias: 15, cienciaPendente: false, dataCiencia: hoje, dataLimite: daqui(5),
+      situacao: 'Ciência dada pelo destinatário direto ou indireto - pendente de resposta', jurisdicao: 'TRF1', caixa: null,
+    });
+    const A = lido('500', '00000055520018110005');
+    const B = lido('501', '00000066620018110006');
+    const statusDe = async (id) => (await prisma.prazo.findUnique({ where: { id: await cardDe(id) } })).status;
+
+    await gravarLeitura([{ tribunal: T, itens: [A, B], incompletas: [] }], { usuario: 'Tester' });
+    expect([await statusDe('500'), await statusDe('501')]).toEqual(['PENDENTE', 'PENDENTE']);
+    expect(await prisma.systemSettings.findFirst()).toMatchObject({ pjeLastBy: 'Tester' });
+
+    await gravarLeitura([{ tribunal: T, erro: 'SSO fora do ar' }], { usuario: 'Tester' });
+    expect(await statusDe('501')).toBe('PENDENTE'); // erro não é "saiu do painel"
+
+    await gravarLeitura([{ tribunal: T, itens: [A], incompletas: ['1ª Turma › Caixa: 1 de 2'] }], { usuario: 'Tester' });
+    expect(await statusDe('501')).toBe('PENDENTE'); // caixa lida pela metade não prova que saiu
+
+    await gravarLeitura([{ tribunal: T, itens: [A], incompletas: [] }], { usuario: 'Tester' });
+    expect([await statusDe('500'), await statusDe('501')]).toEqual(['PENDENTE', 'CUMPRIDO']);
+  });
 });

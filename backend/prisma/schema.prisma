@@ -19,8 +19,24 @@ model User {
   createdAt      DateTime          @default(now())
   prazos         Prazo[]
   sessoes        Sessao[]
+  tokensRobo     TokenRobo[]
 
   @@map("usuarios")
+}
+
+// Token do robô do PJe (robo-pje/, no PC de quem tem o certificado). Só vale nas rotas do robô
+// (pedir a vez e enviar a leitura), nunca no resto da API. O banco guarda só o SHA-256.
+model TokenRobo {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hash        String    @unique
+  criadoEm    DateTime  @default(now())
+  ultimoUsoEm DateTime?
+  revogadoEm  DateTime? // revogado não autentica; fica para o histórico na aba Perfil
+
+  @@index([userId])
+  @@map("tokens_robo")
 }
 
 // Sessão de login (cookie httpOnly). O id é o SHA-256 do token: o banco nunca guarda o token em si.
@@ -48,7 +64,8 @@ model SystemSettings {
 
   // Última leitura do Painel do PJe (cron ou botão): tribunais que falharam.
   // Sem isso, falha no cron só ia para o log e o quadro parecia normal.
-  pjeLastAttemptAt  DateTime?
+  pjeLastAttemptAt  DateTime? // última leitura enviada pelo robô de um PC
+  pjeLastBy         String? // quem enviou (nome do usuário dono do token)
   pjeLastFalhas     Json? // [{ tribunal, erro }]; [] quando todos leram
 
   updatedAt         DateTime @updatedAt

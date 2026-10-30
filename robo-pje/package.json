@@ -1,0 +1,15 @@
+{
+  "name": "robo-pje",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Robô do PJe no PC de quem tem o certificado: lê o Painel do Advogado e envia a lista de expedientes ao Central JVO.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "robo-pje": "node index.js"
+  },
+  "dependencies": {
+    "node-forge": "^1.4.0"
+  }
+}
