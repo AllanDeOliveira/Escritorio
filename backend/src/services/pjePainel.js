@@ -278,6 +278,12 @@ async function gerarCardsDoDjen() {
 // resposta passa 10 dias em "Cujo prazo findou…" e depois some também. Então nada de baixa para
 // quem estava nessa aba, nem para quem venceu há mais de 10 dias (robô parado nesse meio-tempo).
 const BAIXA_ROBO = 'Robô PJe (saiu do painel)';
+// Trava de sanidade: leitura que "esvazia" o painel (forjada, ou PJe devolvendo lista curta) não
+// fecha prazo em massa. Falha para o lado seguro: o card fica aberto, e quem concluir à mão destrava.
+// ponytail: limiar fixo; vira configuração se o volume normal de respostas num dia passar disso
+const BAIXA_SUSPEITA_MIN = 5;
+const BAIXA_SUSPEITA_FRACAO = 0.3;
+const ABERTO = { status: { in: ['PENDENTE', 'A_CONFIRMAR'] } };
 const JANELA_FINDOU_MS = 10 * 24 * 60 * 60 * 1000;
 function saiuRespondido(e, agora) {
     if (ABA_FINDOU.test(e.situacao || '')) return false;
@@ -300,8 +306,17 @@ async function darBaixaNosQueSairam(tribunal, agora) {
     const presos = new Set(todos
         .filter((e) => e.tribunal !== tribunal || e.vistoEm >= agora || !saiuRespondido(e, agora))
         .map((e) => e.prazoId));
+    const ids = candidatos.filter((id) => !presos.has(id));
+    const sairiam = await prisma.prazo.count({ where: { id: { in: ids }, ...ABERTO } });
+    if (sairiam >= BAIXA_SUSPEITA_MIN) {
+        const vistos = await prisma.expedientePje.findMany({ where: { tribunal, prazoId: { not: null }, vistoEm: { gte: agora } }, select: { prazoId: true } });
+        const ficam = await prisma.prazo.count({ where: { id: { in: [...new Set(vistos.map((e) => e.prazoId))] }, ...ABERTO } });
+        if (sairiam > BAIXA_SUSPEITA_FRACAO * (sairiam + ficam)) {
+            throw new Error(`baixa automática suspensa: ${sairiam} de ${sairiam + ficam} prazo(s) abertos sumiriam numa leitura só. Confira no PJe e conclua à mão os que foram respondidos.`);
+        }
+    }
     const r = await prisma.prazo.updateMany({
-        where: { id: { in: candidatos.filter((id) => !presos.has(id)) }, status: { in: ['PENDENTE', 'A_CONFIRMAR'] } },
+        where: { id: { in: ids }, ...ABERTO },
         data: { status: 'CUMPRIDO', completedAt: agora, lastMovedBy: BAIXA_ROBO, lastMovedAt: agora },
     });
     return r.count;

@@ -12,7 +12,7 @@
  * paginação. NUNCA em "Tomar ciência", "Responder" ou no link do expediente:
  * esses dão ciência / abrem o ato. `clicar()` recusa qualquer alvo fora da lista.
  */
-const { loginCertificado } = require('./pjeSso');
+const { loginPje } = require('./pjeSso');
 
 // Cada grau é um PJe separado (login e painel próprios). A sigla vira o filtro
 // "Tribunal" do quadro e compõe a chave única do expediente.
@@ -167,7 +167,7 @@ const ALVOS_PERMITIDOS = [
 const alvoPermitido = (alvo) => ALVOS_PERMITIDOS.some((re) => re.test(alvo || ''));
 
 async function lerExpedientes(pjeUrl, credenciais, log = console) {
-    const login = await loginCertificado({ pjeUrl, ...credenciais });
+    const login = await loginPje({ pjeUrl, ...credenciais }); // certificado ou CPF + senha
     const { cliente } = login;
     let paginaInicial = login.paginaInicial;
     // Alguns PJe abrem antes o Quadro de Avisos (ex.: TRF1 2º grau) — vai direto ao painel

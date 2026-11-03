@@ -102,7 +102,10 @@ function criarCliente() {
     // Segue redirects manualmente para capturar cookies de cada salto (SSO ↔ PJe)
     async function ir(url, { method = 'GET', headers = {}, body } = {}) {
         for (let saltos = 0; saltos < 15; saltos++) {
-            const host = new URL(url).hostname;
+            const { hostname: host, protocol } = new URL(url);
+            // Todo salto passa aqui (redirect, assinatura, formulário com CPF+senha, 2FA):
+            // fora de https://*.jus.br, a credencial não sai do PC.
+            if (protocol !== 'https:' || !/(^|\.)jus\.br$/i.test(host)) throw new Error(`endereço fora do PJe recusado: ${protocol}//${host}`);
             const cookie = cookieDe(host);
             const res = await fetch(url, {
                 method, body, redirect: 'manual', signal: AbortSignal.timeout(90000),
@@ -131,44 +134,61 @@ const desescapar = (s) => s.replace(/&amp;/g, '&');
 // ou o fallback intranet→internet) não podem repetir o código — o Keycloak recusa reuso.
 let ultimoOtp = null;
 
-async function loginCertificado({ pjeUrl = PJE_URL_PADRAO, pfx, senhaPfx, segredoTotp } = {}) {
-    if (!pfx || !senhaPfx) throw new Error('Credenciais do certificado não informadas (configure o robô do PJe neste PC: npm run robo-pje -- configurar)');
-    const { chavePem, cadeia } = lerPfx(pfx, senhaPfx);
+/**
+ * Login no SSO do PJe por um de dois caminhos (o mesmo formulário do Keycloak nos 4 PJe do robô):
+ *  - certificado: { pfx, senhaPfx, segredoTotp } — assina o desafio como o PJeOffice;
+ *  - senha:       { cpf, senha, segredoTotp }    — "CPF/CNPJ + senha" (para quem já se cadastrou
+ *    com certificado uma vez). Não precisa do A1: um vazamento fica preso ao PJe e se resolve
+ *    trocando a senha. Mas dá para TOMAR CIÊNCIA com ela — a trava alvoPermitido (pjeLeitura)
+ *    vale igual nos dois caminhos.
+ */
+async function loginPje({ pjeUrl = PJE_URL_PADRAO, pfx, senhaPfx, cpf, senha, segredoTotp } = {}) {
+    const porSenha = Boolean(cpf);
+    if (porSenha ? !senha : !(pfx && senhaPfx)) {
+        throw new Error('Credenciais do PJe não informadas (configure o robô do PJe neste PC: npm run robo-pje -- configurar)');
+    }
+    const certificado = porSenha ? null : lerPfx(pfx, senhaPfx);
     const cliente = criarCliente();
 
     const telaDeLogin = (p) => /id="loginForm"/.test(p.texto) && /autenticar\(/.test(p.texto);
 
-    // Uma rodada do que o navegador + PJeOffice fazem a partir da tela de login do SSO
+    // Uma rodada do que o navegador (+ PJeOffice, no caminho do certificado) faz a partir da tela de login do SSO
     async function entrar(pagina) {
         const action = pagina.texto.match(/id="loginForm"[^>]*action="([^"]+)"/);
         const desafio = pagina.texto.match(/autenticar\('([^']*)',\s*'([^']*)'\)/);
-        if (!action || !desafio) {
+        if (!action || (!porSenha && !desafio)) {
             // Status e título no erro: "não reconhecida" sozinho escondeu um 403 do firewall por 5 dias
             const titulo = (pagina.texto.match(/<title>([\s\S]*?)<\/title>/i) || [])[1]?.trim();
             throw new Error(`Tela de login do SSO não reconhecida (HTTP ${pagina.status}${titulo ? ` "${titulo}"` : ''}, ${pagina.url})`);
         }
-        const mensagem = desafio[2];
-        const token = crypto.randomUUID();
-
-        // 2. O que o PJeOffice faz: envia a assinatura do desafio ao SSO
         const servidor = `${new URL(pagina.url).origin}/auth/realms/pje`;
-        const envio = await cliente.ir(`${servidor}/pjeoffice-rest`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                certChain: pkiPathBase64(cadeia),
-                uuid: token,
-                mensagem,
-                assinatura: assinarDesafio(mensagem, chavePem),
-            }),
-        });
-        if (envio.status >= 400) throw new Error(`SSO recusou a assinatura (HTTP ${envio.status}): ${envio.texto.slice(0, 300)}`);
+        let campos;
+        if (porSenha) {
+            // Os campos que o navegador manda ao clicar em "Entrar" (código do PJeOffice vazio)
+            campos = { username: String(cpf).replace(/\D/g, ''), password: senha, login: 'Entrar', 'pjeoffice-code': '', phrase: '' };
+        } else {
+            // 2. O que o PJeOffice faz: envia a assinatura do desafio ao SSO
+            const mensagem = desafio[2];
+            const token = crypto.randomUUID();
+            const envio = await cliente.ir(`${servidor}/pjeoffice-rest`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    certChain: pkiPathBase64(certificado.cadeia),
+                    uuid: token,
+                    mensagem,
+                    assinatura: assinarDesafio(mensagem, certificado.chavePem),
+                }),
+            });
+            if (envio.status >= 400) throw new Error(`SSO recusou a assinatura (HTTP ${envio.status}): ${envio.texto.slice(0, 300)}`);
+            campos = { username: '', password: '', 'pjeoffice-code': token, phrase: '' };
+        }
 
-        // 3. Submete o formulário como o navegador faria após o PJeOffice responder
+        // 3. Submete o formulário como o navegador faria
         let final = await cliente.ir(desescapar(action[1]), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ username: '', password: '', 'pjeoffice-code': token, phrase: '' }).toString(),
+            body: new URLSearchParams(campos).toString(),
         });
 
         // 4. Segundo fator (o SSO recusa o mesmo código duas vezes: espera a próxima janela de 30 s)
@@ -204,4 +224,4 @@ async function loginCertificado({ pjeUrl = PJE_URL_PADRAO, pfx, senhaPfx, segred
     return { cliente, pjeUrl, paginaInicial: final };
 }
 
-module.exports = { loginCertificado, lerPfx, pkiPathBase64, assinarDesafio, totp, criarCliente };
+module.exports = { loginPje, lerPfx, pkiPathBase64, assinarDesafio, totp, criarCliente };

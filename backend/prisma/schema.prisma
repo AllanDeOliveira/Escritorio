@@ -16,6 +16,7 @@ model User {
   noQuadro       Boolean           @default(false) // tem coluna no quadro de prazos "Por pessoa" (admin define)
   passwordHash   String? // scrypt (infra/auth.js); null = ainda sem senha, não entra
   ativo          Boolean           @default(true) // false = ex-funcionário: login recusado e sessões apagadas
+  podeRodarRobo  Boolean           @default(false) // admin libera quem roda o robô do PJe (gera token e envia leitura)
   createdAt      DateTime          @default(now())
   prazos         Prazo[]
   sessoes        Sessao[]

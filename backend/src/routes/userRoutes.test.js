@@ -29,7 +29,7 @@ describe('userRoutes (integração)', () => {
     for (const [quem, email, role] of [['membro', EMAIL, 'member'], ['admin', ADMIN, 'admin']]) {
       const u = await prisma.user.upsert({
         where: { email },
-        update: { areas: [], role, ativo: true, passwordHash: await auth.hashSenha(SENHA) },
+        update: { areas: [], role, ativo: true, podeRodarRobo: false, passwordHash: await auth.hashSenha(SENHA) },
         create: { email, name: quem === 'membro' ? 'Tester Áreas' : 'Tester Admin', role, passwordHash: await auth.hashSenha(SENHA) },
       });
       ids[quem] = u.id;
@@ -55,7 +55,7 @@ describe('userRoutes (integração)', () => {
   it('GET /api/users lista a equipe sem dado sensível (nada de hash de senha)', async () => {
     const d = await (await req('GET', '/api/users')).json();
     const eu = d.users.find((u) => u.email === EMAIL);
-    expect(Object.keys(eu).sort()).toEqual(['ativo', 'email', 'id', 'name', 'noQuadro']);
+    expect(Object.keys(eu).sort()).toEqual(['ativo', 'email', 'id', 'name', 'noQuadro', 'podeRodarRobo']);
   });
 
   it('PUT /me/areas salva sem duplicar; área desconhecida → 400 e nada muda', async () => {
@@ -92,6 +92,14 @@ describe('userRoutes (integração)', () => {
     expect(await auth.verificarSenha(u.passwordHash, 'inicial-123')).toBe(true);
   });
 
+  it('robô do PJe: só o admin libera; sem liberação o membro não gera token', async () => {
+    expect((await req('POST', '/api/users/me/tokens-robo')).status).toBe(403);
+    expect((await req('PUT', `/api/users/${ids.membro}/robo`, { podeRodarRobo: true })).status).toBe(403); // membro não se libera
+    expect((await req('PUT', `/api/users/${ids.membro}/robo`, { podeRodarRobo: 'sim' }, 'admin')).status).toBe(400);
+    const r = await req('PUT', `/api/users/${ids.membro}/robo`, { podeRodarRobo: true }, 'admin');
+    expect((await r.json()).user.podeRodarRobo).toBe(true);
+  });
+
   it('token do robô: aparece uma vez só, a lista não traz o hash, só o dono revoga', async () => {
     const r = await req('POST', '/api/users/me/tokens-robo');
     expect(r.status).toBe(201);
@@ -104,6 +112,17 @@ describe('userRoutes (integração)', () => {
     expect((await req('DELETE', `/api/users/me/tokens-robo/${id}`, undefined, 'admin')).status).toBe(404); // de outro usuário
     expect((await req('DELETE', `/api/users/me/tokens-robo/${id}`)).status).toBe(204);
     expect(await auth.usuarioDoTokenRobo(token)).toBeNull();
+  });
+
+  it('trocar a senha ou o admin tirar o robô revoga os tokens do robô', async () => {
+    await prisma.user.update({ where: { id: ids.membro }, data: { passwordHash: await auth.hashSenha(SENHA) } });
+    const gerar = async () => (await (await req('POST', '/api/users/me/tokens-robo')).json()).token;
+    const t1 = await gerar();
+    expect((await req('PUT', '/api/users/me/senha', { atual: SENHA, nova: 'outra-senha-123' })).status).toBe(200);
+    expect(await auth.usuarioDoTokenRobo(t1)).toBeNull();
+    const t2 = await gerar();
+    expect((await req('PUT', `/api/users/${ids.membro}/robo`, { podeRodarRobo: false }, 'admin')).status).toBe(200);
+    expect(await auth.usuarioDoTokenRobo(t2)).toBeNull();
   });
 
   it('admin desativa um membro: a sessão dele cai na hora; não pode desativar a si mesmo', async () => {

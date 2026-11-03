@@ -396,6 +396,7 @@
 .prazo-perfil:hover { background: var(--bg-input); }
 .prazo-perfil input { accent-color: var(--pz-navy); width: 16px; height: 16px; margin: 0; }
 .prazo-perfil--inativo { opacity: 0.55; }
+.prazo-perfil-robo { display: flex; align-items: center; gap: 0.3rem; margin-left: auto; font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; cursor: pointer; }
 .prazo-btn--perfil { margin-left: auto; height: 28px; padding: 0 10px; font-size: 12px; }
 /* nome | e-mail na 1ª linha; senha | botão na 2ª */
 .prazo-perfil-novo { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--border); }

@@ -1,17 +1,18 @@
 const logger = require('../infra/logger');
 const auth = require('../infra/auth');
-const { requireUser } = require('./requireUser');
 
 /**
- * Rotas do robô do PJe: aceita o token do robô (Authorization: Bearer, gerado na aba Perfil)
- * OU a sessão normal (cookie). O token não vale em nenhuma outra rota: requireUser só olha o cookie.
+ * Rotas do robô do PJe: só o token do robô (Authorization: Bearer, gerado na aba Perfil), e só de
+ * quem o admin liberou (podeRodarRobo). A sessão do navegador não vale aqui: uma leitura dá baixa
+ * em prazos, então não pode vir de qualquer membro. O token não vale em nenhuma outra rota.
  */
-async function requireRoboOuUsuario(req, res, next) {
+async function requireRobo(req, res, next) {
     const m = /^Bearer (.+)$/.exec(req.headers.authorization || '');
-    if (!m) return requireUser(req, res, next);
+    if (!m) return res.status(401).json({ success: false, error: 'Token do robô ausente.' });
     try {
         const user = await auth.usuarioDoTokenRobo(m[1]);
         if (!user) return res.status(401).json({ success: false, error: 'Token do robô inválido ou revogado. Gere outro na aba Perfil do Central.' });
+        if (!user.podeRodarRobo) return res.status(403).json({ success: false, error: 'Robô do PJe não liberado para este usuário. Peça ao administrador.' });
         req.currentUser = user;
         next();
     } catch (err) {
@@ -20,4 +21,4 @@ async function requireRoboOuUsuario(req, res, next) {
     }
 }
 
-module.exports = { requireRoboOuUsuario };
+module.exports = { requireRobo };

@@ -10,7 +10,9 @@ const { requireAdmin } = require('../middleware/requireAdmin');
 const AREAS_VALIDAS = ['fazenda', 'previdenciario', 'bancario', 'trabalhista', 'civel', 'outras'];
 const SENHA_MIN = 8;
 const senhaFraca = (s) => typeof s !== 'string' || s.length < SENHA_MIN || s.length > 200;
-const CAMPOS_EQUIPE = { id: true, name: true, email: true, noQuadro: true, ativo: true };
+const CAMPOS_EQUIPE = { id: true, name: true, email: true, noQuadro: true, ativo: true, podeRodarRobo: true };
+// Senha trocada ou redefinida: token do robô gerado com a senha antiga (sessão emprestada) cai junto
+const revogarTokensRobo = (userId) => prisma.tokenRobo.updateMany({ where: { userId, revogadoEm: null }, data: { revogadoEm: new Date() } });
 
 // Equipe para o seletor de responsável e para os perfis (admin)
 router.get('/', requireUser, async (req, res) => {
@@ -59,6 +61,7 @@ router.put('/me/senha', requireUser, async (req, res) => {
         if (senhaFraca(nova)) return res.status(400).json({ success: false, error: `A senha nova precisa ter ao menos ${SENHA_MIN} caracteres.` });
         await prisma.user.update({ where: { id: req.currentUser.id }, data: { passwordHash: await auth.hashSenha(nova) } });
         await prisma.sessao.deleteMany({ where: { userId: req.currentUser.id, id: { not: auth.idDoToken(auth.lerCookie(req)) } } });
+        await revogarTokensRobo(req.currentUser.id);
         res.json({ success: true });
     } catch (error) {
         logger.error('Erro na rota PUT /api/users/me/senha:', error);
@@ -84,6 +87,7 @@ router.get('/me/tokens-robo', requireUser, async (req, res) => {
 // O token cru aparece só nesta resposta: o banco guarda o SHA-256
 router.post('/me/tokens-robo', requireUser, async (req, res) => {
     try {
+        if (!req.currentUser.podeRodarRobo) return res.status(403).json({ success: false, error: 'O robô do PJe não está liberado para você. Peça ao administrador.' });
         const token = auth.gerarTokenRobo();
         const t = await prisma.tokenRobo.create({ data: { userId: req.currentUser.id, hash: auth.idDoToken(token) }, select: CAMPOS_TOKEN });
         res.status(201).json({ success: true, token, ...t });
@@ -125,6 +129,7 @@ router.post('/', requireAdmin, async (req, res) => {
             select: CAMPOS_EQUIPE,
         });
         await prisma.sessao.deleteMany({ where: { userId: user.id, id: { not: auth.idDoToken(auth.lerCookie(req)) } } });
+        await revogarTokensRobo(user.id);
         res.status(201).json({ success: true, user });
     } catch (error) {
         logger.error('Erro na rota POST /api/users:', error);
@@ -142,6 +147,20 @@ router.put('/:id/quadro', requireAdmin, async (req, res) => {
         if (error.code === 'P2025') return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
         logger.error('Erro na rota PUT /api/users/:id/quadro:', error);
         res.status(500).json({ success: false, error: 'Erro ao atualizar o quadro.' });
+    }
+});
+
+// Admin libera/tira o robô do PJe (quem tem o certificado no PC). Tirar revoga os tokens na hora.
+router.put('/:id/robo', requireAdmin, async (req, res) => {
+    try {
+        if (typeof req.body?.podeRodarRobo !== 'boolean') return res.status(400).json({ success: false, error: 'podeRodarRobo deve ser true ou false.' });
+        const user = await prisma.user.update({ where: { id: req.params.id }, data: { podeRodarRobo: req.body.podeRodarRobo }, select: CAMPOS_EQUIPE });
+        if (!user.podeRodarRobo) await revogarTokensRobo(user.id);
+        res.json({ success: true, user });
+    } catch (error) {
+        if (error.code === 'P2025') return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+        logger.error('Erro na rota PUT /api/users/:id/robo:', error);
+        res.status(500).json({ success: false, error: 'Erro ao atualizar o robô.' });
     }
 });
 

@@ -7,10 +7,10 @@ const logger = require('../infra/logger');
 const prisma = require('../infra/prismaClient');
 const pjePainel = require('../services/pjePainel'); // lido na chamada: os testes trocam gravarLeitura
 const { TRIBUNAIS } = require('../services/pjeLeitura');
-const { requireRoboOuUsuario } = require('../middleware/requireRobo');
+const { requireRobo } = require('../middleware/requireRobo');
 
+router.use(requireRobo); // antes do corpo: anônimo leva 401 sem o servidor ler 10 MB
 router.use(express.json({ limit: '10mb' }));
-router.use(requireRoboOuUsuario);
 
 // ── Vez ────────────────────────────────────────────────────────────────────
 // Um painel só (todo o escritório usa o certificado do Dr. Jesus) e o robô em vários PCs:
@@ -53,7 +53,7 @@ router.post('/vez', async (req, res) => {
 
 // DELETE /api/intimacoes/pje/vez { vez } — o robô desistiu antes de ler (ex.: credencial do PC com problema)
 router.delete('/vez', (req, res) => {
-    if (vez && vez.id === req.body?.vez) vez = null;
+    if (vez && vez.id === req.body?.vez && vez.userId === req.currentUser.id) vez = null;
     res.status(204).send();
 });
 
@@ -111,7 +111,7 @@ function validarLeitura(body) {
 
 // POST /api/intimacoes/pje/leitura { versao: 1, vez, tribunais } → { resultado, prazos }
 router.post('/leitura', async (req, res) => {
-    if (!vez || vez.id !== req.body?.vez) {
+    if (!vez || vez.id !== req.body?.vez || vez.userId !== req.currentUser.id) {
         return res.status(409).json({ success: false, error: 'Sem a vez de leitura: peça a vez antes de ler o PJe (ou ela expirou).' });
     }
     vez = null; // a vez acaba aqui, com ou sem gravação

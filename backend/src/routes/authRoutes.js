@@ -7,10 +7,22 @@ const { requireUser } = require('../middleware/requireUser');
 
 // Limites de tentativa (como no Umbler Talk). ponytail: em memória, processo único.
 const POR_IP_MAX = 10; // tentativas por minuto por IP: trocar de e-mail não passa daqui
-const BLOQUEIO_APOS = 10; // senhas erradas seguidas no mesmo e-mail, de qualquer IP...
-const BLOQUEIO_MS = 15 * 60_000; // ...travam aquele login por 15 min
+// Senhas erradas travam o par e-mail+IP: contar só por e-mail deixava um anônimo trancar o login
+// de qualquer pessoa (inclusive do admin) com 10 requisições. O teto por e-mail, bem mais alto,
+// só freia adivinhação vinda de muitos IPs.
+const BLOQUEIO_APOS = 10; // e-mail+IP
+const BLOQUEIO_EMAIL_APOS = 100; // e-mail, somando todos os IPs
+const BLOQUEIO_MS = 15 * 60_000;
 const porIp = new Map(); // ip → { n, desde }
-const falhas = new Map(); // email → { n, ate }
+const falhas = new Map(); // "email|ip" ou "email" → { n, ate }
+
+const travado = (chave) => (falhas.get(chave)?.ate || 0) > Date.now();
+function contarFalha(chave, limite) {
+    const c = falhas.get(chave) || { n: 0, ate: 0 };
+    c.n += 1;
+    if (c.n >= limite) Object.assign(c, { n: 0, ate: Date.now() + BLOQUEIO_MS });
+    falhas.set(chave, c);
+}
 
 function estourouIp(ip) {
     const agora = Date.now();
@@ -32,20 +44,18 @@ router.post('/login', async (req, res) => {
         const email = String(req.body?.email || '').trim().toLowerCase();
         const senha = String(req.body?.senha || '');
         if (!email || !senha || senha.length > 200) return res.status(400).json({ success: false, error: 'Informe e-mail e senha.' });
-        const f = falhas.get(email);
-        if (f && f.ate > Date.now()) return res.status(429).json({ success: false, error: 'Muitas tentativas para este usuário. Aguarde 15 minutos.' });
+        const par = `${email}|${req.ip}`;
+        if (travado(par) || travado(email)) return res.status(429).json({ success: false, error: 'Muitas tentativas para este usuário. Aguarde 15 minutos.' });
 
         const user = await prisma.user.findUnique({ where: { email } });
         const ok = await auth.verificarSenha(user?.passwordHash || (hashFalso ??= await auth.hashSenha('senha-falsa')), senha);
         if (!user || !user.passwordHash || !ok) {
             if (falhas.size > 10_000) falhas.clear();
-            const c = falhas.get(email) || { n: 0, ate: 0 };
-            c.n += 1;
-            if (c.n >= BLOQUEIO_APOS) Object.assign(c, { n: 0, ate: Date.now() + BLOQUEIO_MS });
-            falhas.set(email, c);
+            contarFalha(par, BLOQUEIO_APOS);
+            contarFalha(email, BLOQUEIO_EMAIL_APOS);
             return res.status(401).json({ success: false, error: 'E-mail ou senha inválidos.' });
         }
-        falhas.delete(email);
+        falhas.delete(par);
         if (!user.ativo) return res.status(403).json({ success: false, error: 'Acesso desativado. Fale com o administrador.' });
 
         auth.gravarCookie(req, res, await auth.criarSessao(user.id));

@@ -12,8 +12,9 @@ const SENHA = 'senha-de-teste-123';
 let server;
 let base;
 
-const login = (email, senha) => fetch(`${base}/api/auth/login`, {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, senha }),
+// ip: simula o IP real que o túnel anexa (X-Forwarded-For + trust proxy 'loopback', como no index.js)
+const login = (email, senha, ip) => fetch(`${base}/api/auth/login`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', ...(ip && { 'X-Forwarded-For': ip }) }, body: JSON.stringify({ email, senha }),
 });
 const cookieDe = (r) => (r.headers.get('set-cookie') || '').split(';')[0];
 
@@ -25,6 +26,7 @@ describe('login próprio (integração)', () => {
       create: { email: EMAIL, name: 'Tester Login', passwordHash: await auth.hashSenha(SENHA) },
     });
     const app = express();
+    app.set('trust proxy', 'loopback');
     app.use(express.json());
     app.use('/api/auth', router);
     await new Promise((resolve) => { server = app.listen(0, resolve); });
@@ -72,13 +74,24 @@ describe('login próprio (integração)', () => {
     await prisma.user.update({ where: { email: EMAIL }, data: { ativo: true } });
   });
 
-  it('10 senhas erradas seguidas travam aquele e-mail por 15 min, mesmo com a senha certa depois', async () => {
-    for (let i = 0; i < 10; i++) await login(EMAIL, 'errada');
+  it('10 senhas erradas seguidas travam aquele e-mail naquele IP por 15 min, mesmo com a senha certa depois', async () => {
+    for (let i = 0; i < 10; i++) await login(EMAIL, 'errada', '198.18.1.1');
     router.limites.porIp.clear(); // isola a trava por e-mail da trava por IP
-    const r = await login(EMAIL, SENHA);
+    const r = await login(EMAIL, SENHA, '198.18.1.1');
     expect(r.status).toBe(429);
     expect((await r.json()).error).toContain('este usuário');
   });
+
+  it('as senhas erradas de um IP não trancam o dono do e-mail vindo de outro IP', async () => {
+    for (let i = 0; i < 10; i++) await login(EMAIL, 'errada', '198.18.1.1');
+    expect((await login(EMAIL, SENHA, '203.0.113.50')).status).toBe(200);
+  });
+
+  it('100 senhas erradas no mesmo e-mail, somando IPs, travam o e-mail para todos', async () => {
+    for (let i = 0; i < 100; i++) await login(EMAIL, 'errada', `198.18.2.${i}`);
+    const r = await login(EMAIL, SENHA, '203.0.113.50');
+    expect(r.status).toBe(429);
+  }, 60_000);
 
   it('mais de 10 tentativas por minuto do mesmo IP: 429, trocando de e-mail ou não', async () => {
     for (let i = 0; i < 10; i++) await login(`__rot${i}__@jvo.adv.br`, 'x');

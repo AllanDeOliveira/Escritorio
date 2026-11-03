@@ -13,6 +13,12 @@
 > - **Servidor e certificado no mesmo PC hoje:** o robô envia para `http://localhost:3001`, então
 >   não depende do domínio fixo do item 8 enquanto for assim.
 > - Fase 2 (4.2, certificado do Windows sem `.pfx`) fica para depois.
+> - **Login por CPF + senha (30/10, a pedido do usuário):** além do `.pfx`, o robô entra pelo
+>   formulário "CPF/CNPJ + senha" do SSO (o mesmo nos 4 PJe; vale para quem já se cadastrou com
+>   certificado), com o 2FA. Objetivo: poder rodar o robô no servidor sem guardar o A1 lá.
+>   `pjeSso.loginPje` escolhe o caminho pelas credenciais; `configurar` pergunta qual usar.
+>   A confirmar com um login real: se o Painel do Advogado mostra o mesmo conteúdo por senha, e se
+>   um login de assistente vinculado enxerga o painel do advogado.
 
 **Objetivo:** o servidor do Central JVO nunca guarda certificado, senha do certificado nem segredo do 2FA. Quem tem o certificado A1 no próprio PC roda o robô ali; quem não tem, não roda. O servidor só recebe **o resultado da leitura** (a lista de expedientes) e continua criando e baixando os prazos como hoje.
 

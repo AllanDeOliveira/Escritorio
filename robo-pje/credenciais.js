@@ -9,7 +9,8 @@ const path = require('path');
 const PASTA = path.join(process.env.APPDATA || os.homedir(), 'CentralJVO');
 const ARQUIVO = path.join(PASTA, 'robo.json');
 const LOG = path.join(PASTA, 'robo.log');
-const SECRETOS = ['token', 'senhaPfx', 'segredoTotp'];
+// cpf também vai cifrado: é dado pessoal, e o arquivo não precisa expô-lo
+const SECRETOS = ['token', 'senhaPfx', 'cpf', 'senha', 'segredoTotp'];
 
 // O valor vai por variável de ambiente (não aparece na linha de comando dos processos) e em
 // base64 (o console do PowerShell 5.1 estraga acentos na volta).
@@ -32,10 +33,13 @@ const abrir = (cifrado) => Buffer.from(powershell(
     cifrado,
 ), 'base64').toString('utf8');
 
-/** { servidor, certificado, token, senhaPfx, segredoTotp } → robo.json com os segredos cifrados */
+/**
+ * { servidor, tipo: 'pfx' | 'senha', certificado, token, senhaPfx, cpf, senha, segredoTotp }
+ * → robo.json com os segredos cifrados
+ */
 function salvar(cfg) {
     fs.mkdirSync(PASTA, { recursive: true });
-    const gravado = { versao: 1, servidor: cfg.servidor, certificado: cfg.certificado };
+    const gravado = { versao: 1, servidor: cfg.servidor, tipo: cfg.tipo, certificado: cfg.certificado };
     for (const k of SECRETOS) gravado[k] = cfg[k] ? proteger(cfg[k]) : null;
     fs.writeFileSync(ARQUIVO, JSON.stringify(gravado, null, 2));
 }
@@ -44,7 +48,7 @@ function salvar(cfg) {
 function carregar() {
     if (!fs.existsSync(ARQUIVO)) return null;
     const g = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
-    const cfg = { servidor: g.servidor, certificado: g.certificado };
+    const cfg = { servidor: g.servidor, tipo: g.tipo || 'pfx', certificado: g.certificado };
     for (const k of SECRETOS) cfg[k] = g[k] ? abrir(g[k]) : null;
     return cfg;
 }

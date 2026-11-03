@@ -259,7 +259,7 @@ interface PrazosTabProps {
   pje?: { lastAttemptAt: string | null; lastBy?: string | null };
 }
 
-type Membro = { id: string; name?: string | null; email: string; noQuadro?: boolean; ativo?: boolean };
+type Membro = { id: string; name?: string | null; email: string; noQuadro?: boolean; ativo?: boolean; podeRodarRobo?: boolean };
 
 const emptyForm = {
   title: '', caseReference: '', responsibleName: '', responsibleId: '',
@@ -475,6 +475,20 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
       const d = await r.json();
       if (d.success) setEquipe(eq => eq.map(x => x.id === u.id ? { ...x, noQuadro } : x));
       else showToast(d.error || 'Erro ao atualizar o quadro.', 'error');
+    } catch { showToast('Erro de conexão.', 'error'); }
+  };
+
+  // Robô do PJe: só quem o admin libera gera token e envia leitura (a leitura dá baixa em prazos)
+  const marcarRobo = async (u: Membro, podeRodarRobo: boolean) => {
+    try {
+      const r = await apiFetch(`${API}/api/users/${u.id}/robo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ podeRodarRobo }),
+      });
+      const d = await r.json();
+      if (d.success) setEquipe(eq => eq.map(x => x.id === u.id ? { ...x, podeRodarRobo } : x));
+      else showToast(d.error || 'Erro ao atualizar o robô.', 'error');
     } catch { showToast('Erro de conexão.', 'error'); }
   };
 
@@ -1247,7 +1261,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
             <div className="prazo-form">
               <p className="prazo-import-hint">
                 Quem sai do escritório: <strong>Desativar</strong> (não entra mais e é desconectado na hora; os prazos ficam).
-                Para redefinir a senha de alguém, cadastre de novo o mesmo e-mail com a senha nova.
+                Para redefinir a senha de alguém, cadastre de novo o mesmo e-mail com a senha nova (os tokens do robô dela caem).
+                <strong> Robô PJe</strong>: só quem roda o robô no PC com o certificado; desmarcar revoga os tokens.
                 {!marcados.length && ' Marcados no quadro: enquanto ninguém for marcado, aparece a equipe toda.'}
               </p>
               <div className="prazo-perfis">
@@ -1260,6 +1275,9 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
                       {u.name || u.email}{u.ativo === false && ' (desativado)'}
                       {u.name && <small>{u.email}</small>}
                     </span>
+                    <label className="prazo-perfil-robo" title="Pode rodar o robô do PJe">
+                      <input type="checkbox" checked={!!u.podeRodarRobo} onChange={e => marcarRobo(u, e.target.checked)} /> Robô PJe
+                    </label>
                     {u.id !== dbUser?.id && (
                       <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--perfil" onClick={() => marcarAtivo(u, u.ativo === false)}>
                         {u.ativo === false ? 'Reativar' : 'Desativar'}

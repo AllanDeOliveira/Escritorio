@@ -121,6 +121,7 @@ npm run robo-pje -- agendar      # tarefa do Windows: 06:40 e 12:40, segunda a s
 npm run robo-pje -- esquecer     # apaga as credenciais deste PC
 ```
 
+- **Entrada no PJe:** certificado A1 (`.pfx`) **ou** CPF + senha do PJe (para quem já se cadastrou com certificado uma vez), sempre com o 2FA. A senha só vale no PJe — se vazar, troca-se a senha; o A1 vale em todo lugar (tribunais, e-CAC, gov.br). Em qualquer dos dois dá para *tomar ciência* no PJe, então a trava de só-leitura do robô (`alvoPermitido`) vale igual.
 - **Token do robô:** gerado na aba **Perfil** do Central (aparece uma vez só; revogue lá se vazar). Só serve para pedir a vez e enviar a leitura — não abre o sistema.
 - **Credenciais no PC:** cifradas com a proteção de dados do Windows (DPAPI) em `%APPDATA%\CentralJVO\robo.json` — só abrem naquele usuário, naquele PC. Nunca em `.env`.
 - **Vários PCs, um certificado (o do Dr. Jesus):** antes de entrar no PJe o robô pede a **vez** ao servidor, que só concede se ninguém estiver lendo e a última leitura tiver mais de **10 minutos**. Assim logins em sequência não bloqueiam a conta do advogado, e vários PCs agendados às 06:40 leem uma vez só.

@@ -35,6 +35,17 @@ const app = express();
 // O túnel do Cloudflare roda nesta máquina: confia só nele para X-Forwarded-Proto (cookie
 // Secure via req.secure) e X-Forwarded-For (IP real no limite de tentativas do login).
 app.set('trust proxy', 'loopback');
+app.disable('x-powered-by');
+// Defesa em profundidade para a tela servida daqui (frontend/dist). Fontes do Google: index.css.
+app.use((_req, res, next) => {
+    res.set({
+        'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'same-origin',
+        'Strict-Transport-Security': 'max-age=31536000',
+    });
+    next();
+});
 const allowedOrigins = process.env.FRONTEND_URL
     ? [process.env.FRONTEND_URL]
     : ['http://localhost:5180', 'http://localhost:3000'];

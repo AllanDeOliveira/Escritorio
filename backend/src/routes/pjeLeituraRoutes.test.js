@@ -26,7 +26,7 @@ const item = (id, extra = {}) => ({ idExpediente: id, tipo: 'Decisão', dataLimi
 
 describe('rotas do robô do PJe (vez + leitura)', () => {
   beforeAll(async () => {
-    ({ id: userId } = await prisma.user.upsert({ where: { email: EMAIL }, update: { ativo: true }, create: { email: EMAIL, name: 'Robô Teste' } }));
+    ({ id: userId } = await prisma.user.upsert({ where: { email: EMAIL }, update: { ativo: true, podeRodarRobo: true }, create: { email: EMAIL, name: 'Robô Teste', podeRodarRobo: true } }));
     token = auth.gerarTokenRobo();
     await prisma.tokenRobo.create({ data: { userId, hash: auth.idDoToken(token) } });
     const app = express();
@@ -55,6 +55,36 @@ describe('rotas do robô do PJe (vez + leitura)', () => {
   it('sem token nem sessão → 401; token inventado → 401', async () => {
     expect((await req('POST', '/api/intimacoes/pje/vez', undefined, {})).status).toBe(401);
     expect((await req('POST', '/api/intimacoes/pje/vez', undefined, { Authorization: 'Bearer jvo_robo_falso' })).status).toBe(401);
+  });
+
+  it('a sessão do navegador não vale no canal do robô (só o token)', async () => {
+    const cookie = `${auth.COOKIE}=${await auth.criarSessao(userId)}`;
+    expect((await req('POST', '/api/intimacoes/pje/vez', undefined, { cookie })).status).toBe(401);
+  });
+
+  it('sem credencial, o corpo nem é lido: JSON malformado → 401, não 400', async () => {
+    const r = await fetch(`${base}/api/intimacoes/pje/leitura`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{ruim' });
+    expect(r.status).toBe(401);
+  });
+
+  it('token de quem o admin não liberou para o robô → 403', async () => {
+    await prisma.user.update({ where: { id: userId }, data: { podeRodarRobo: false } });
+    expect((await req('POST', '/api/intimacoes/pje/vez')).status).toBe(403);
+    await prisma.user.update({ where: { id: userId }, data: { podeRodarRobo: true } });
+  });
+
+  it('a vez é de quem pediu: outro token com o id dela → 409 e não grava', async () => {
+    const vez = await pedirVez();
+    const outro = await prisma.user.upsert({ where: { email: '__test_robo2__@jvo.adv.br' }, update: { podeRodarRobo: true }, create: { email: '__test_robo2__@jvo.adv.br', name: 'Outro', podeRodarRobo: true } });
+    const t2 = auth.gerarTokenRobo();
+    await prisma.tokenRobo.create({ data: { userId: outro.id, hash: auth.idDoToken(t2) } });
+    try {
+      const r = await req('POST', '/api/intimacoes/pje/leitura', { versao: 1, vez, tribunais: [] }, { Authorization: `Bearer ${t2}` });
+      expect(r.status).toBe(409);
+      expect(pjePainel.gravarLeitura).not.toHaveBeenCalled();
+    } finally {
+      await prisma.user.delete({ where: { id: outro.id } });
+    }
   });
 
   it('o token do robô não vale no resto da API', async () => {

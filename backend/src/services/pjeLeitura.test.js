@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import path from 'path';
 
 const require = createRequire(import.meta.url);
-const { loginCertificado } = require('./pjeSso');
+const { loginPje } = require('./pjeSso');
 
 const BACKEND = path.join(__dirname, '..', '..');
 
@@ -20,13 +20,13 @@ describe('pjeLeitura roda no PC, longe do banco', () => {
   });
 });
 
-describe('loginCertificado sem credenciais', () => {
+describe('loginPje sem credenciais', () => {
   it('falha com mensagem clara e não procura o certificado no .env', async () => {
     const antes = { path: process.env.MNI_CERT_PATH, senha: process.env.MNI_CERT_SENHA };
     process.env.MNI_CERT_PATH = 'C:\\nao\\existe.pfx';
     process.env.MNI_CERT_SENHA = 'x';
     try {
-      await expect(loginCertificado({ pjeUrl: 'https://exemplo.invalid/pje' })).rejects.toThrow(/Credenciais do certificado não informadas/);
+      await expect(loginPje({ pjeUrl: 'https://exemplo.invalid/pje' })).rejects.toThrow(/Credenciais do PJe não informadas/);
     } finally {
       // process.env só guarda texto: atribuir undefined gravaria "undefined"
       for (const [k, v] of [['MNI_CERT_PATH', antes.path], ['MNI_CERT_SENHA', antes.senha]]) {

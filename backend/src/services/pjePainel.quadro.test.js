@@ -114,4 +114,21 @@ describe.skipIf(!noAudit)('gerarPrazosDoPje (integração, banco lexgen_audit)',
     await gravarLeitura([{ tribunal: T, itens: [A], incompletas: [] }], { usuario: 'Tester' });
     expect([await statusDe('500'), await statusDe('501')]).toEqual(['PENDENTE', 'CUMPRIDO']);
   });
+
+  it('gravarLeitura: leitura que esvazia o painel (6 abertos, chega 1) não dá baixa em massa', async () => {
+    const { gravarLeitura } = require('./pjePainel');
+    const T = 'TJMT 2º GRAU';
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const lido = (n) => ({
+      idExpediente: `60${n}`, numeroProcesso: `0000007${n}720018110007`, tipo: 'Intimação', destinatario: 'Cliente', meio: 'Sistema',
+      orgao: '1ª Câmara', partes: 'A X B', dataExpedicao: hoje, prazoDias: 15, cienciaPendente: false, dataCiencia: hoje,
+      dataLimite: new Date(hoje.getTime() + 5 * 86_400_000), situacao: 'pendente de resposta', jurisdicao: 'TJMT', caixa: null,
+    });
+    const todos = [0, 1, 2, 3, 4, 5].map(lido);
+    await gravarLeitura([{ tribunal: T, itens: todos, incompletas: [] }], { usuario: 'Tester' });
+    const r = await gravarLeitura([{ tribunal: T, itens: [todos[0]], incompletas: [] }], { usuario: 'Forjada' });
+    expect(r.resultado.find((x) => x.tribunal === T).erro).toMatch(/baixa automática suspensa: 5 de 6/);
+    const ids = (await prisma.expedientePje.findMany({ where: { tribunal: T } })).map((e) => e.prazoId);
+    expect(await prisma.prazo.count({ where: { id: { in: ids }, status: 'CUMPRIDO' } })).toBe(0);
+  });
 });
