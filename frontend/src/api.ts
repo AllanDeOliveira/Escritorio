@@ -8,7 +8,6 @@ export interface Usuario {
   email: string;
   name?: string | null;
   role: 'admin' | 'member' | string;
-  areas?: string[];
   noQuadro?: boolean;
   ativo?: boolean;
 }

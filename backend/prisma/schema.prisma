@@ -12,7 +12,7 @@ model User {
   email          String            @unique
   name           String?
   role           String            @default("member") // admin | member
-  areas          String[]          @default([]) // áreas que a pessoa tria (chaves de AREAS no PrazosTab.tsx)
+  areas          String[]          @default([]) // sem uso desde que o filtro por área saiu; coluna mantida (schema só cresce)
   noQuadro       Boolean           @default(false) // tem coluna no quadro de prazos "Por pessoa" (admin define)
   passwordHash   String? // scrypt (infra/auth.js); null = ainda sem senha, não entra
   ativo          Boolean           @default(true) // false = ex-funcionário: login recusado e sessões apagadas

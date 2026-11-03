@@ -114,6 +114,9 @@ Tabelas que existem e nunca recebem uma linha: `Client` (0 usos), `Event` (0 uso
   escolhe as próprias áreas (`User.areas`), a caixa abre em "Minhas áreas" e o prazo nasce com quem
   o gerou. A classificação continua no front — não foi preciso movê-la para o servidor.
   Ver [spec](superpowers/specs/2026-09-25-distribuicao-por-area-design.md).
+  **Removido (2026-11-03):** o seletor de áreas já tinha saído do Perfil; o filtro por área e o
+  `PUT /api/users/me/areas` saíram também. "Sem dono" mostra todos os cards sem responsável.
+  A coluna `User.areas` ficou no banco, sem uso.
 
 ### F. Agenda de audiências
 **Esforço:** M · **Depende de:** nada

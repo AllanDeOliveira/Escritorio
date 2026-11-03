@@ -291,5 +291,5 @@ async function syncIntimacoesSafe(opts = {}) {
 
 module.exports = {
     syncIntimacoes, syncIntimacoesSafe, isSyncStale, heartbeatPatch, recordHeartbeat,
-    lerConfig, extrairCliente, extrairAdvogado, ehDoAdvogado,
+    extrairCliente, extrairAdvogado, ehDoAdvogado,
 };

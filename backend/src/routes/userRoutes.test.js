@@ -29,7 +29,7 @@ describe('userRoutes (integração)', () => {
     for (const [quem, email, role] of [['membro', EMAIL, 'member'], ['admin', ADMIN, 'admin']]) {
       const u = await prisma.user.upsert({
         where: { email },
-        update: { areas: [], role, ativo: true, podeRodarRobo: false, passwordHash: await auth.hashSenha(SENHA) },
+        update: { role, ativo: true, podeRodarRobo: false, passwordHash: await auth.hashSenha(SENHA) },
         create: { email, name: quem === 'membro' ? 'Tester Áreas' : 'Tester Admin', role, passwordHash: await auth.hashSenha(SENHA) },
       });
       ids[quem] = u.id;
@@ -56,14 +56,6 @@ describe('userRoutes (integração)', () => {
     const d = await (await req('GET', '/api/users')).json();
     const eu = d.users.find((u) => u.email === EMAIL);
     expect(Object.keys(eu).sort()).toEqual(['ativo', 'email', 'id', 'name', 'noQuadro', 'podeRodarRobo']);
-  });
-
-  it('PUT /me/areas salva sem duplicar; área desconhecida → 400 e nada muda', async () => {
-    expect((await (await req('PUT', '/api/users/me/areas', { areas: ['bancario', 'fazenda', 'bancario'] })).json()).areas).toEqual(['bancario', 'fazenda']);
-    const r = await req('PUT', '/api/users/me/areas', { areas: ['bancario', 'criminal'] });
-    expect(r.status).toBe(400);
-    expect((await r.json()).error).toContain('criminal');
-    expect((await prisma.user.findUnique({ where: { email: EMAIL } })).areas).toEqual(['bancario', 'fazenda']);
   });
 
   it('PUT /me troca o nome de exibição (sem devolver o hash)', async () => {

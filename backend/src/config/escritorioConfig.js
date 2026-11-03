@@ -35,4 +35,4 @@ function salvarConfig(novosDados) {
     return cachedConfig;
 }
 
-module.exports = { lerConfig, salvarConfig, CONFIG_DEFAULT };
+module.exports = { lerConfig, salvarConfig };

@@ -130,24 +130,13 @@ describe('ordenarPorPrioridade', () => {
 });
 
 describe('cardSemDono', () => {
-  const trt = { responsibleId: null, responsibleName: null, bucket: 'triagem', intimacoes: [{ tribunal: 'TRT23' }] };
+  const livre = { responsibleId: null, responsibleName: null, bucket: 'triagem' };
 
-  it('sem dono e da minha área → sim; de outra área → não; sem área cadastrada vê todos', () => {
-    expect(cardSemDono(trt, ['trabalhista'])).toBe(true);
-    expect(cardSemDono(trt, ['bancario'])).toBe(false);
-    expect(cardSemDono(trt, [])).toBe(true);
-  });
-
-  it('card do robô do PJe (sem intimação) classifica pelo expediente', () => {
-    const trf = { responsibleId: null, responsibleName: null, bucket: 'semana', origemPje: { tribunal: 'TRF1' } };
-    expect(cardSemDono(trf, ['previdenciario'])).toBe(true);
-    expect(cardSemDono(trf, ['trabalhista'])).toBe(false);
-  });
-
-  it('com dono (id ou nome livre) ou concluído nunca é "sem dono"', () => {
-    expect(cardSemDono({ ...trt, responsibleId: 'u1' }, [])).toBe(false);
-    expect(cardSemDono({ ...trt, responsibleName: 'Fulano' }, [])).toBe(false);
-    expect(cardSemDono({ ...trt, bucket: 'concluido' }, [])).toBe(false);
+  it('sem responsável e aberto → sim; com dono (id ou nome livre) ou concluído → não', () => {
+    expect(cardSemDono(livre)).toBe(true);
+    expect(cardSemDono({ ...livre, responsibleId: 'u1' })).toBe(false);
+    expect(cardSemDono({ ...livre, responsibleName: 'Fulano' })).toBe(false);
+    expect(cardSemDono({ ...livre, bucket: 'concluido' })).toBe(false);
   });
 });
 

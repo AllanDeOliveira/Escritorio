@@ -6,8 +6,6 @@ const prisma = require('../infra/prismaClient');
 const { requireUser } = require('../middleware/requireUser');
 const { requireAdmin } = require('../middleware/requireAdmin');
 
-// Espelho das chaves de AREAS em frontend/src/PrazosTab.tsx — mudou lá, muda aqui.
-const AREAS_VALIDAS = ['fazenda', 'previdenciario', 'bancario', 'trabalhista', 'civel', 'outras'];
 const SENHA_MIN = 8;
 const senhaFraca = (s) => typeof s !== 'string' || s.length < SENHA_MIN || s.length > 200;
 const CAMPOS_EQUIPE = { id: true, name: true, email: true, noQuadro: true, ativo: true, podeRodarRobo: true };
@@ -22,21 +20,6 @@ router.get('/', requireUser, async (req, res) => {
     } catch (error) {
         logger.error('Erro na rota GET /api/users:', error);
         res.status(500).json({ success: false, error: 'Erro ao listar a equipe.' });
-    }
-});
-
-// Áreas que o usuário logado tria (filtro "Minhas áreas")
-router.put('/me/areas', requireUser, async (req, res) => {
-    try {
-        const { areas } = req.body || {};
-        if (!Array.isArray(areas)) return res.status(400).json({ success: false, error: 'areas deve ser uma lista.' });
-        const invalidas = areas.filter((a) => !AREAS_VALIDAS.includes(a));
-        if (invalidas.length) return res.status(400).json({ success: false, error: `Área(s) desconhecida(s): ${invalidas.join(', ')}` });
-        const user = await prisma.user.update({ where: { id: req.currentUser.id }, data: { areas: [...new Set(areas)] } });
-        res.json({ success: true, areas: user.areas });
-    } catch (error) {
-        logger.error('Erro na rota PUT /api/users/me/areas:', error);
-        res.status(500).json({ success: false, error: 'Erro ao salvar as áreas.' });
     }
 });
 

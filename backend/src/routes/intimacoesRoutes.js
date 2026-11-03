@@ -3,9 +3,8 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../infra/prismaClient');
 const { syncIntimacoesSafe, isSyncStale } = require('../services/djenService');
-const { gerarPrazosDoPje, soDigitos, melhorExpediente } = require('../services/pjePainel');
+const { gerarPrazosDoPje } = require('../services/pjePainel');
 const { teorEmTexto } = require('../services/pjeLeitura');
-const { parseBusca, buscaToWhere } = require('../services/buscaIntimacoes');
 
 /**
  * Estado da última sincronização com o DJEN. `stale` é calculado no servidor
@@ -37,19 +36,6 @@ async function syncStatusPayload() {
     };
 }
 
-// Liga cada intimação (DJEN) ao expediente do Painel do PJe (regra em pjePainel.melhorExpediente).
-// É do expediente que vem a data limite oficial (calculada pelo PJe, não por nós).
-async function anexarExpedientesPje(intimacoes) {
-    const numeros = [...new Set(intimacoes.map((i) => soDigitos(i.numeroProcesso)).filter(Boolean))];
-    if (!numeros.length) return intimacoes;
-    const expedientes = await prisma.expedientePje.findMany({ where: { numeroProcesso: { in: numeros } } });
-    const porProcesso = new Map();
-    for (const e of expedientes) porProcesso.set(e.numeroProcesso, [...(porProcesso.get(e.numeroProcesso) || []), e]);
-    return intimacoes.map((i) => ({
-        ...i, expedientePje: melhorExpediente(i, porProcesso.get(soDigitos(i.numeroProcesso)) || []),
-    }));
-}
-
 // GET /api/intimacoes — painel inicial: "recebidas hoje" e estado dos robôs.
 // ?prazoId=<id>: as intimações de um card (teor e hash da certidão), para o modal do quadro.
 // A caixa de intimações (lista do mês inteiro) saiu: tudo vira card, ela só repetia o quadro.
@@ -72,30 +58,6 @@ router.get('/', async (req, res) => {
     } catch (error) {
         logger.error('[listIntimacoes] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao listar intimações.' });
-    }
-});
-
-// GET /api/intimacoes/busca?q=tribunal:TJMT antes:2026-05-01 prazo&ordem=antigos&offset=0&limit=25
-// Sintaxe estilo Discord (ver buscaIntimacoes.js). Paginado com total, como o total_results do Discord.
-router.get('/busca', async (req, res) => {
-    try {
-        const where = buscaToWhere(parseBusca(req.query.q));
-        const offset = Math.max(0, Math.trunc(Number(req.query.offset)) || 0);
-        const limit = Math.min(100, Math.max(1, Math.trunc(Number(req.query.limit)) || 25));
-        const [intimacoes, total] = await Promise.all([
-            prisma.intimacao.findMany({
-                where,
-                orderBy: { dataDisponibilizacao: req.query.ordem === 'antigos' ? 'asc' : 'desc' },
-                skip: offset,
-                take: limit,
-                include: { prazo: { select: { id: true, title: true, status: true, fatalDate: true, caseReference: true } } },
-            }),
-            prisma.intimacao.count({ where }),
-        ]);
-        res.json({ success: true, total, offset, limit, intimacoes: await anexarExpedientesPje(intimacoes) });
-    } catch (error) {
-        logger.error('[buscaIntimacoes] Erro:', error);
-        res.status(500).json({ success: false, error: 'Erro ao buscar intimações.' });
     }
 });
 

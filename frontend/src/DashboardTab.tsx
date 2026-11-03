@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import './DashboardTab.css';
 
-export interface PrazoBucketed { bucket: string; daysUntilFatal?: number }
+interface PrazoBucketed { bucket: string; daysUntilFatal?: number }
 
 // Conta prazos por bucket de urgência. Buckets desconhecidos (futuro/concluído/lixo)
 // são ignorados de propósito — não entram no resumo de "o que exige ação agora".
@@ -107,7 +107,7 @@ function formatHora(iso: string): string {
 }
 
 /** "há 2 dias" / "há 3 horas" — para o banner de sync desatualizado. */
-export function tempoDesde(iso: string | null, agora: Date = new Date()): string {
+function tempoDesde(iso: string | null, agora: Date = new Date()): string {
   if (!iso) return 'nunca';
   const h = Math.floor((agora.getTime() - new Date(iso).getTime()) / 3_600_000);
   if (h < 1) return 'há menos de uma hora';

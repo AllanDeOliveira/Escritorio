@@ -346,19 +346,6 @@ body {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    GRID LAYOUTS
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.lx-grid-3 {
-  display: grid;
-  grid-template-columns: 300px 1fr 260px;
-  gap: 1rem;
-  padding: 1.25rem 1.75rem;
-  overflow-y: auto;
-  flex: 1;
-  align-items: start;
-}
-
-.lx-col-span-3 {
-  grid-column: 1 / -1;
-}
 
 .lx-single-panel {
   flex: 1;
@@ -369,27 +356,6 @@ body {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CARDS
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.lx-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 1.25rem;
-  transition: var(--t);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
-}
-
-.lx-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.lx-card-header h3 {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    BUTTONS
@@ -480,13 +446,6 @@ body {
   cursor: not-allowed;
 }
 
-.lx-btn-tool-highlight {
-  border-color: var(--border-active);
-  color: var(--primary);
-  background: var(--secondary);
-  font-weight: 600;
-}
-
 @keyframes shimmer {
   0% {
     filter: brightness(1);
@@ -504,36 +463,10 @@ body {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    INSIGHTS
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.lx-insights-text {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  line-height: 1.7;
-}
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    ALERTS
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.lx-alert {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 0.875rem;
-  border-radius: var(--r-sm);
-  font-size: 0.8rem;
-  margin-bottom: 0.75rem;
-}
-
-.lx-alert-error {
-  color: #fca5a5;
-  background: rgba(244, 63, 94, 0.1);
-  border: 1px solid rgba(244, 63, 94, 0.25);
-}
-
-.lx-alert-success {
-  color: #6ee7b7;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-}
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    STATS (Dashboard)
@@ -570,16 +503,6 @@ body {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    EMPTY STATE
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.lx-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 2.5rem 1rem;
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-}
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CUSTOM SCROLLBAR
@@ -605,12 +528,6 @@ body {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    RESPONSIVE
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-@media (max-width: 1100px) {
-  .lx-grid-3 {
-    grid-template-columns: 260px 1fr;
-  }
-}
-
 @media (max-width: 768px) {
   .lx-sidebar {
     width: 60px;
@@ -632,10 +549,6 @@ body {
     position: absolute;
     top: 0.2rem;
     right: 0.2rem;
-  }
-
-  .lx-grid-3 {
-    grid-template-columns: 1fr;
   }
 
   body {
@@ -827,39 +740,6 @@ body {
   line-height: 1.5;
 }
 
-.lx-btn-google {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.6rem;
-  width: 100%;
-  padding: 0.65rem 1.25rem;
-  border-radius: 10px;
-  border: 1px solid rgba(208, 170, 100, 0.4);
-  background: linear-gradient(135deg, rgba(208, 170, 100, 0.15) 0%, rgba(208, 170, 100, 0.08) 100%);
-  color: #ffffff;
-  font-family: var(--font);
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  letter-spacing: 0.01em;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-  margin-bottom: 1rem;
-}
-
-.lx-btn-google:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(208, 170, 100, 0.28) 0%, rgba(208, 170, 100, 0.16) 100%);
-  border-color: rgba(208, 170, 100, 0.7);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(208, 170, 100, 0.2);
-}
-
-.lx-btn-google:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .lx-login-error {
   display: flex;
   align-items: center;
@@ -967,16 +847,6 @@ body {
   z-index: 2000;
 }
 
-.lx-modal {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-  max-width: 90vw;
-  max-height: 90vh;
-}
-
 /* ── Login Screen ────────────────────────────────────────────── */
 .lx-login-screen {
   min-height: 100vh;
@@ -1037,37 +907,6 @@ body {
   font-size: 0.9rem;
   margin-bottom: 2rem;
   line-height: 1.5;
-}
-
-.lx-btn-google {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.8rem;
-  background: white;
-  color: #3c4043;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
-}
-
-.lx-btn-google:hover {
-  background: #f8f9fa;
-  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-}
-
-.lx-btn-google:active {
-  transform: scale(0.98);
-}
-
-.lx-btn-google:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
 }
 
 .lx-login-error {
@@ -1202,7 +1041,6 @@ body {
 .app-nav-item-admin { margin-top: auto; border-top: 1px solid rgba(255,255,255,0.05); }
 .app-nav-text-gold { color: #d0aa64; }
 
-.app-avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid var(--secondary); flex-shrink: 0; }
 .app-user-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .app-truncate-120 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
 .app-icon-btn-ghost { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 0.2rem; display: flex; align-items: center; }
@@ -1222,7 +1060,6 @@ body {
 .app-perfil-input { flex: 1; padding: 0.75rem 1rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); }
 .app-perfil-section { border-top: 1px solid var(--border); padding-top: 1.5rem; }
 .app-perfil-section-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.8rem; }
-.app-perfil-section-title-sm { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; }
 .app-perfil-section-col { display: flex; flex-direction: column; gap: 0.75rem; }
 .app-perfil-sublabel { font-size: 0.75rem; color: var(--text-muted); }
 /* Perfil › Robô do PJe: token recém-gerado (aparece uma vez) e tokens ativos */
@@ -1231,9 +1068,6 @@ body {
 .app-robo-linha { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 0.5rem 0; font-size: 0.8rem; color: var(--text-secondary); }
 .app-perfil-input-sm { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-shell); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); margin-top: 0.25rem; }
 .app-save-config-btn { justify-content: center; background: rgba(208, 170, 100, 0.1); color: var(--gold); border: 1px solid rgba(208, 170, 100, 0.2); }
-.app-limit-box { padding: 1rem; background: rgba(16, 185, 129, 0.05); border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.1); }
-.app-limit-title { color: #10b981; font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-.app-limit-desc { font-size: 0.75rem; color: var(--text-muted); margin: 0.5rem 0 0; }
 
 .app-confirm-overlay { z-index: 999999; backdrop-filter: blur(5px); background: rgba(0,0,0,0.6); }
 .app-confirm-modal { background: var(--bg-card); padding: 2rem; border-radius: 16px; max-width: 400px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px var(--border); text-align: center; }
@@ -1282,8 +1116,7 @@ body {
 }
 .lx-login-input::placeholder { color: rgba(255, 255, 255, 0.4); }
 .lx-login-input:focus { border-color: rgba(208, 170, 100, 0.7); }
-/* Botão "Entrar": classe própria. O .lx-btn-google está definido duas vezes neste arquivo e a
-   2ª pintava o texto de cinza-escuro sobre o cartão escuro (ficava ilegível). */
+/* Botão "Entrar" do login. */
 .lx-btn-entrar {
   display: flex;
   align-items: center;

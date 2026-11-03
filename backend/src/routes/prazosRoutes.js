@@ -249,40 +249,6 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET /api/prazos/dashboard - painel agrupado por urgência
-router.get('/dashboard', async (req, res) => {
-    try {
-        const pendentes = await prisma.prazo.findMany({
-            where: { status: 'PENDENTE' },
-            include: includeRelations,
-            orderBy: { fatalDate: 'asc' },
-        });
-
-        const enriched = pendentes.map(enrich);
-        const groups = {
-            vencido: enriched.filter((p) => p.bucket === 'vencido'),
-            hoje: enriched.filter((p) => p.bucket === 'hoje'),
-            semana: enriched.filter((p) => p.bucket === 'semana'),
-            futuro: enriched.filter((p) => p.bucket === 'futuro'),
-        };
-
-        res.json({
-            success: true,
-            counts: {
-                vencido: groups.vencido.length,
-                hoje: groups.hoje.length,
-                semana: groups.semana.length,
-                futuro: groups.futuro.length,
-                alerta: groups.vencido.length + groups.hoje.length,
-            },
-            groups,
-        });
-    } catch (error) {
-        logger.error('[getPrazosDashboard] Erro:', error);
-        res.status(500).json({ success: false, error: 'Erro ao carregar painel de prazos.' });
-    }
-});
-
 // GET /api/prazos/template - baixa a planilha-modelo (.xlsx) de importação
 router.get('/template', (req, res) => {
     try {
@@ -495,7 +461,7 @@ router.put('/:id', async (req, res) => {
         if (body.prioridade !== undefined) data.prioridade = body.prioridade || null;
         if (body.status !== undefined) {
             data.status = body.status;
-            // Mantém completedAt consistente com o status também fora do atalho /cumprir
+            // Mantém completedAt consistente com o status
             data.completedAt = body.status === 'CUMPRIDO' ? new Date() : null;
         }
         if (body.fatalDate !== undefined) data.fatalDate = parseDateOnly(body.fatalDate);
@@ -535,26 +501,6 @@ router.put('/:id', async (req, res) => {
         if (motivo) return res.status(400).json({ success: false, error: motivo });
         logger.error('[updatePrazo] Erro:', error);
         res.status(500).json({ success: false, error: 'Erro ao atualizar prazo.' });
-    }
-});
-
-// PATCH /api/prazos/:id/cumprir - marca como cumprido
-router.patch('/:id/cumprir', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const prazo = await prisma.prazo.update({
-            where: { id },
-            data: { status: 'CUMPRIDO', completedAt: new Date() },
-            include: includeRelations,
-        });
-
-        res.json({ success: true, prazo: enrich(prazo) });
-    } catch (error) {
-        if (error.code === 'P2025') {
-            return res.status(404).json({ success: false, error: 'Prazo não encontrado.' });
-        }
-        logger.error('[cumprirPrazo] Erro:', error);
-        res.status(500).json({ success: false, error: 'Erro ao marcar prazo como cumprido.' });
     }
 });
 

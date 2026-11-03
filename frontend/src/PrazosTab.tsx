@@ -74,7 +74,7 @@ export interface Intimacao {
 }
 
 // Tipos de ato (filtro "Tipo" do quadro).
-export const INT_COLUMNS = [
+const INT_COLUMNS = [
   { key: 'intimacao', label: 'Intimações', cls: 'prazo-int-col--intimacao' },
   { key: 'decisao', label: 'Decisões', cls: 'prazo-int-col--decisao' },
   { key: 'sentenca', label: 'Sentenças', cls: 'prazo-int-col--sentenca' },
@@ -96,7 +96,6 @@ export function tipoBucket(i: Pick<Intimacao, 'tipoDocumento' | 'tipoComunicacao
   return 'outros';
 }
 
-// Chaves espelhadas em AREAS_VALIDAS (backend/src/routes/userRoutes.js) — mudou aqui, muda lá.
 // Áreas do direito — taxonomia do escritório (não atende criminal): Fazenda Pública é a carteira
 // de servidores contra o Estado (FGTS/férias); Justiça Federal → previdenciário
 // (execuções contra o INSS incluídas). Varas mistas ("Criminal e Fazendário")
@@ -110,7 +109,7 @@ export const AREAS = [
   { key: 'outras', label: 'Outras' },
 ] as const;
 
-export type AreaKey = (typeof AREAS)[number]['key'];
+type AreaKey = (typeof AREAS)[number]['key'];
 
 // Órgão julgador como chave de filtro: ignora caixa e espaços duplicados ('SEM' se vazio)
 function chaveOrgao(s?: string | null): string {
@@ -119,7 +118,7 @@ function chaveOrgao(s?: string | null): string {
 
 // Jurisdições que aparecem no filtro mesmo sem nenhum prazo: lista do Painel do Advogado do
 // PJe do TJMT 1º grau. Jurisdição nova que chegar nos dados entra sozinha; esta lista é só a base.
-export const JURISDICOES = [
+const JURISDICOES = [
   'ALTO ARAGUAIA', 'ALTO ARAGUAIA JUIZADOS', 'ARAPUTANGA', 'ARAPUTANGA JUIZADOS', 'ARENÁPOLIS',
   'BARRA DO BUGRES', 'BARRA DO BUGRES JUIZADOS', 'CEJUSC DA FAZENDA PÚBLICA', 'COMODORO',
   'CUIABÁ CÍVEL', 'CUIABÁ JUIZADOS', 'CÁCERES', 'CÁCERES JUIZADOS', 'DIAMANTINO', 'DIAMANTINO JUIZADOS',
@@ -231,7 +230,7 @@ export function buscaMatch(i: Pick<Intimacao, 'numeroProcesso' | 'clienteExtraid
 // Partículas de nome (da, de...) não viram inicial
 const PARTICULAS = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
 
-export const PRIORIDADES = [
+const PRIORIDADES = [
   { key: 'ALTA', label: 'Alta' },
   { key: 'MEDIA', label: 'Média' },
   { key: 'BAIXA', label: 'Baixa' },
@@ -279,22 +278,18 @@ const origemDe = (p: Pick<Prazo, 'intimacoes' | 'origemPje'>) => {
 };
 
 // ponytail: sem o teor (pesado para o quadro inteiro) — banco como parte só é detectado pela classe/órgão
-export function areaDoPrazo(p: Pick<Prazo, 'intimacoes' | 'origemPje'>): AreaKey {
+function areaDoPrazo(p: Pick<Prazo, 'intimacoes' | 'origemPje'>): AreaKey {
   const o = origemDe(p);
   return areaDireito({ nomeClasse: o.classe, orgao: o.orgao, tribunal: o.tribunal, texto: '' });
 }
 
-/** Card sem dono que cabe a mim triar: sem responsável, aberto e da minha área (sem área cadastrada, vê todos). */
-export function cardSemDono(
-  p: Pick<Prazo, 'responsibleId' | 'responsibleName' | 'bucket' | 'intimacoes' | 'origemPje'>,
-  minhasAreas: readonly AreaKey[],
-): boolean {
-  if (p.responsibleId || p.responsibleName || p.bucket === 'concluido') return false;
-  return !minhasAreas.length || minhasAreas.includes(areaDoPrazo(p));
+/** Card sem dono: sem responsável (id ou nome livre) e ainda aberto. */
+export function cardSemDono(p: Pick<Prazo, 'responsibleId' | 'responsibleName' | 'bucket'>): boolean {
+  return !p.responsibleId && !p.responsibleName && p.bucket !== 'concluido';
 }
 
 /** Card "a confirmar": quanto tempo está parado sem data fatal (days = dias desde a publicação, negativo). */
-export function rotuloTriagem(days: number): string {
+function rotuloTriagem(days: number): string {
   const parado = -days;
   return parado >= 2 ? `sem data há ${parado} dias` : 'sem data fatal';
 }
@@ -356,9 +351,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
   // Intimações do card aberto no modal (teor e certidão); null = carregando
   const [infoInts, setInfoInts] = useState<Intimacao[] | null>(null);
 
-  // Distribuição por área: cada pessoa tria as próprias áreas e fica com os prazos que gera
-  const minhasAreas = (dbUser?.areas || []) as AreaKey[];
-  // Recorte do quadro: meus cards | sem dono (das minhas áreas) | todos
+  // Recorte do quadro: meus cards | sem dono | todos
   const [recorte, setRecorte] = useState<'meus' | 'semDono' | 'todos'>('todos');
   const [equipe, setEquipe] = useState<Membro[]>([]);
 
@@ -380,13 +373,6 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
   }, [menu]);
 
   const defaultMover = dbUser?.name || dbUser?.email || '';
-
-  // Quem participa da distribuição abre no próprio recorte.
-  // Roda quando o usuário carrega, que pode ser depois do mount.
-  useEffect(() => {
-    if (dbUser?.areas?.length) setRecorte('meus');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbUser?.id]);
 
   // Equipe para o seletor de responsável (quem já entrou uma vez no sistema)
   useEffect(() => {
@@ -731,7 +717,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
   // Recorte: colunas, contagens e resumo do cabeçalho seguem o recorte
   // (na visão por pessoa o recorte não se aplica: cada coluna já é uma pessoa)
   const recorteDe = (p: Prazo, r = recorte) =>
-    (r === 'meus' ? p.responsibleId === dbUser?.id : r === 'semDono' ? cardSemDono(p, minhasAreas) : true);
+    (r === 'meus' ? p.responsibleId === dbUser?.id : r === 'semDono' ? cardSemDono(p) : true);
   const groups: Groups = recorte !== 'todos' && dbUser?.id
     ? Object.fromEntries(Object.entries(todosGroups).map(([k, ps]) => [k, ps.filter(p => recorteDe(p))]))
     : todosGroups;
@@ -1001,7 +987,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
           ) : totalPrazos === 0 && recorte !== 'todos' && totalTodos > 0 ? (
             <div className="prazo-empty-all">
               <CalendarClock size={48} className="prazo-empty-icon" />
-              <h3>{recorte === 'meus' ? 'Nenhum prazo no seu nome' : 'Nenhum card sem dono nas suas áreas'}</h3>
+              <h3>{recorte === 'meus' ? 'Nenhum prazo no seu nome' : 'Nenhum card sem dono'}</h3>
               <p>{recorte === 'meus' ? 'Pegue um card em "Sem dono": ele e os demais do mesmo processo passam para o seu nome.' : 'Tudo o que chegou já tem dono.'}</p>
               <div className="prazo-empty-actions">
                 {recorte === 'meus' && nRecorte('semDono') > 0 && (

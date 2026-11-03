@@ -215,7 +215,6 @@
   text-transform: none;
 }
 .prazo-av--sm { width: 24px; height: 24px; }
-.prazo-av--lg { width: 36px; height: 36px; font-size: 12px; }
 .prazo-av--0 { background: #fdf3d7; color: #8a6a14; }
 .prazo-av--1 { background: #dbeafe; color: #1d4ed8; }
 .prazo-av--2 { background: #dcfce7; color: #15803d; }

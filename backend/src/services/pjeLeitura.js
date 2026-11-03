@@ -254,6 +254,6 @@ function escolherSituacoes(links) {
 }
 
 module.exports = {
-    TRIBUNAIS, ABA_FINDOU, lerPainel, lerExpedientes, parseLista, linksA4j, decodificar, alvoPermitido,
+    TRIBUNAIS, ABA_FINDOU, lerPainel, parseLista, linksA4j, decodificar, alvoPermitido,
     escolherSituacoes, teorEmTexto,
 };

@@ -224,4 +224,4 @@ async function loginPje({ pjeUrl = PJE_URL_PADRAO, pfx, senhaPfx, cpf, senha, se
     return { cliente, pjeUrl, paginaInicial: final };
 }
 
-module.exports = { loginPje, lerPfx, pkiPathBase64, assinarDesafio, totp, criarCliente };
+module.exports = { loginPje, lerPfx, totp, criarCliente };

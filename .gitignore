@@ -27,7 +27,6 @@ backend/prisma/*.db-journal
 **/.wwebjs_auth/
 **/.wwebjs_cache/
 **/session/
-**/.firebase/
 *.log
 *.old
 passkey_enclave_state
