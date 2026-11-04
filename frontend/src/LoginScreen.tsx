@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Loader2, AlertCircle, ShieldAlert } from 'lucide-react';
 import { apiFetch, API, type Usuario } from './api';
 
-export default function LoginScreen({ onLogin, systemName }: { onLogin: (u: Usuario) => void, systemName: string }) {
+export default function LoginScreen({ onLogin, systemName, aviso }: { onLogin: (u: Usuario) => void, systemName: string, aviso?: string | null }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,7 +40,7 @@ export default function LoginScreen({ onLogin, systemName }: { onLogin: (u: Usua
 
         <div className="lx-login-aviso">
           <ShieldAlert size={16} />
-          <span>Entre com o e-mail e a senha que o administrador cadastrou para você.</span>
+          <span>{aviso || 'Entre com o e-mail e a senha que o administrador cadastrou para você.'}</span>
         </div>
 
         <input

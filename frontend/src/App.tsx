@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle,
-  ShieldAlert, BarChart3, Zap, LogOut, Sun, Moon, Users, CalendarClock
+  ShieldAlert, BarChart3, Zap, LogOut, Users, CalendarClock
 } from 'lucide-react';
 import { apiFetch, API, type Usuario } from './api';
 import AdminPanel from './AdminPanel';
@@ -23,6 +23,8 @@ function App() {
   const [dbUser, setDbUser] = useState<Usuario | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showNameModal, setShowNameModal] = useState(false);
+  // Motivo de ter caído no login (sessão expirada): a tela de login mostra no lugar da frase padrão
+  const [avisoLogin, setAvisoLogin] = useState<string | null>(null);
   const [toasts, setToasts] = useState<{ id: number, message: string, type: 'success' | 'error' | 'info' }[]>([]);
 
   // ── Sistema de Confirmação ──────────────────────────────────────
@@ -44,12 +46,11 @@ function App() {
     }, 4000);
   };
 
-  const [theme, setTheme] = useState(lsGet('lexgen_theme') || 'light');
-  useEffect(() => { lsSet('lexgen_theme', theme); }, [theme]);
   useEffect(() => { lsSet('lexgen_active_tab', activeTab); }, [activeTab]);
 
   const entrou = (u: Usuario) => {
     setDbUser(u);
+    setAvisoLogin(null);
     setShowNameModal(!u.name); // conta sem nome de exibição: pede uma vez
   };
   // Logout, sessão expirada ou usuário desativado: nada do usuário anterior pode sobrar na tela
@@ -70,8 +71,9 @@ function App() {
       .catch(() => { /* backend fora do ar: fica no login */ })
       .finally(() => setAuthLoading(false));
     // Qualquer chamada que receba 401 (apiFetch) derruba para o login
-    window.addEventListener('sessao-expirada', saiu);
-    return () => window.removeEventListener('sessao-expirada', saiu);
+    const expirou = () => { saiu(); setAvisoLogin('Sua sessão expirou. Entre de novo para continuar.'); };
+    window.addEventListener('sessao-expirada', expirou);
+    return () => window.removeEventListener('sessao-expirada', expirou);
   }, []);
 
   const handleSaveName = async (name: string) => {
@@ -226,11 +228,11 @@ function App() {
   }
 
   if (!dbUser) {
-    return <LoginScreen onLogin={entrou} systemName={systemName} />;
+    return <LoginScreen onLogin={entrou} systemName={systemName} aviso={avisoLogin} />;
   }
 
   return (
-    <div className="lx-shell" data-theme={theme}>
+    <div className="lx-shell">
       {showNameModal && <NameCaptureModal onSubmit={handleSaveName} />}
       {/* ── Painel Esquerdo / Sidebar ───────────────────────────────────── */}
       <div className="lx-sidebar">
@@ -304,15 +306,6 @@ function App() {
             {activeTab === 'perfil' && 'Perfil'}
             {activeTab === 'admin' && 'Painel de Administração'}
           </h2>
-          <div className="lx-header-actions">
-            <button
-              className="lx-btn-tool app-theme-btn"
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              title={`Mudar para modo ${theme === 'light' ? 'escuro' : 'claro'}`}
-            >
-              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} color="var(--gold)" />}
-            </button>
-          </div>
         </div>
 
         <AlertaPje pje={sync?.pje} onIrAoQuadro={() => handleDashboardNavigate('prazos')} />

@@ -18,21 +18,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 28px 20px;
-}
-[data-theme="dark"] .prazo-panel {
-  --pz-col: #111111;
-  --pz-navy: #f8fafc;
-  --pz-navy-hover: #e2e8f0;
-  --pz-on-navy: #06152c;
-  --pz-acento-txt: #e2e8f0;
-  --pz-acento-tint: rgba(148, 163, 184, 0.16);
-  --pz-acento-borda: rgba(148, 163, 184, 0.5);
-  --pz-envio-bg: rgba(148, 163, 184, 0.07);
-  --pz-texto-2: #a1a1aa;
-  --pz-texto-3: #8b8b94;
-  --pz-sombra: none;
-  --pz-sombra-hover: 0 4px 12px rgba(0, 0, 0, 0.4);
+  padding: 16px 16px 20px;
 }
 
 /* ── Cabeçalho da visão: título + ações ───────────────────────────── */
@@ -94,7 +80,8 @@
   background: var(--bg-card);
   color: var(--pz-texto-3);
 }
-.prazo-busca:focus-within { border-color: var(--pz-acento-borda); }
+/* Anel de foco no contêiner: o input interno não tem borda própria */
+.prazo-busca:focus-within { border-color: var(--pz-acento-borda); outline: 2px solid var(--urg-semana); outline-offset: 2px; }
 .prazo-busca input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text-primary); font: inherit; font-size: 13px; }
 .prazo-busca input::placeholder { color: var(--pz-texto-3); }
 .prazo-busca-limpar { display: inline-flex; border: 0; background: none; color: var(--pz-texto-3); cursor: pointer; padding: 0; }
@@ -149,7 +136,8 @@
   min-width: 0;
   min-height: 0;
 }
-.prazo-kanban--quadro { grid-auto-columns: minmax(292px, 1fr); flex: 1 0 460px; }
+/* 6 colunas × 260 + 5 gaps de 14 = 1.630 px: cabe em 1920 sem rolagem (com 292 passava 190 px) */
+.prazo-kanban--quadro { grid-auto-columns: minmax(260px, 1fr); flex: 1 0 460px; }
 
 .prazo-col {
   --cor: #64748b;
@@ -175,7 +163,6 @@
 .prazo-col-body { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 10px; overflow-y: auto; flex: 1; min-height: 0; }
 .prazo-col-empty { font-size: 12.5px; color: var(--pz-texto-3); text-align: center; padding: 18px 0; }
 .prazo-col-alvo { border: 1.5px dashed #d0d5dd; border-radius: 10px; padding: 26px 12px; text-align: center; font-size: 12.5px; color: var(--pz-texto-3); }
-[data-theme="dark"] .prazo-col-alvo { border-color: var(--border); }
 .prazo-col-alvo:empty { display: none; }
 .prazo-col-mais {
   flex: none;
@@ -194,8 +181,6 @@
 /* Rolagem discreta */
 .prazo-kanban::-webkit-scrollbar, .prazo-col-body::-webkit-scrollbar { width: 8px; height: 8px; }
 .prazo-kanban::-webkit-scrollbar-thumb, .prazo-col-body::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 8px; }
-[data-theme="dark"] .prazo-kanban::-webkit-scrollbar-thumb,
-[data-theme="dark"] .prazo-col-body::-webkit-scrollbar-thumb { background: #333; }
 .prazo-kanban::-webkit-scrollbar-track, .prazo-col-body::-webkit-scrollbar-track { background: transparent; }
 
 .prazo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cor); flex: none; }
@@ -220,10 +205,6 @@
 .prazo-av--2 { background: #dcfce7; color: #15803d; }
 .prazo-av--3 { background: #ede9fe; color: #6d28d9; }
 .prazo-av--x { background: var(--bg-input); color: var(--text-secondary); }
-[data-theme="dark"] .prazo-av--0 { background: rgba(208, 170, 100, 0.2); color: #e6c566; }
-[data-theme="dark"] .prazo-av--1 { background: rgba(37, 99, 235, 0.22); color: #93c5fd; }
-[data-theme="dark"] .prazo-av--2 { background: rgba(22, 163, 74, 0.22); color: #86efac; }
-[data-theme="dark"] .prazo-av--3 { background: rgba(124, 58, 237, 0.24); color: #c4b5fd; }
 
 .prazo-envio-nome { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12.5px; font-weight: 600; }
 .prazo-envio-nome small { font-size: 12px; font-weight: 400; color: var(--pz-texto-2); }
@@ -287,7 +268,7 @@
   cursor: grab;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.prazo-card:hover, .prazo-card:focus-visible { border-color: var(--pz-acento-borda); box-shadow: var(--pz-sombra-hover); outline: none; }
+.prazo-card:hover, .prazo-card:focus-visible { border-color: var(--pz-acento-borda); box-shadow: var(--pz-sombra-hover); }
 .prazo-card:active { cursor: grabbing; }
 .prazo-card--done { opacity: 0.72; }
 .prazo-card--done .prazo-card-title { text-decoration: line-through; }
@@ -297,9 +278,6 @@
 .prazo-prio--alta { background: #fee2e2; color: #b91c1c; }
 .prazo-prio--media { background: #fef3c7; color: #b45309; }
 .prazo-prio--baixa { background: #eef0f3; color: #475467; }
-[data-theme="dark"] .prazo-prio--alta { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
-[data-theme="dark"] .prazo-prio--media { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
-[data-theme="dark"] .prazo-prio--baixa { background: var(--bg-input); color: var(--text-secondary); }
 .prazo-card-case { font-size: 13px; color: var(--pz-texto-2); font-variant-numeric: tabular-nums; }
 /* Uma linha só: o caminho completo fica no title */
 .prazo-card-pje { font-size: 12px; color: var(--pz-texto-3); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -376,7 +354,6 @@
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.9rem;
-  outline: none;
   transition: border-color 0.15s ease;
 }
 .prazo-field input:focus,
@@ -485,7 +462,7 @@
 .prazo-fp-campo select:hover,
 .prazo-fp-multi summary:hover { border-color: var(--pz-acento-borda); }
 .prazo-fp-campo select:focus-visible,
-.prazo-fp-multi summary:focus-visible { outline: none; border-color: var(--pz-acento-borda); box-shadow: 0 0 0 3px var(--pz-acento-tint); }
+.prazo-fp-multi summary:focus-visible { border-color: var(--pz-acento-borda); }
 .prazo-fp-campo--on .prazo-fp-rotulo { color: var(--pz-acento-txt); }
 .prazo-fp-campo--on select,
 .prazo-fp-campo--on .prazo-fp-multi summary { border-color: var(--pz-acento-borda); background-color: var(--pz-acento-tint); font-weight: 600; }

@@ -53,7 +53,6 @@ export default function NameCaptureModal({ onSubmit }: { onSubmit: (name: string
               border: '2px solid transparent',
               borderRadius: '12px',
               color: 'var(--text-primary)',
-              outline: 'none',
               transition: 'all 0.2s ease',
               boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
             }}

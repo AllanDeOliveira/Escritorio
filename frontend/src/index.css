@@ -24,9 +24,7 @@
   --primary: #06152c;
   --primary-dim: rgba(6, 21, 44, 0.08);
   --primary-glow: rgba(208, 170, 100, 0.3);
-  /* Texto que sempre contrasta com var(--primary), independente do tema
-     (--primary vira branco no tema escuro, então "color: white" fixo em cima
-     dele deixava o texto invisível) */
+  /* Texto sobre var(--primary) */
   --on-primary: #ffffff;
   --secondary: #d0aa64;
   --gold: #d0aa64;
@@ -56,35 +54,6 @@
   --t: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-[data-theme="dark"] {
-  --bg-shell: #0a0a0a;
-  --bg-sidebar: #050505;
-  --bg-main: #0a0a0a;
-  --bg-card: #141414;
-  --bg-card-hover: #1a1a1a;
-  --bg-input: #1a1a1a;
-
-  --border: #262626;
-  --border-active: #d0aa64;
-
-  --primary: #ffffff;
-  --primary-dim: rgba(255, 255, 255, 0.08);
-  --primary-glow: rgba(208, 170, 100, 0.15);
-  --on-primary: #06152c;
-
-  --text-primary: #f8fafc;
-  --text-secondary: #a1a1aa;
-  --text-muted: #8b8b94;
-  --text-sidebar: #ffffff;
-  --text-sidebar-dim: #a1a1aa;
-
-  --urg-vencido: #f87171;
-  --urg-hoje: #fb923c;
-  --urg-semana: #60a5fa;
-  --urg-triagem: #a78bfa;
-  --urg-futuro: #a1a1aa;
-  --urg-ok: #4ade80;
-}
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    RESET
@@ -106,6 +75,10 @@ body {
   overflow: hidden;
 }
 
+/* Foco visível (teclado) em tudo; sobre os fundos escuros (sidebar, login) o anel é dourado */
+:focus-visible { outline: 2px solid var(--urg-semana); outline-offset: 2px; }
+.lx-sidebar :focus-visible, .lx-login-screen :focus-visible { outline-color: var(--gold); }
+
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    SHELL LAYOUT
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -114,11 +87,6 @@ body {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  /* Redeclara explicitamente aqui: [data-theme="dark"] fica nesta div, não em
-     <body>, então "color" herdado de body ficava preso ao --text-primary do
-     tema claro mesmo com o tema escuro ativo (body está FORA do escopo do
-     seletor de tema). Qualquer texto sem cor própria herdava o valor errado. */
-  color: var(--text-primary);
 }
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -270,31 +238,6 @@ body {
   color: var(--text-sidebar-dim);
 }
 
-.lx-btn-logout {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0.875rem;
-  border-radius: var(--r-sm);
-  background: transparent;
-  border: none;
-  color: var(--error);
-  font-family: var(--font);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: var(--t);
-  text-align: left;
-  width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  margin-top: 0.5rem;
-}
-
-.lx-btn-logout:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
-
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN AREA
@@ -323,12 +266,6 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
-}
-
-.lx-header-actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
 }
 
 @keyframes pulse {
@@ -486,10 +423,6 @@ body {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    SPINNER
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.lx-spin {
-  animation: spin 1s linear infinite;
-}
-
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -517,12 +450,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.15); /* era branco translúcido (sobra do tema escuro): invisível no claro */
   border-radius: 99px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.3);
 }
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -661,107 +594,6 @@ body {
   letter-spacing: 0.12em;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   LOGIN SCREEN
-══════════════════════════════════════════════════════════════════════════════ */
-.lx-login-screen {
-  min-height: 100vh;
-  width: 100vw;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #06152c;
-  position: relative;
-  overflow: hidden;
-}
-
-.lx-login-bg-glow {
-  position: absolute;
-  width: 600px;
-  height: 600px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(208, 170, 100, 0.12) 0%, transparent 70%);
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  animation: lx-login-pulse 4s ease-in-out infinite;
-}
-
-.lx-login-card {
-  position: relative;
-  z-index: 1;
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(208, 170, 100, 0.2);
-  border-radius: 24px;
-  padding: 3rem 3.5rem;
-  width: 100%;
-  max-width: 440px;
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.lx-login-logo-wrap {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: rgba(208, 170, 100, 0.12);
-  border: 2px solid rgba(208, 170, 100, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 1.75rem;
-  box-shadow: 0 0 40px rgba(208, 170, 100, 0.15);
-}
-
-.lx-login-logo-wrap img {
-  width: 52px;
-  height: 52px;
-  object-fit: contain;
-}
-
-.lx-login-title {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: #ffffff;
-  letter-spacing: -0.03em;
-  margin-bottom: 0.4rem;
-}
-
-.lx-login-subtitle {
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.45);
-  margin-bottom: 2.5rem;
-  line-height: 1.5;
-}
-
-.lx-login-error {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  font-size: 0.8rem;
-  width: 100%;
-  margin-top: 0.5rem;
-  text-align: left;
-}
-
-.lx-login-footer-text {
-  margin-top: 2rem;
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.25);
-  line-height: 1.5;
-}
-
 .lx-btn-logout {
   display: flex;
   align-items: center;
@@ -770,7 +602,7 @@ body {
   padding: 0.5rem 0.5rem;
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.6); /* era 0.35 (3,2:1 em 12,5 px) */
   font-family: var(--font);
   font-size: 0.78rem;
   font-weight: 500;
@@ -778,6 +610,9 @@ body {
   border-radius: var(--r-sm);
   transition: var(--t);
   margin-top: 0.5rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .lx-btn-logout:hover {
@@ -796,20 +631,6 @@ body {
   gap: 1.5rem;
   color: rgba(255, 255, 255, 0.5);
   font-size: 0.9rem;
-}
-
-@keyframes lx-login-pulse {
-
-  0%,
-  100% {
-    opacity: 0.8;
-    transform: translate(-50%, -50%) scale(1);
-  }
-
-  50% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1.08);
-  }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -847,12 +668,13 @@ body {
   z-index: 2000;
 }
 
-/* ── Login Screen ────────────────────────────────────────────── */
+/* ── Login Screen (bloco único: antes havia dois, com valores conflitantes) ── */
 .lx-login-screen {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100vw;
   background-color: var(--primary);
   position: relative;
   overflow: hidden;
@@ -866,26 +688,44 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  border-radius: 50%;
   pointer-events: none;
+  animation: lx-login-pulse 4s ease-in-out infinite;
+}
+
+@keyframes lx-login-pulse {
+  0%, 100% { opacity: 0.8; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
 }
 
 .lx-login-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(12px);
-  padding: 3rem;
-  border-radius: var(--r-xl);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  width: 100%;
-  max-width: 420px;
-  text-align: center;
   position: relative;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  max-width: 420px;
+  padding: 3rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px; /* era var(--r-xl), que não existia: o cartão saía com canto reto */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .lx-login-logo-wrap {
+  width: 80px;
+  height: 80px;
   margin-bottom: 1.5rem;
+  border-radius: 50%;
+  background: rgba(208, 170, 100, 0.12);
+  border: 2px solid rgba(208, 170, 100, 0.35);
+  box-shadow: 0 0 40px rgba(208, 170, 100, 0.15);
   display: flex;
+  align-items: center;
   justify-content: center;
 }
 
@@ -899,6 +739,7 @@ body {
   color: #ffffff;
   font-size: 1.5rem;
   font-weight: 600;
+  letter-spacing: -0.03em;
   margin-bottom: 0.5rem;
 }
 
@@ -910,25 +751,28 @@ body {
 }
 
 .lx-login-error {
-  margin-top: 1.5rem;
-  padding: 0.75rem;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border-radius: 8px;
-  font-size: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  width: 100%;
+  margin-top: 1.5rem;
+  padding: 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  color: #fca5a5; /* era #ef4444 (4,5:1, no limite); 9,6:1 sobre o navy */
+  font-size: 0.85rem;
+  text-align: left;
 }
 
 .lx-login-footer-text {
   margin-top: 2rem;
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.6); /* era 0.4 (3,8:1 em 12 px) */
   line-height: 1.5;
 }
+
 /* -- TOAST NOTIFICATIONS (PREMIUM) ------------------------------------------ */
 .lx-toast-container {
   position: fixed;
@@ -1029,11 +873,6 @@ body {
 .lx-toast-info { border-left: 4px solid var(--gold); color: var(--gold); }
 .lx-toast-info .lx-toast-icon { background: rgba(208, 170, 100, 0.1); }
 
-[data-theme="dark"] .lx-toast {
-  background: rgba(20, 20, 20, 0.95);
-  border-color: rgba(255,255,255,0.1);
-}
-
 /* ── App.tsx: estilos extraídos de style={{}} inline ────────────────────── */
 
 .app-loading-icon { animation: spin 1s linear infinite; color: #d0aa64; }
@@ -1044,8 +883,6 @@ body {
 .app-user-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .app-truncate-120 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
 .app-icon-btn-ghost { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 0.2rem; display: flex; align-items: center; }
-
-.app-theme-btn { padding: 0.5rem; background: var(--bg-card); border: 1px solid var(--border); }
 
 .app-perfil-panel { padding: 3rem; }
 .app-perfil-content { max-width: 600px; margin: 0 auto; }
@@ -1067,7 +904,8 @@ body {
 .app-robo-token code { flex: 1 1 100%; word-break: break-all; font-size: 0.8rem; }
 .app-robo-linha { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 0.5rem 0; font-size: 0.8rem; color: var(--text-secondary); }
 .app-perfil-input-sm { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-shell); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); margin-top: 0.25rem; }
-.app-save-config-btn { justify-content: center; background: rgba(208, 170, 100, 0.1); color: var(--gold); border: 1px solid rgba(208, 170, 100, 0.2); }
+/* Texto navy: dourado sobre branco dava 2,0:1 */
+.app-save-config-btn { justify-content: center; background: rgba(208, 170, 100, 0.1); color: var(--primary); border: 1px solid rgba(208, 170, 100, 0.2); }
 
 .app-confirm-overlay { z-index: 999999; backdrop-filter: blur(5px); background: rgba(0,0,0,0.6); }
 .app-confirm-modal { background: var(--bg-card); padding: 2rem; border-radius: 16px; max-width: 400px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px var(--border); text-align: center; }
