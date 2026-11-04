@@ -776,6 +776,9 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
   };
   const filtrosAtivos = FILTROS_QUADRO.filter(f => filtrosQuadro[f.key]?.length);
   const nFiltros = filtrosAtivos.length;
+  // Com busca/filtro ativo, coluna vazia diz "Nenhum resultado", nunca "Nenhum vencido" (seria falso)
+  const filtrando = Boolean(buscaQuadro.trim()) || nFiltros > 0;
+  const limparBuscaEFiltros = () => { setBuscaQuadro(''); setFiltrosQuadro({}); };
   const marcadosFiltro = (key: string) => filtrosQuadro[key] || [];
   const alternarFiltro = (key: string, valor: string) => setFiltrosQuadro(fs => {
     const atual = fs[key] || [];
@@ -798,8 +801,10 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
     const cor = itens.length === 0 && c.key !== 'concluido' ? 'var(--urg-futuro)' : COR_TEMPO[c.key];
     return { key: c.key, label: c.label, cor, empty: c.empty, itens: porPrioridade ? ordenarPorPrioridade(itens) : itens, porPrioridade };
   });
+  const totalFiltrado = colunasQuadro.reduce((acc, c) => acc + c.itens.length, 0);
 
-  const PRIO_COR: Record<string, string> = { ALTA: '#b91c1c', MEDIA: '#b45309', BAIXA: '#667085', '': '#98a2b3' };
+  // Tokens de urgência: todos >= 4,5:1 sobre a coluna (o hex antigo do "Sem prioridade" dava 2,2:1)
+  const PRIO_COR: Record<string, string> = { ALTA: 'var(--urg-vencido)', MEDIA: 'var(--urg-hoje)', BAIXA: 'var(--urg-futuro)', '': 'var(--pz-texto-3)' };
   const rotuloPrio = (k?: string | null) => PRIORIDADES.find(x => x.key === k)?.label;
 
   const cardPrazo = (p: Prazo) => {
@@ -846,7 +851,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
           <div className="prazo-card-tags">
             <button type="button" className="prazo-card-editar" title="Editar prazo"
               onClick={e => { e.stopPropagation(); abrirEdicao(p); }}>
-              Editar prazo
+              Editar
             </button>
             {(origem?.tribunal || p.origemPje?.tribunal) && <span className="prazo-tag">{origem?.tribunal || p.origemPje?.tribunal}</span>}
           </div>
@@ -982,7 +987,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
             </div>
           </div>
 
-          {loading ? (
+          {loading && totalTodos === 0 ? (
+            // Spinner só na primeira carga: recarregar depois de concluir/pegar/editar não apaga o quadro
             <div className="prazo-loading"><Loader2 className="lx-spin" size={32} /></div>
           ) : totalPrazos === 0 && recorte !== 'todos' && totalTodos > 0 ? (
             <div className="prazo-empty-all">
@@ -994,6 +1000,15 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
                   <button className="prazo-btn prazo-btn--navy" onClick={() => setRecorte('semDono')}>Ver sem dono ({nRecorte('semDono')})</button>
                 )}
                 <button className="lx-btn-tool" onClick={() => setRecorte('todos')}>Ver todos os prazos ({totalTodos})</button>
+              </div>
+            </div>
+          ) : filtrando && totalFiltrado === 0 ? (
+            <div className="prazo-empty-all">
+              <Search size={48} className="prazo-empty-icon" />
+              <h3>Nenhum prazo encontrado</h3>
+              <p>Nada bate com a busca e os filtros atuais.</p>
+              <div className="prazo-empty-actions">
+                <button className="lx-btn-tool" onClick={limparBuscaEFiltros}>Limpar busca e filtros</button>
               </div>
             </div>
           ) : (
@@ -1017,8 +1032,9 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
                       <span className="prazo-col-count">{col.itens.length}</span>
                     </header>
                     <div className="prazo-col-body">
-                      {col.itens.length === 0 && (
-                        <div className={col.key === 'concluido' ? 'prazo-col-alvo' : 'prazo-col-empty'}>{col.empty}</div>
+                      {col.itens.length === 0 && (filtrando
+                        ? <div className="prazo-col-empty">Nenhum resultado</div>
+                        : <div className={col.key === 'concluido' ? 'prazo-col-alvo' : 'prazo-col-empty'}>{col.empty}</div>
                       )}
                       {visiveis.map((p, idx) => {
                         const prio = p.prioridade || '';

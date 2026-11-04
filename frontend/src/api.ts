@@ -16,6 +16,7 @@ export interface Usuario {
 // 401 = sessão acabou (expirou, foi desativada ou a senha mudou em outro lugar): o App volta para o login.
 export async function apiFetch(input: string, init: RequestInit = {}) {
   const r = await fetch(input, { ...init, credentials: 'include' });
-  if (r.status === 401 && !input.endsWith('/api/auth/login')) window.dispatchEvent(new Event('sessao-expirada'));
+  // /me (ninguém logado), /login e /logout respondem 401 sem ser "sessão caiu": não avisam
+  if (r.status === 401 && !/\/api\/auth\/(login|me|logout)$/.test(input)) window.dispatchEvent(new Event('sessao-expirada'));
   return r;
 }
