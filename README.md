@@ -156,7 +156,7 @@ O `.gitignore` já cobre tudo isso. Antes de adicionar exceção com `!`, consid
 ## 🚧 Limitações conhecidas
 
 - Login próprio (`src/infra/auth.js`): senha com scrypt, sessão de 30 dias em cookie httpOnly (o banco guarda só o SHA-256 do token), limite de tentativas por IP e por e-mail, e escrita recusada quando a requisição vem de outro site. Os limites ficam em memória (um processo só).
-- Esqueceu a senha: o admin redefine em "Administração › Equipe e acessos" (não há recuperação por e-mail).
+- Esqueceu a senha: o admin redefine em "Administração › Equipe e acessos", no botão **Nova senha** da pessoa (não há recuperação por e-mail).
 
 ---
 

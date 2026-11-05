@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import './PrazosTab.css';
 import Modal from './Modal';
-import { apiFetch, API, type Usuario } from './api';
+import { apiFetch, API, confirmar, type Usuario } from './api';
 
 const API_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 // `link` vem da API do DJEN: só vira href se for http(s) (nada de javascript:).
@@ -260,10 +260,6 @@ interface PrazosTabProps {
   // Atalho do menu ⋯ para a Administração (equipe e acessos mudou para lá)
   onAbrirEquipe?: () => void;
 }
-
-// Diálogo "Tem certeza?" do App (ele registra window.showConfirm)
-const confirmar = (mensagem: string, aoConfirmar: () => void) =>
-  (window as unknown as { showConfirm: (m: string, f: () => void) => void }).showConfirm(mensagem, aoConfirmar);
 
 type Membro = { id: string; name?: string | null; email: string; ativo?: boolean };
 

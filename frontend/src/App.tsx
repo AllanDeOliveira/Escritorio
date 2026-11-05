@@ -98,6 +98,7 @@ function App() {
       if (d.success) {
         setDbUser(d.user);
         setShowNameModal(false);
+        showToast('Nome atualizado.', 'success');
       } else {
         showToast(d.error || "Erro ao salvar o nome", 'error');
       }
@@ -367,28 +368,25 @@ function App() {
                 </div>
 
                 <div className="app-perfil-form">
-                  <div>
+                  <form onSubmit={e => {
+                    e.preventDefault();
+                    const val = String(new FormData(e.currentTarget).get('nome') || '').trim();
+                    if (val) handleSaveName(val);
+                  }}>
                     <label htmlFor="input-change-name" className="app-perfil-label">Como você deseja ser chamado?</label>
                     <div className="app-perfil-input-row">
                       <input
                         type="text"
-                        defaultValue={dbUser?.name}
+                        name="nome"
+                        defaultValue={dbUser?.name || ''}
                         id="input-change-name"
-                        title="Nome de exibição"
-                        placeholder="Como você deseja ser chamado?"
+                        placeholder="Seu nome de exibição"
                         className="app-perfil-input"
+                        required
                       />
-                      <button
-                        className="lx-btn-primary"
-                        onClick={() => {
-                          const val = (document.getElementById('input-change-name') as HTMLInputElement).value;
-                          if (val) handleSaveName(val);
-                        }}
-                      >
-                        Atualizar
-                      </button>
+                      <button type="submit" className="lx-btn-primary">Salvar nome</button>
                     </div>
-                  </div>
+                  </form>
 
                   <form className="app-perfil-section" onSubmit={e => { e.preventDefault(); trocarSenha(); }}>
                     <div className="app-perfil-section-title">Trocar senha</div>
