@@ -256,7 +256,9 @@ interface PrazosTabProps {
   // Depois de buscar no DJEN: o App relê o status (faixa de robô parado, badge)
   onSincronizado?: () => void;
   // Última leitura do PJe enviada pelo robô de um PC (do status que o App já carrega)
-  pje?: { lastAttemptAt: string | null; lastBy?: string | null };
+  pje?: { lastAttemptAt: string | null; lastBy?: string | null; stale?: boolean };
+  // Última busca no DJEN (o mesmo status que a página inicial mostra)
+  djen?: { lastSuccessAt: string | null; stale: boolean } | null;
   // Atalho do menu ⋯ para a Administração (equipe e acessos mudou para lá)
   onAbrirEquipe?: () => void;
 }
@@ -313,12 +315,21 @@ function dataLocal(iso: string): string {
   return new Date(iso).toLocaleDateString('sv-SE');
 }
 
+/** "hoje às 06:40" / "04/11 às 18:00": barra de situação do quadro */
+function quandoCurto(iso: string): string {
+  const d = new Date(iso);
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? `hoje às ${hora}`
+    : `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${hora}`;
+}
+
 function formatDate(iso: string): string {
   // Ano com 4 dígitos: com 2 dígitos, o ano 2406 aparecia como "05" e escondia o erro.
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAbrirEquipe }: PrazosTabProps) {
+export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, djen, onAbrirEquipe }: PrazosTabProps) {
   const [todosGroups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
@@ -454,9 +465,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
 
   // O PJe não é lido daqui: o robô roda no PC de quem tem o certificado (robo-pje/) e envia a
   // leitura ao servidor. A tela só mostra quando foi a última e quem enviou.
-  const ultimaLeituraPje = pje?.lastAttemptAt
-    ? `${new Date(pje.lastAttemptAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${pje.lastBy ? ` por ${pje.lastBy}` : ''}`
-    : 'nenhuma ainda';
+  const ultimaLeituraPje = pje?.lastAttemptAt ? `${quandoCurto(pje.lastAttemptAt)}${pje.lastBy ? ` por ${pje.lastBy}` : ''}` : 'nenhuma ainda';
+  const ultimaBuscaDjen = djen?.lastSuccessAt ? quandoCurto(djen.lastSuccessAt) : 'nenhuma ainda';
 
   const abrirNovo = () => {
     setEditingId(null);
@@ -851,8 +861,11 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
   return (
     <div className="lx-single-panel prazo-panel">
           {/* ── Quadro: título, visão e resumo · busca, prioridade, mais, novo ── */}
+          {/* Linha 1: o que vejo (busca, recorte, filtros) à esquerda; ações à direita.
+              Linha 2: de onde vêm os prazos (DJEN e robô do PJe) */}
           <div className="prazo-topo">
-            <div className="prazo-topo-acoes">
+            <div className="prazo-topo-linha">
+            <div className="prazo-topo-grupo">
               <div className="prazo-busca">
                 <Search size={14} />
                 <input value={buscaQuadro} onChange={e => setBuscaQuadro(e.target.value)} placeholder="Buscar processo ou cliente…" aria-label="Buscar prazo por processo ou cliente" />
@@ -880,7 +893,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
                   <ChevronDown size={12} />
                 </button>
                 {menu === 'filtros' && (
-                  <div className="prazo-menu prazo-menu--direita prazo-fp" role="dialog" aria-label="Filtros do quadro">
+                  <div className="prazo-menu prazo-fp" role="dialog" aria-label="Filtros do quadro">
                     <div className="prazo-fp-topo">
                       <span className="prazo-fp-titulo"><SlidersHorizontal size={14} /> Filtros</span>
                       {nFiltros > 0 && (
@@ -907,6 +920,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
                   </div>
                 )}
               </div>
+            </div>
+            <div className="prazo-topo-grupo">
               <div className="prazo-menu-wrap">
                 <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--icon" title="Mais ações" aria-expanded={menu === 'quadro'} onClick={() => setMenu(menu === 'quadro' ? null : 'quadro')}>
                   <MoreHorizontal size={16} />
@@ -927,16 +942,21 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
                   </div>
                 )}
               </div>
-              <span className="prazo-pje-info"
-                title={`Os prazos do PJe são lidos pelo robô no PC de quem tem o certificado (06:40 e 12:40, dias úteis). Última leitura: ${ultimaLeituraPje}.`}>
-                <CalendarClock size={14} /> PJe: {ultimaLeituraPje}
-              </span>
-              <button type="button" className="prazo-btn prazo-btn--ghost" onClick={sincronizarDjen} disabled={syncing}
-                title="Busca as intimações publicadas no DJEN; cada uma vira card no quadro">
-                {syncing ? <Loader2 className="lx-spin" size={14} /> : <RefreshCw size={14} />}
-                {syncing ? 'Consultando DJEN…' : 'Buscar no DJEN'}
-              </button>
               <button type="button" className="prazo-btn prazo-btn--navy" onClick={abrirNovo}><Plus size={15} /> Novo prazo</button>
+            </div>
+            </div>
+            <div className="prazo-status">
+              <span className={`prazo-status-item ${djen?.stale ? 'prazo-status-item--alerta' : ''}`}>
+                <RefreshCw size={13} /> DJEN: última busca {ultimaBuscaDjen}{djen?.stale && ' (atrasada)'}
+                <button type="button" className="prazo-status-acao" onClick={sincronizarDjen} disabled={syncing}
+                  title="Busca as intimações publicadas no DJEN; cada uma vira card no quadro">
+                  {syncing ? <><Loader2 className="lx-spin" size={12} /> Buscando…</> : 'Buscar agora'}
+                </button>
+              </span>
+              <span className={`prazo-status-item ${pje?.stale ? 'prazo-status-item--alerta' : ''}`}>
+                <CalendarClock size={13} /> PJe: última leitura {ultimaLeituraPje}{pje?.stale && ' (atrasada)'}
+                <small>robô no PC do certificado, às 06:40 e 12:40 em dias úteis</small>
+              </span>
             </div>
           </div>
 
