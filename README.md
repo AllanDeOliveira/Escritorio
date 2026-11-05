@@ -104,7 +104,7 @@ Testes: `npm test` nos dois projetos.
 cd backend && npm run criar-admin -- voce@jvo.adv.br "Seu Nome"
 ```
 
-Depois, o admin cadastra o resto da equipe (nome, e-mail e senha inicial) em Prazos › ⋯ › **Equipe e acessos**, onde também desativa quem sai do escritório. Cada um troca a própria senha na aba Perfil.
+Depois, o admin cadastra o resto da equipe (nome, e-mail e senha inicial) em **Administração › Equipe e acessos**, onde também desativa quem sai do escritório. Cada um troca a própria senha na aba Perfil.
 
 ---
 
@@ -156,7 +156,7 @@ O `.gitignore` já cobre tudo isso. Antes de adicionar exceção com `!`, consid
 ## 🚧 Limitações conhecidas
 
 - Login próprio (`src/infra/auth.js`): senha com scrypt, sessão de 30 dias em cookie httpOnly (o banco guarda só o SHA-256 do token), limite de tentativas por IP e por e-mail, e escrita recusada quando a requisição vem de outro site. Os limites ficam em memória (um processo só).
-- Esqueceu a senha: o admin redefine em "Equipe e acessos" (não há recuperação por e-mail).
+- Esqueceu a senha: o admin redefine em "Administração › Equipe e acessos" (não há recuperação por e-mail).
 
 ---
 

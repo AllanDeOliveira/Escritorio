@@ -2,31 +2,13 @@
   padding: 2rem;
 }
 
+/* Coluna única e estreita: as linhas da equipe não esticam até 1600 px */
 .admin-content {
-  max-width: 1200px;
+  max-width: 880px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-}
-
-.admin-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 1rem;
-}
-
-.admin-title {
-  font-size: 1.8rem;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.admin-subtitle {
-  color: var(--text-secondary);
-  margin: 0.2rem 0 0 0;
+  gap: 1.5rem;
 }
 
 .admin-stats-grid {
@@ -35,3 +17,19 @@
   gap: 1.5rem;
 }
 
+.admin-secao { gap: 1rem; }
+.admin-secao-titulo { display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
+.admin-secao-titulo svg { color: var(--text-secondary); }
+
+.admin-ajuda { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; line-height: 1.45; color: var(--text-secondary); }
+.admin-ajuda strong { color: var(--text-primary); }
+
+/* Reaproveita as linhas do antigo modal (PrazosTab.css), sem o limite de altura do modal */
+.admin-perfis { max-height: none; overflow: visible; }
+.admin-perfis .prazo-perfil { padding: 0.55rem 0.5rem; cursor: default; }
+.admin-perfis .prazo-perfil-robo { font-size: 0.8rem; }
+/* Mesma largura para Desativar, Reativar e "Você": a caixa do Robô PJe fica alinhada em todas as linhas */
+.admin-acao, .admin-voce { width: 84px; justify-content: center; flex: none; }
+.admin-voce { display: inline-flex; font-size: 12px; color: var(--text-secondary); }
+
+.admin-nome { display: flex; flex-direction: column; }
