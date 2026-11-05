@@ -1,6 +1,6 @@
 /* Controle de Prazos — caixa de intimações e quadro de prazos (design "Controle de Prazos v2").
    Cores de acento por coluna chegam em --cor (inline); o resto sai dos tokens do tema. */
-.prazo-panel {
+:root {
   --pz-col: #eceef2;
   --pz-navy: #0f172a;
   --pz-navy-hover: #1e293b;
@@ -14,7 +14,8 @@
   --pz-texto-3: #5b6575; /* era #98a2b3 (2,5:1) */
   --pz-sombra: 0 1px 2px rgba(16, 24, 40, 0.05);
   --pz-sombra-hover: 0 4px 12px rgba(16, 24, 40, 0.08);
-
+}
+.prazo-panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -366,7 +367,7 @@
 .prazo-import-tpl, .prazo-import-up { width: 100%; justify-content: center; }
 .prazo-import-hint { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; border-top: 1px solid var(--border); padding-top: 0.75rem; }
 
-/* Modal "Equipe e acessos" (admin) */
+/* Linhas da equipe (Administração › Equipe e acessos) */
 .prazo-perfis { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
 .prazo-perfil { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.5rem; border-radius: 7px; cursor: pointer; color: var(--text-primary); }
 .prazo-perfil:hover { background: var(--bg-input); }

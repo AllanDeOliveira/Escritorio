@@ -45,7 +45,7 @@ export default function RoboPjePerfil({ showToast }: { showToast: (m: string, t?
         Os prazos do PJe são lidos por um robô no PC que tem o certificado. Lá, rode
         <code> npm run robo-pje -- configurar </code> na pasta <code>robo-pje</code> e cole o token gerado aqui.
         O token só serve para o robô enviar a leitura — não abre o sistema. Só gera token quem o
-        administrador liberou (Equipe e acessos › Robô PJe); trocar a senha revoga os tokens.
+        administrador liberou (Administração › Equipe e acessos › Robô PJe); trocar a senha revoga os tokens.
       </p>
       {novo && (
         <div className="app-robo-token">

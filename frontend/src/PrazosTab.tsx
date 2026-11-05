@@ -256,9 +256,11 @@ interface PrazosTabProps {
   onSincronizado?: () => void;
   // Última leitura do PJe enviada pelo robô de um PC (do status que o App já carrega)
   pje?: { lastAttemptAt: string | null; lastBy?: string | null };
+  // Atalho do menu ⋯ para a Administração (equipe e acessos mudou para lá)
+  onAbrirEquipe?: () => void;
 }
 
-type Membro = { id: string; name?: string | null; email: string; noQuadro?: boolean; ativo?: boolean; podeRodarRobo?: boolean };
+type Membro = { id: string; name?: string | null; email: string; ativo?: boolean };
 
 const emptyForm = {
   title: '', caseReference: '', responsibleName: '', responsibleId: '',
@@ -315,7 +317,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: PrazosTabProps) {
+export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAbrirEquipe }: PrazosTabProps) {
   const [todosGroups, setGroups] = useState<Groups>({ vencido: [], hoje: [], semana: [], futuro: [], concluido: [] });
   const [loading, setLoading] = useState(true);
 
@@ -339,10 +341,6 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
   // Importação
   const [importOpen, setImportOpen] = useState(false);
 
-  // Perfis do quadro "Por pessoa" (só admin gerencia)
-  const [perfisOpen, setPerfisOpen] = useState(false);
-  const [novoPerfil, setNovoPerfil] = useState({ name: '', email: '', senha: '' });
-  const [salvandoPerfil, setSalvandoPerfil] = useState(false);
   const isAdmin = dbUser?.role === 'admin';
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -450,70 +448,6 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
   const ultimaLeituraPje = pje?.lastAttemptAt
     ? `${new Date(pje.lastAttemptAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${pje.lastBy ? ` por ${pje.lastBy}` : ''}`
     : 'nenhuma ainda';
-
-  const marcarNoQuadro = async (u: Membro, noQuadro: boolean) => {
-    try {
-      const r = await apiFetch(`${API}/api/users/${u.id}/quadro`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ noQuadro }),
-      });
-      const d = await r.json();
-      if (d.success) setEquipe(eq => eq.map(x => x.id === u.id ? { ...x, noQuadro } : x));
-      else showToast(d.error || 'Erro ao atualizar o quadro.', 'error');
-    } catch { showToast('Erro de conexão.', 'error'); }
-  };
-
-  // Robô do PJe: só quem o admin libera gera token e envia leitura (a leitura dá baixa em prazos)
-  const marcarRobo = async (u: Membro, podeRodarRobo: boolean) => {
-    try {
-      const r = await apiFetch(`${API}/api/users/${u.id}/robo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ podeRodarRobo }),
-      });
-      const d = await r.json();
-      if (d.success) setEquipe(eq => eq.map(x => x.id === u.id ? { ...x, podeRodarRobo } : x));
-      else showToast(d.error || 'Erro ao atualizar o robô.', 'error');
-    } catch { showToast('Erro de conexão.', 'error'); }
-  };
-
-  // Desativar = ex-funcionário: não entra mais e é desconectado na hora (os prazos dele ficam)
-  const marcarAtivo = async (u: Membro, ativo: boolean) => {
-    try {
-      const r = await apiFetch(`${API}/api/users/${u.id}/ativo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ativo }),
-      });
-      const d = await r.json();
-      if (d.success) setEquipe(eq => eq.map(x => x.id === u.id ? { ...x, ativo } : x));
-      else showToast(d.error || 'Erro ao atualizar o usuário.', 'error');
-    } catch { showToast('Erro de conexão.', 'error'); }
-  };
-
-  const adicionarPerfil = async () => {
-    setSalvandoPerfil(true);
-    try {
-      const r = await apiFetch(`${API}/api/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(novoPerfil),
-      });
-      const d = await r.json();
-      if (d.success) {
-        setEquipe(eq => [...eq.filter(x => x.id !== d.user.id), d.user].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email)));
-        setNovoPerfil({ name: '', email: '', senha: '' });
-        showToast(`${d.user.name || d.user.email} já pode entrar com a senha cadastrada.`, 'success');
-      } else {
-        showToast(d.error || 'Erro ao cadastrar.', 'error');
-      }
-    } catch {
-      showToast('Erro de conexão.', 'error');
-    } finally {
-      setSalvandoPerfil(false);
-    }
-  };
 
   const abrirNovo = () => {
     setEditingId(null);
@@ -728,9 +662,6 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
 
   // Seletor de responsável: sem a lista da equipe, ao menos o próprio usuário
   const opcoesEquipe: Membro[] = equipe.length ? equipe : dbUser?.id ? [{ id: dbUser.id, name: dbUser.name, email: dbUser.email }] : [];
-  // Colunas do "Por pessoa" e destinos do "Enviar para": quem o admin pôs no quadro.
-  // Enquanto ninguém foi marcado, vale a equipe toda (comportamento anterior).
-  const marcados = opcoesEquipe.filter(u => u.noQuadro);
   // Cor fixa por posição na equipe (4 tons que se repetem, em .prazo-av--N no CSS): avatar, coluna e contagem
   const idxPessoa = (id?: string | null) => opcoesEquipe.findIndex(u => u.id === id);
   const avatar = (id?: string | null, nome?: string | null, cls = '') => {
@@ -967,7 +898,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
                       <Trash2 size={14} /> Lixeira
                     </button>
                     {isAdmin && (
-                      <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setPerfisOpen(true); }}>
+                      <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); onAbrirEquipe?.(); }}>
                         <Users size={14} /> Equipe e acessos
                       </button>
                     )}
@@ -1247,62 +1178,6 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje }: Pr
                   </button>
                 </div>
               ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Perfis do quadro (admin) */}
-      {perfisOpen && isAdmin && (
-        <div className="prazo-modal-overlay" onClick={() => !salvandoPerfil && setPerfisOpen(false)}>
-          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
-            <div className="prazo-modal-header">
-              <h3>Equipe e acessos</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => setPerfisOpen(false)}><X size={18} /></button>
-            </div>
-            <div className="prazo-form">
-              <p className="prazo-import-hint">
-                Quem sai do escritório: <strong>Desativar</strong> (não entra mais e é desconectado na hora; os prazos ficam).
-                Para redefinir a senha de alguém, cadastre de novo o mesmo e-mail com a senha nova (os tokens do robô dela caem).
-                <strong> Robô PJe</strong>: só quem roda o robô no PC com o certificado; desmarcar revoga os tokens.
-                {!marcados.length && ' Marcados no quadro: enquanto ninguém for marcado, aparece a equipe toda.'}
-              </p>
-              <div className="prazo-perfis">
-                {opcoesEquipe.map(u => (
-                  <div key={u.id} className={`prazo-perfil ${u.ativo === false ? 'prazo-perfil--inativo' : ''}`}>
-                    <input type="checkbox" checked={!!u.noQuadro} title="No quadro" aria-label={`${u.name || u.email} no quadro`}
-                      onChange={e => marcarNoQuadro(u, e.target.checked)} />
-                    {avatar(u.id)}
-                    <span className="prazo-envio-nome">
-                      {u.name || u.email}{u.ativo === false && ' (desativado)'}
-                      {u.name && <small>{u.email}</small>}
-                    </span>
-                    <label className="prazo-perfil-robo" title="Pode rodar o robô do PJe">
-                      <input type="checkbox" checked={!!u.podeRodarRobo} onChange={e => marcarRobo(u, e.target.checked)} /> Robô PJe
-                    </label>
-                    {u.id !== dbUser?.id && (
-                      <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--perfil" onClick={() => marcarAtivo(u, u.ativo === false)}>
-                        {u.ativo === false ? 'Reativar' : 'Desativar'}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <form
-                className="prazo-perfil-novo"
-                onSubmit={e => { e.preventDefault(); if (novoPerfil.name.trim() && novoPerfil.email.trim() && novoPerfil.senha.length >= 8) adicionarPerfil(); }}
-              >
-                <span className="prazo-perfis-titulo">Adicionar pessoa (ou redefinir senha)</span>
-                <input type="text" placeholder="Nome" aria-label="Nome" value={novoPerfil.name}
-                  onChange={e => setNovoPerfil(n => ({ ...n, name: e.target.value }))} />
-                <input type="email" placeholder="E-mail de login" aria-label="E-mail de login" value={novoPerfil.email}
-                  onChange={e => setNovoPerfil(n => ({ ...n, email: e.target.value }))} />
-                <input type="password" autoComplete="new-password" placeholder="Senha inicial (mín. 8)" aria-label="Senha inicial" value={novoPerfil.senha}
-                  onChange={e => setNovoPerfil(n => ({ ...n, senha: e.target.value }))} />
-                <button type="submit" className="lx-btn-primary" disabled={salvandoPerfil || !novoPerfil.name.trim() || !novoPerfil.email.trim() || novoPerfil.senha.length < 8}>
-                  {salvandoPerfil ? <Loader2 className="lx-spin" size={14} /> : <Plus size={14} />} Adicionar
-                </button>
-              </form>
             </div>
           </div>
         </div>

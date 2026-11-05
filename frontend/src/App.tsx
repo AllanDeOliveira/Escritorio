@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle,
-  ShieldAlert, BarChart3, Zap, LogOut, Users, CalendarClock
+  ShieldAlert, BarChart3, Zap, LogOut, UserCircle, CalendarClock
 } from 'lucide-react';
 import { apiFetch, API, type Usuario } from './api';
 import AdminPanel from './AdminPanel';
@@ -256,15 +256,15 @@ function App() {
             )}
           </button>
 
-          <button id="tab-perfil" title="Configurações" className={`lx-nav-item ${activeTab === 'perfil' ? 'active' : ''}`} onClick={() => setActiveTab('perfil')}>
-            <Users size={24} />
+          <button id="tab-perfil" title="Perfil" className={`lx-nav-item ${activeTab === 'perfil' ? 'active' : ''}`} onClick={() => setActiveTab('perfil')}>
+            <UserCircle size={24} />
             <span className="lx-nav-text">Perfil</span>
           </button>
 
           {dbUser?.role === 'admin' && (
-            <button id="tab-admin" title="Painel Administrador" className={`lx-nav-item app-nav-item-admin ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
+            <button id="tab-admin" title="Administração" className={`lx-nav-item app-nav-item-admin ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
               <ShieldAlert size={24} color="#d0aa64" />
-              <span className="lx-nav-text app-nav-text-gold">Painel Administrador</span>
+              <span className="lx-nav-text app-nav-text-gold">Administração</span>
             </button>
           )}
         </div>
@@ -301,10 +301,10 @@ function App() {
       <div className="lx-main">
         <div className="lx-header">
           <h2 className="lx-page-title">
-            {activeTab === 'dashboard' && 'Hoje'}
+            {activeTab === 'dashboard' && 'Página Inicial'}
             {activeTab === 'prazos' && 'Prazos'}
             {activeTab === 'perfil' && 'Perfil'}
-            {activeTab === 'admin' && 'Painel de Administração'}
+            {activeTab === 'admin' && 'Administração'}
           </h2>
         </div>
 
@@ -312,7 +312,7 @@ function App() {
 
         {/* ── Aba: Admin ────────────────────────────────────────────── */}
         {activeTab === 'admin' && dbUser?.role === 'admin' && (
-          <AdminPanel />
+          <AdminPanel dbUser={dbUser} showToast={showToast} nomeEscritorio={systemName} config={config} onNomeSalvo={setSystemName} />
         )}
 
 
@@ -336,7 +336,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} pje={sync?.pje} />
+          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} pje={sync?.pje} onAbrirEquipe={() => setActiveTab('admin')} />
         )}
 
 
@@ -391,46 +391,6 @@ function App() {
                   </form>
 
                   <RoboPjePerfil showToast={showToast} />
-
-                  {dbUser?.role === 'admin' && (
-                    <div className="app-perfil-section">
-                      <div className="app-perfil-section-title">Configurações do Escritório (Admin)</div>
-                      <div className="app-perfil-section-col">
-                        <div>
-                          <label htmlFor="input-change-system-name" className="app-perfil-sublabel">Nome do Escritório / Sistema</label>
-                          <input
-                            type="text"
-                            defaultValue={systemName}
-                            id="input-change-system-name"
-                            title="Nome do escritório / sistema"
-                            placeholder="Nome do escritório / sistema"
-                            className="app-perfil-input-sm"
-                          />
-                        </div>
-                        <button
-                          className="lx-btn-tool app-save-config-btn"
-                          onClick={async () => {
-                            const val = (document.getElementById('input-change-system-name') as HTMLInputElement).value;
-                            if (val) {
-                              try {
-                                const r = await apiFetch(`${API}/api/config`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ ...config, nomeEscritorio: val })
-                                });
-                                if ((await r.json()).success) {
-                                  setSystemName(val);
-                                  showToast("Nome do sistema atualizado!", 'success');
-                                }
-                              } catch { showToast("Erro ao salvar.", 'error'); }
-                            }
-                          }}
-                        >
-                          Salvar Configuração Global
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                 </div>
               </div>
