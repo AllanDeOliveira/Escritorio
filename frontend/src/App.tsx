@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, Loader2, Edit3, CheckCircle, AlertCircle, AlertTriangle,
   ShieldAlert, BarChart3, Zap, LogOut, UserCircle, CalendarClock
@@ -7,6 +7,7 @@ import { apiFetch, API, type Usuario } from './api';
 import AdminPanel from './AdminPanel';
 import LoginScreen from './LoginScreen';
 import NameCaptureModal from './NameCaptureModal';
+import Modal from './Modal';
 import RoboPjePerfil from './RoboPjePerfil';
 import PrazosTab from './PrazosTab';
 import DashboardTab, { AlertaPje, resumoDePrazos, type Resumo, type SyncStatus, type PrazoLite } from './DashboardTab';
@@ -45,6 +46,16 @@ function App() {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4000);
   };
+
+  // Modal (<dialog>) fica na camada superior do navegador, acima de qualquer z-index: os avisos
+  // viram popover e são reabertos a cada mudança para aparecer por cima do modal aberto.
+  const toastRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = toastRef.current;
+    if (!el?.showPopover) return;
+    if (el.matches(':popover-open')) el.hidePopover();
+    if (toasts.length) el.showPopover();
+  }, [toasts]);
 
   useEffect(() => { lsSet('lexgen_active_tab', activeTab); }, [activeTab]);
 
@@ -233,7 +244,7 @@ function App() {
 
   return (
     <div className="lx-shell">
-      {showNameModal && <NameCaptureModal onSubmit={handleSaveName} />}
+      {showNameModal && <NameCaptureModal onSubmit={handleSaveName} onClose={dbUser.name ? () => setShowNameModal(false) : undefined} />}
       {/* ── Painel Esquerdo / Sidebar ───────────────────────────────────── */}
       <div className="lx-sidebar">
         <div className="lx-logo">
@@ -400,14 +411,13 @@ function App() {
 
       </div>
 
-      {/* ── Modal de Confirmação ────────────────────────────────────── */}
+      {/* ── Modal de Confirmação (foco inicial em Cancelar: Enter sem querer não apaga nada) ── */}
         {confirmDialog.isOpen && (
-          <div className="lx-modal-overlay app-confirm-overlay">
-            <div className="app-confirm-modal lx-pop-in">
+          <Modal onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="app-confirm-modal lx-pop-in" labelledBy="modal-confirmar">
               <div className="app-confirm-icon">
                 <AlertTriangle size={28} />
               </div>
-              <h3 className="app-confirm-title">Tem certeza?</h3>
+              <h3 id="modal-confirmar" className="app-confirm-title">Tem certeza?</h3>
               <p className="app-confirm-message">
                 {confirmDialog.message}
               </p>
@@ -415,6 +425,7 @@ function App() {
                 <button
                   className="lx-btn-tool app-confirm-cancel-btn"
                   onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+                  data-autofocus
                 >
                   Cancelar
                 </button>
@@ -428,12 +439,11 @@ function App() {
                   Confirmar
                 </button>
               </div>
-            </div>
-          </div>
+          </Modal>
         )}
 
       {/* ── Sistema de Toasts ────────────────────────────────────────── */}
-      <div className="lx-toast-container">
+      <div className="lx-toast-container" ref={toastRef} {...{ popover: 'manual' } /* tipos do React 18 ainda não têm popover */} role="status" aria-live="polite">
           {toasts.map(t => (
             <div
               key={t.id}
