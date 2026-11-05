@@ -349,7 +349,7 @@ function App() {
 
         {/* ── Aba: Prazos ─────────────────────────────────────────────────── */}
         {activeTab === 'prazos' && (
-          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} pje={sync?.pje} onAbrirEquipe={() => setActiveTab('admin')} />
+          <PrazosTab dbUser={dbUser} showToast={showToast} onSincronizado={carregarResumo} pje={sync?.pje} djen={sync} onAbrirEquipe={() => setActiveTab('admin')} />
         )}
 
 
