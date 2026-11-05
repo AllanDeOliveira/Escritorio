@@ -5,7 +5,8 @@ import {
   ChevronDown, Users, MoreHorizontal, SlidersHorizontal, Undo2,
 } from 'lucide-react';
 import './PrazosTab.css';
-import { apiFetch, API, type Usuario } from './api';
+import Modal from './Modal';
+import { apiFetch, API, confirmar, type Usuario } from './api';
 
 const API_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 // `link` vem da API do DJEN: só vira href se for http(s) (nada de javascript:).
@@ -324,6 +325,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
+  // Como o formulário abriu: Esc ou clique fora com algo alterado pede confirmação antes de descartar
+  const formInicial = useRef({ ...emptyForm });
   const [saving, setSaving] = useState(false);
 
   // Drag-and-drop
@@ -366,8 +369,10 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
   useEffect(() => {
     if (!menu) return;
     const fechar = (e: MouseEvent) => { if (!(e.target as Element).closest?.('.prazo-menu-wrap')) setMenu(null); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
     document.addEventListener('mousedown', fechar);
-    return () => document.removeEventListener('mousedown', fechar);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fechar); document.removeEventListener('keydown', esc); };
   }, [menu]);
 
   const defaultMover = dbUser?.name || dbUser?.email || '';
@@ -451,13 +456,15 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
 
   const abrirNovo = () => {
     setEditingId(null);
-    setForm({ ...emptyForm, responsibleName: defaultMover, responsibleId: dbUser?.id || '' });
+    const f = { ...emptyForm, responsibleName: defaultMover, responsibleId: dbUser?.id || '' };
+    formInicial.current = f;
+    setForm(f);
     setModalOpen(true);
   };
 
   const abrirEdicao = (p: Prazo) => {
     setEditingId(p.id);
-    setForm({
+    const f = {
       title: p.title || '', caseReference: p.caseReference || '',
       responsibleName: p.responsibleName || '', responsibleId: p.responsibleId || '',
       type: p.type || 'JUDICIAL',
@@ -465,7 +472,9 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
       fatalDate: p.fatalDate ? dataLocal(p.fatalDate) : '',
       internalDate: p.internalDate ? dataLocal(p.internalDate) : '',
       description: p.description || '',
-    });
+    };
+    formInicial.current = f;
+    setForm(f);
     setModalOpen(true);
   };
 
@@ -508,8 +517,14 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
     }
   };
 
+  const fecharFormFora = () => {
+    if (saving) return;
+    if (JSON.stringify(form) === JSON.stringify(formInicial.current)) return setModalOpen(false);
+    confirmar('Descartar o que você preencheu neste prazo?', () => setModalOpen(false));
+  };
+
   const excluir = (p: Prazo) => {
-    (window as any).showConfirm(`Excluir o prazo "${p.title}"? Ele vai para a lixeira (menu ⋯) e pode ser restaurado.`, async () => {
+    confirmar(`Excluir o prazo "${p.title}"? Ele vai para a lixeira (menu ⋯) e pode ser restaurado.`, async () => {
       try {
         const r = await apiFetch(`${API}/api/prazos/${p.id}`, { method: 'DELETE' });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error); // sucesso é 204 sem corpo
@@ -993,221 +1008,211 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
 
       {/* Modal criar / editar */}
       {modalOpen && (
-        <div className="prazo-modal-overlay" onClick={() => { if (!saving) setModalOpen(false); }}>
-          <div className="prazo-modal" onClick={e => e.stopPropagation()}>
-            <div className="prazo-modal-header">
-              <h3>{editingId ? (editandoTriagem ? 'Confirmar data fatal' : 'Editar prazo') : 'Novo prazo'}</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => setModalOpen(false)}><X size={18} /></button>
+        <Modal onClose={fecharFormFora} className="prazo-modal" labelledBy="modal-prazo">
+          <div className="prazo-modal-header">
+            <h3 id="modal-prazo">{editingId ? (editandoTriagem ? 'Confirmar data fatal' : 'Editar prazo') : 'Novo prazo'}</h3>
+            <button className="prazo-icon-btn" title="Fechar" onClick={() => setModalOpen(false)}><X size={18} /></button>
+          </div>
+          {editandoTriagem && (
+            <p className="prazo-modal-nota">
+              O tribunal não informou a data fatal: a data abaixo é só a publicação.
+              Informe a data real e o card entra no quadro.
+            </p>
+          )}
+          <div className="prazo-form">
+            <div className="prazo-field">
+              <label htmlFor="prazo-title">Título *</label>
+              <input id="prazo-title" type="text" data-autofocus={editandoTriagem ? undefined : true} value={form.title} placeholder="Ex: Contestação, Recurso de Apelação..."
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
             </div>
-            {editandoTriagem && (
-              <p className="prazo-modal-nota">
-                O tribunal não informou a data fatal: a data abaixo é só a publicação.
-                Informe a data real e o card entra no quadro.
-              </p>
-            )}
-            <div className="prazo-form">
+            <div className="prazo-field">
+              <label htmlFor="prazo-case">Processo / Cliente</label>
+              <input id="prazo-case" type="text" value={form.caseReference} placeholder="Ex: Silva vs Banco X"
+                onChange={e => setForm(f => ({ ...f, caseReference: e.target.value }))} />
+            </div>
+            <div className="prazo-field">
+              <label htmlFor="prazo-resp">Responsável</label>
+              <select
+                id="prazo-resp"
+                value={form.responsibleId}
+                onChange={e => {
+                  const m = opcoesEquipe.find(u => u.id === e.target.value);
+                  setForm(f => ({ ...f, responsibleId: e.target.value, responsibleName: m ? m.name || m.email : '' }));
+                }}
+              >
+                {/* Prazo antigo com responsável só em texto (ex.: importado): mantém o nome até alguém trocar */}
+                <option value="">
+                  {!form.responsibleId && form.responsibleName ? `${form.responsibleName} (sem cadastro)` : 'Sem responsável'}
+                </option>
+                {/* Desativado não recebe prazo novo; o atual dele continua aparecendo */}
+                {opcoesEquipe.filter(u => u.ativo !== false || u.id === form.responsibleId)
+                  .map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+              </select>
+            </div>
+            <div className="prazo-field-row">
               <div className="prazo-field">
-                <label htmlFor="prazo-title">Título *</label>
-                <input id="prazo-title" type="text" value={form.title} placeholder="Ex: Contestação, Recurso de Apelação..."
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
-              </div>
-              <div className="prazo-field">
-                <label htmlFor="prazo-case">Processo / Cliente</label>
-                <input id="prazo-case" type="text" value={form.caseReference} placeholder="Ex: Silva vs Banco X"
-                  onChange={e => setForm(f => ({ ...f, caseReference: e.target.value }))} />
-              </div>
-              <div className="prazo-field">
-                <label htmlFor="prazo-resp">Responsável</label>
-                <select
-                  id="prazo-resp"
-                  value={form.responsibleId}
-                  onChange={e => {
-                    const m = opcoesEquipe.find(u => u.id === e.target.value);
-                    setForm(f => ({ ...f, responsibleId: e.target.value, responsibleName: m ? m.name || m.email : '' }));
-                  }}
-                >
-                  {/* Prazo antigo com responsável só em texto (ex.: importado): mantém o nome até alguém trocar */}
-                  <option value="">
-                    {!form.responsibleId && form.responsibleName ? `${form.responsibleName} (sem cadastro)` : 'Sem responsável'}
-                  </option>
-                  {/* Desativado não recebe prazo novo; o atual dele continua aparecendo */}
-                  {opcoesEquipe.filter(u => u.ativo !== false || u.id === form.responsibleId)
-                    .map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                <label htmlFor="prazo-type">Tipo</label>
+                <select id="prazo-type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                  {TYPES.map(t => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
                 </select>
               </div>
-              <div className="prazo-field-row">
-                <div className="prazo-field">
-                  <label htmlFor="prazo-type">Tipo</label>
-                  <select id="prazo-type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                    {TYPES.map(t => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
-                  </select>
-                </div>
-                <div className="prazo-field">
-                  <label htmlFor="prazo-prio">Prioridade</label>
-                  <select id="prazo-prio" value={form.prioridade} onChange={e => setForm(f => ({ ...f, prioridade: e.target.value }))}>
-                    <option value="">Sem prioridade</option>
-                    {PRIORIDADES.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
-                  </select>
-                </div>
+              <div className="prazo-field">
+                <label htmlFor="prazo-prio">Prioridade</label>
+                <select id="prazo-prio" value={form.prioridade} onChange={e => setForm(f => ({ ...f, prioridade: e.target.value }))}>
+                  <option value="">Sem prioridade</option>
+                  {PRIORIDADES.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
+                </select>
               </div>
-              <div className="prazo-field-row">
-                <div className="prazo-field">
-                  <label htmlFor="prazo-fatal">Prazo limite *</label>
-                  <input id="prazo-fatal" type="date" value={form.fatalDate}
-                    onChange={e => setForm(f => ({ ...f, fatalDate: e.target.value }))} />
-                </div>
-                <div className="prazo-field">
-                  <label htmlFor="prazo-internal">Prazo interno (opcional)</label>
-                  <input id="prazo-internal" type="date" value={form.internalDate}
-                    onChange={e => setForm(f => ({ ...f, internalDate: e.target.value }))} />
-                </div>
+            </div>
+            <div className="prazo-field-row">
+              <div className="prazo-field">
+                <label htmlFor="prazo-fatal">Prazo limite *</label>
+                <input id="prazo-fatal" type="date" data-autofocus={editandoTriagem || undefined} value={form.fatalDate}
+                  onChange={e => setForm(f => ({ ...f, fatalDate: e.target.value }))} />
               </div>
               <div className="prazo-field">
-                <label htmlFor="prazo-desc">Observações (opcional)</label>
-                <textarea id="prazo-desc" rows={3} value={form.description} placeholder="Detalhes, número do processo completo, etc."
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+                <label htmlFor="prazo-internal">Prazo interno (opcional)</label>
+                <input id="prazo-internal" type="date" value={form.internalDate}
+                  onChange={e => setForm(f => ({ ...f, internalDate: e.target.value }))} />
               </div>
             </div>
-            <div className="prazo-modal-footer">
-              {editingId && (() => {
-                const atual = Object.values(todosGroups).flat().find(p => p.id === editingId);
-                return atual && (
-                  <button type="button" className="prazo-btn prazo-btn--perigo" onClick={() => excluir(atual)} disabled={saving}>
-                    <Trash2 size={14} /> Excluir
-                  </button>
-                );
-              })()}
-              <button className="lx-btn-tool" onClick={() => setModalOpen(false)} disabled={saving}>Cancelar</button>
-              <button className="lx-btn-primary" onClick={salvar} disabled={saving}>
-                {saving ? <Loader2 className="lx-spin" size={16} /> : <Check size={16} />}
-                {editingId ? 'Salvar alterações' : 'Criar prazo'}
-              </button>
+            <div className="prazo-field">
+              <label htmlFor="prazo-desc">Observações (opcional)</label>
+              <textarea id="prazo-desc" rows={3} value={form.description} placeholder="Detalhes, número do processo completo, etc."
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>
           </div>
-        </div>
+          <div className="prazo-modal-footer">
+            {editingId && (() => {
+              const atual = Object.values(todosGroups).flat().find(p => p.id === editingId);
+              return atual && (
+                <button type="button" className="prazo-btn prazo-btn--perigo" onClick={() => excluir(atual)} disabled={saving}>
+                  <Trash2 size={14} /> Excluir
+                </button>
+              );
+            })()}
+            <button className="lx-btn-tool" onClick={() => setModalOpen(false)} disabled={saving}>Cancelar</button>
+            <button className="lx-btn-primary" onClick={salvar} disabled={saving}>
+              {saving ? <Loader2 className="lx-spin" size={16} /> : <Check size={16} />}
+              {editingId ? 'Salvar alterações' : 'Criar prazo'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Dados do card + teor e certidão das intimações (o que antes só a caixa de intimações mostrava) */}
       {infoCard && (
-        <div className="prazo-modal-overlay" onClick={() => setInfoCard(null)}>
-          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
-            <div className="prazo-modal-header">
-              <h3>{infoCard.title}</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => setInfoCard(null)}><X size={18} /></button>
-            </div>
-            <div className="prazo-form">
-              <p className="prazo-move-desc"><strong>Processo:</strong> {infoCard.caseReference || 'não informado'}</p>
-              <p className="prazo-move-desc"><strong>Onde estava no Painel do Advogado do PJe:</strong> {caminhoPje(infoCard.origemPje) || 'não veio do PJe'}</p>
-              {/* No "a confirmar" a data é a publicação, não um prazo */}
-              <p className="prazo-move-desc"><strong>{infoCard.status === 'A_CONFIRMAR' ? 'Publicado em' : 'Prazo limite'}:</strong> {formatDate(infoCard.fatalDate)}</p>
-              {infoCard.description && <p className="prazo-move-desc" style={{ whiteSpace: 'pre-line' }}><strong>Observações:</strong> {infoCard.description}</p>}
-              {infoInts === null ? (
-                <div className="prazo-loading"><Loader2 className="lx-spin" size={20} /></div>
-              ) : infoInts.length === 0 ? (
-                <p className="prazo-move-desc">Sem intimação do DJEN ligada a este card.</p>
-              ) : (
-                // O DJEN publica o mesmo ato uma vez por destinatário: mostra cada teor uma vez só
-                [...new Map(infoInts.map(i => [i.texto || i.id, i])).values()].map(i => (
-                  <div key={i.id} className="prazo-info-int">
-                    <div className="prazo-info-int-head">
-                      <strong>{i.tipoDocumento || i.tipoComunicacao || 'Intimação'}</strong>
-                      {[i.tribunal, i.dataDisponibilizacao && formatDate(i.dataDisponibilizacao)].filter(Boolean).join(' · ')}
-                      {(i.hash || linkSeguro(i.link)) && (
-                        <a href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : linkSeguro(i.link)} target="_blank" rel="noopener noreferrer"
-                          title={i.hash ? 'Certidão oficial da publicação (PDF)' : 'Abrir no PJe do tribunal'}>
-                          {i.hash ? 'Abrir certidão' : 'Abrir no tribunal'} <ExternalLink size={12} />
-                        </a>
-                      )}
-                    </div>
-                    {i.texto && <div className="prazo-info-int-texto">{i.texto}</div>}
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="prazo-modal-footer">
-              <button className="lx-btn-tool" onClick={() => setInfoCard(null)} autoFocus>Fechar</button>
-            </div>
+        <Modal onClose={() => setInfoCard(null)} className="prazo-modal prazo-modal--sm" labelledBy="modal-card">
+          <div className="prazo-modal-header">
+            <h3 id="modal-card">{infoCard.title}</h3>
+            <button className="prazo-icon-btn" title="Fechar" onClick={() => setInfoCard(null)}><X size={18} /></button>
           </div>
-        </div>
+          <div className="prazo-form">
+            <p className="prazo-move-desc"><strong>Processo:</strong> {infoCard.caseReference || 'não informado'}</p>
+            <p className="prazo-move-desc"><strong>Onde estava no Painel do Advogado do PJe:</strong> {caminhoPje(infoCard.origemPje) || 'não veio do PJe'}</p>
+            {/* No "a confirmar" a data é a publicação, não um prazo */}
+            <p className="prazo-move-desc"><strong>{infoCard.status === 'A_CONFIRMAR' ? 'Publicado em' : 'Prazo limite'}:</strong> {formatDate(infoCard.fatalDate)}</p>
+            {infoCard.description && <p className="prazo-move-desc" style={{ whiteSpace: 'pre-line' }}><strong>Observações:</strong> {infoCard.description}</p>}
+            {infoInts === null ? (
+              <div className="prazo-loading"><Loader2 className="lx-spin" size={20} /></div>
+            ) : infoInts.length === 0 ? (
+              <p className="prazo-move-desc">Sem intimação do DJEN ligada a este card.</p>
+            ) : (
+              // O DJEN publica o mesmo ato uma vez por destinatário: mostra cada teor uma vez só
+              [...new Map(infoInts.map(i => [i.texto || i.id, i])).values()].map(i => (
+                <div key={i.id} className="prazo-info-int">
+                  <div className="prazo-info-int-head">
+                    <strong>{i.tipoDocumento || i.tipoComunicacao || 'Intimação'}</strong>
+                    {[i.tribunal, i.dataDisponibilizacao && formatDate(i.dataDisponibilizacao)].filter(Boolean).join(' · ')}
+                    {(i.hash || linkSeguro(i.link)) && (
+                      <a href={i.hash ? `${API_DJEN}/${i.hash}/certidao` : linkSeguro(i.link)} target="_blank" rel="noopener noreferrer"
+                        title={i.hash ? 'Certidão oficial da publicação (PDF)' : 'Abrir no PJe do tribunal'}>
+                        {i.hash ? 'Abrir certidão' : 'Abrir no tribunal'} <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                  {i.texto && <div className="prazo-info-int-texto">{i.texto}</div>}
+                </div>
+              ))
+            )}
+          </div>
+          <div className="prazo-modal-footer">
+            <button className="lx-btn-tool" onClick={() => setInfoCard(null)} data-autofocus>Fechar</button>
+          </div>
+        </Modal>
       )}
 
       {moveModal && (
-        <div className="prazo-modal-overlay" onClick={() => setMoveModal(null)}>
-          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
-            <div className="prazo-modal-header">
-              <h3>{moveModal.targetStatus === 'CUMPRIDO' ? 'Concluir prazo' : 'Reabrir prazo'}</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => setMoveModal(null)}><X size={18} /></button>
-            </div>
-            <div className="prazo-form">
-              <p className="prazo-move-desc">
-                <strong>{moveModal.prazo.title}</strong>
-                {moveModal.prazo.caseReference && ` · ${moveModal.prazo.caseReference}`}
-              </p>
-              <p className="prazo-move-desc">Fica registrado como movimentado por <strong>{defaultMover || 'você'}</strong>.</p>
-            </div>
-            <div className="prazo-modal-footer">
-              <button className="lx-btn-tool" onClick={() => setMoveModal(null)}>Cancelar</button>
-              <button className="lx-btn-primary" onClick={() => confirmarMovimentacao(moveModal)} autoFocus>
-                <Check size={16} /> Confirmar
-              </button>
-            </div>
+        <Modal onClose={() => setMoveModal(null)} className="prazo-modal prazo-modal--sm" labelledBy="modal-mover">
+          <div className="prazo-modal-header">
+            <h3 id="modal-mover">{moveModal.targetStatus === 'CUMPRIDO' ? 'Concluir prazo' : 'Reabrir prazo'}</h3>
+            <button className="prazo-icon-btn" title="Fechar" onClick={() => setMoveModal(null)}><X size={18} /></button>
           </div>
-        </div>
+          <div className="prazo-form">
+            <p className="prazo-move-desc">
+              <strong>{moveModal.prazo.title}</strong>
+              {moveModal.prazo.caseReference && ` · ${moveModal.prazo.caseReference}`}
+            </p>
+            <p className="prazo-move-desc">Fica registrado como movimentado por <strong>{defaultMover || 'você'}</strong>.</p>
+          </div>
+          <div className="prazo-modal-footer">
+            <button className="lx-btn-tool" onClick={() => setMoveModal(null)}>Cancelar</button>
+            <button className="lx-btn-primary" onClick={() => confirmarMovimentacao(moveModal)} data-autofocus>
+              <Check size={16} /> Confirmar
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Lixeira: cards excluídos, com quem excluiu e quando */}
       {lixeira && (
-        <div className="prazo-modal-overlay" onClick={() => setLixeira(null)}>
-          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
-            <div className="prazo-modal-header">
-              <h3>Lixeira</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => setLixeira(null)}><X size={18} /></button>
-            </div>
-            <div className="prazo-form">
-              {lixeira.length === 0 ? (
-                <p className="prazo-move-desc">Nenhum prazo excluído.</p>
-              ) : lixeira.map(p => (
-                <div key={p.id} className="prazo-lixeira-item">
-                  <div>
-                    <strong>{p.title}</strong>
-                    {p.caseReference && <small>{p.caseReference}</small>}
-                    <small>excluído{p.lastMovedBy ? ` por ${p.lastMovedBy}` : ''}{p.lastMovedAt ? ` em ${formatDate(p.lastMovedAt)}` : ''}</small>
-                  </div>
-                  <button type="button" className="prazo-btn prazo-btn--ghost" onClick={() => restaurar(p)}>
-                    <Undo2 size={14} /> Restaurar
-                  </button>
-                </div>
-              ))}
-            </div>
+        <Modal onClose={() => setLixeira(null)} className="prazo-modal prazo-modal--sm" labelledBy="modal-lixeira">
+          <div className="prazo-modal-header">
+            <h3 id="modal-lixeira">Lixeira</h3>
+            <button className="prazo-icon-btn" title="Fechar" onClick={() => setLixeira(null)}><X size={18} /></button>
           </div>
-        </div>
+          <div className="prazo-form">
+            {lixeira.length === 0 ? (
+              <p className="prazo-move-desc">Nenhum prazo excluído.</p>
+            ) : lixeira.map(p => (
+              <div key={p.id} className="prazo-lixeira-item">
+                <div>
+                  <strong>{p.title}</strong>
+                  {p.caseReference && <small>{p.caseReference}</small>}
+                  <small>excluído{p.lastMovedBy ? ` por ${p.lastMovedBy}` : ''}{p.lastMovedAt ? ` em ${formatDate(p.lastMovedAt)}` : ''}</small>
+                </div>
+                <button type="button" className="prazo-btn prazo-btn--ghost" onClick={() => restaurar(p)}>
+                  <Undo2 size={14} /> Restaurar
+                </button>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
 
       {/* Modal de importação */}
       {importOpen && (
-        <div className="prazo-modal-overlay" onClick={() => !importing && setImportOpen(false)}>
-          <div className="prazo-modal prazo-modal--sm" onClick={e => e.stopPropagation()}>
-            <div className="prazo-modal-header">
-              <h3>Importar planilha</h3>
-              <button className="prazo-icon-btn" title="Fechar" onClick={() => setImportOpen(false)}><X size={18} /></button>
-            </div>
-            <div className="prazo-form">
-              <p className="prazo-import-step"><strong>1.</strong> Baixe o modelo e cole seus dados nas colunas indicadas.</p>
-              <button className="lx-btn-tool prazo-import-tpl" onClick={baixarModelo}>
-                <Download size={16} /> Baixar modelo (.xlsx)
-              </button>
-              <p className="prazo-import-step"><strong>2.</strong> Suba a planilha preenchida (.xlsx ou .csv).</p>
-              <button className="lx-btn-primary prazo-import-up" onClick={() => importInputRef.current?.click()} disabled={importing}>
-                {importing ? <Loader2 className="lx-spin" size={16} /> : <Upload size={16} />}
-                {importing ? 'Importando...' : 'Escolher arquivo e importar'}
-              </button>
-              <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv" className="prazo-hidden-input"
-                title="Planilha de prazos"
-                onChange={e => { if (e.target.files?.[0]) onImportFile(e.target.files[0]); }} />
-              <p className="prazo-import-hint">Colunas: Título, Processo/Cliente, Responsável, Tipo, Prazo Limite, Prazo Interno, Observações. Só Título e Prazo Limite são obrigatórios.</p>
-            </div>
+        <Modal onClose={() => { if (!importing) setImportOpen(false); }} className="prazo-modal prazo-modal--sm" labelledBy="modal-importar">
+          <div className="prazo-modal-header">
+            <h3 id="modal-importar">Importar planilha</h3>
+            <button className="prazo-icon-btn" title="Fechar" onClick={() => setImportOpen(false)}><X size={18} /></button>
           </div>
-        </div>
+          <div className="prazo-form">
+            <p className="prazo-import-step"><strong>1.</strong> Baixe o modelo e cole seus dados nas colunas indicadas.</p>
+            <button className="lx-btn-tool prazo-import-tpl" onClick={baixarModelo}>
+              <Download size={16} /> Baixar modelo (.xlsx)
+            </button>
+            <p className="prazo-import-step"><strong>2.</strong> Suba a planilha preenchida (.xlsx ou .csv).</p>
+            <button className="lx-btn-primary prazo-import-up" onClick={() => importInputRef.current?.click()} disabled={importing}>
+              {importing ? <Loader2 className="lx-spin" size={16} /> : <Upload size={16} />}
+              {importing ? 'Importando...' : 'Escolher arquivo e importar'}
+            </button>
+            <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv" className="prazo-hidden-input"
+              title="Planilha de prazos"
+              onChange={e => { if (e.target.files?.[0]) onImportFile(e.target.files[0]); }} />
+            <p className="prazo-import-hint">Colunas: Título, Processo/Cliente, Responsável, Tipo, Prazo Limite, Prazo Interno, Observações. Só Título e Prazo Limite são obrigatórios.</p>
+          </div>
+        </Modal>
       )}
     </div>
   );

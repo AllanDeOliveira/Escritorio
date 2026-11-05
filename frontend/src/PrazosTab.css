@@ -315,18 +315,6 @@
 .prazo-hidden-input { display: none; }
 
 /* ── Modais ───────────────────────────────────────────────────────── */
-.prazo-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-  padding: 2rem;
-}
 .prazo-modal {
   background: var(--bg-card);
   border: 1px solid var(--border);

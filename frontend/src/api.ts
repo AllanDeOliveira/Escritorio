@@ -20,3 +20,7 @@ export async function apiFetch(input: string, init: RequestInit = {}) {
   if (r.status === 401 && !/\/api\/auth\/(login|me|logout)$/.test(input)) window.dispatchEvent(new Event('sessao-expirada'));
   return r;
 }
+
+// Diálogo "Tem certeza?" do App (ele registra window.showConfirm ao montar)
+export const confirmar = (mensagem: string, aoConfirmar: () => void) =>
+  (window as unknown as { showConfirm: (m: string, f: () => void) => void }).showConfirm(mensagem, aoConfirmar);
