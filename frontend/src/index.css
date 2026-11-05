@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    DESIGN TOKENS
@@ -18,6 +17,9 @@
 
   /* Borders */
   --border: #e2e8f0;
+  /* Borda de campo (input, select, busca): >= 3:1 contra o branco, o fundo do campo e o da página.
+     --border (1,2:1) fica só para divisórias e cartões, que são decoração. */
+  --border-campo: #838e9f;
   --border-active: #d0aa64;
 
   /* Brand colors */
@@ -74,6 +76,9 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
+
+/* Campos e botões usam a fonte da página (o navegador não herda por padrão: o login saía em Arial) */
+input, select, textarea, button { font-family: inherit; }
 
 /* Atalho "Pular para o conteúdo": escondido até receber foco pelo teclado */
 .lx-pular { position: fixed; top: 0.75rem; left: 0.75rem; z-index: 3000; padding: 0.6rem 1rem; border-radius: 8px; background: var(--gold); color: #111; font-weight: 700; text-decoration: none; transform: translateY(-200%); }
@@ -905,7 +910,7 @@ body {
 .app-perfil-form { display: flex; flex-direction: column; gap: 1.5rem; }
 .app-perfil-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; }
 .app-perfil-input-row { display: flex; gap: 0.75rem; }
-.app-perfil-input { flex: 1; padding: 0.75rem 1rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); }
+.app-perfil-input { flex: 1; padding: 0.75rem 1rem; background: var(--bg-input); border: 1px solid var(--border-campo); border-radius: 8px; color: var(--text-primary); }
 .app-perfil-section { border-top: 1px solid var(--border); padding-top: 1.5rem; }
 .app-perfil-section-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.8rem; }
 .app-perfil-section-col { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -914,7 +919,7 @@ body {
 .app-robo-token { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.75rem 0; padding: 0.75rem; border-radius: 8px; background: var(--bg-input); font-size: 0.8rem; }
 .app-robo-token code { flex: 1 1 100%; word-break: break-all; font-size: 0.8rem; }
 .app-robo-linha { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 0.5rem 0; font-size: 0.8rem; color: var(--text-secondary); }
-.app-perfil-input-sm { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-shell); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); margin-top: 0.25rem; }
+.app-perfil-input-sm { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-shell); border: 1px solid var(--border-campo); border-radius: 6px; color: var(--text-primary); margin-top: 0.25rem; }
 /* Texto navy: dourado sobre branco dava 2,0:1 */
 .app-save-config-btn { justify-content: center; background: rgba(208, 170, 100, 0.1); color: var(--primary); border: 1px solid rgba(208, 170, 100, 0.2); }
 
@@ -956,7 +961,7 @@ body {
   margin-bottom: 0.75rem;
   padding: 0.8rem 1rem;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.4); /* era 0.15 (1,5:1); 3,3:1 sobre o cartão */
   background: rgba(255, 255, 255, 0.06);
   color: #ffffff;
   font-size: 0.95rem;
@@ -986,3 +991,14 @@ body {
 .lx-btn-entrar:hover:not(:disabled) { background: #dcb977; }
 .lx-btn-entrar:active:not(:disabled) { transform: scale(0.98); }
 .lx-btn-entrar:disabled { opacity: 0.6; cursor: wait; }
+
+/* Quem pediu menos movimento no sistema (Windows: Configurações › Acessibilidade › Efeitos visuais):
+   sem animações de entrada, pulso do login, hover que "sobe" nem rolagem animada */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

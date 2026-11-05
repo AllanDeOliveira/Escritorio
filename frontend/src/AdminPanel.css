@@ -35,6 +35,6 @@
 
 /* "Nova senha": campo logo abaixo da linha da pessoa */
 .admin-senha { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.5rem 0.75rem 2.6rem; }
-.admin-senha input { flex: 1; max-width: 300px; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.85rem; }
+.admin-senha input { flex: 1; max-width: 300px; padding: 0.5rem 0.6rem; border: 1px solid var(--border-campo); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.85rem; }
 
 .admin-nome { display: flex; flex-direction: column; }

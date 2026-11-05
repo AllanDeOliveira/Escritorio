@@ -84,13 +84,13 @@
   width: 260px;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-campo);
   border-radius: 8px;
   background: var(--bg-card);
   color: var(--pz-texto-3);
 }
 /* Anel de foco no contêiner: o input interno não tem borda própria */
-.prazo-busca:focus-within { border-color: var(--pz-acento-borda); outline: 2px solid var(--urg-semana); outline-offset: 2px; }
+.prazo-busca:focus-within { border-color: var(--urg-semana); outline: 2px solid var(--urg-semana); outline-offset: 2px; }
 .prazo-busca input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text-primary); font: inherit; font-size: 13px; }
 .prazo-busca input::placeholder { color: var(--pz-texto-3); }
 .prazo-busca-limpar { display: inline-flex; border: 0; background: none; color: var(--pz-texto-3); cursor: pointer; padding: 0; }
@@ -347,7 +347,7 @@
   width: 100%;
   padding: 0.65rem 0.8rem;
   background: var(--bg-input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-campo);
   border-radius: 8px;
   color: var(--text-primary);
   font-family: inherit;
@@ -356,7 +356,7 @@
 }
 .prazo-field input:focus,
 .prazo-field select:focus,
-.prazo-field textarea:focus { border-color: var(--pz-acento-borda); }
+.prazo-field textarea:focus { border-color: var(--urg-semana); }
 .prazo-field textarea { resize: vertical; }
 /* Erro embaixo do campo: texto + borda (a cor nunca é o único sinal) */
 .prazo-field input[aria-invalid="true"] { border-color: var(--urg-vencido); }
@@ -383,7 +383,7 @@
 /* nome | e-mail na 1ª linha; senha | botão na 2ª */
 .prazo-perfil-novo { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .prazo-perfis-titulo { grid-column: 1 / -1; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
-.prazo-perfil-novo input { min-width: 0; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.82rem; }
+.prazo-perfil-novo input { min-width: 0; padding: 0.5rem 0.6rem; border: 1px solid var(--border-campo); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.82rem; }
 
 /* ── Responsivo ───────────────────────────────────────────────────── */
 @media (max-width: 900px) {
@@ -456,7 +456,7 @@
   width: 100%;
   min-width: 0;
   padding: 8px 30px 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-campo);
   border-radius: 8px;
   background: var(--bg-input) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
   color: var(--text-primary);
@@ -466,12 +466,12 @@
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 .prazo-fp-campo select:hover,
-.prazo-fp-multi summary:hover { border-color: var(--pz-acento-borda); }
+.prazo-fp-multi summary:hover { border-color: var(--text-secondary); }
 .prazo-fp-campo select:focus-visible,
-.prazo-fp-multi summary:focus-visible { border-color: var(--pz-acento-borda); }
+.prazo-fp-multi summary:focus-visible { border-color: var(--urg-semana); }
 .prazo-fp-campo--on .prazo-fp-rotulo { color: var(--pz-acento-txt); }
 .prazo-fp-campo--on select,
-.prazo-fp-campo--on .prazo-fp-multi summary { border-color: var(--pz-acento-borda); background-color: var(--pz-acento-tint); font-weight: 600; }
+.prazo-fp-campo--on .prazo-fp-multi summary { border-color: var(--pz-acento-txt); background-color: var(--pz-acento-tint); font-weight: 600; }
 @media (max-width: 540px) {
   .prazo-fp { grid-template-columns: 1fr; }
 }
