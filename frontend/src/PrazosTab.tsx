@@ -780,14 +780,13 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, djen
         draggable
         // setData é obrigatório: sem dado no dragstart o Firefox nem inicia o arraste
         onDragStart={e => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; onDragStart(p); }}
+        // Mouse: clique em qualquer parte abre os dados. Teclado e leitor de tela: o título é o botão
+        // (antes o card inteiro era role=button com Editar/Pegar/Concluir dentro, o que é inválido)
         onClick={() => setInfoCard(p)}
-        onKeyDown={e => { if (e.key === 'Enter') setInfoCard(p); }}
-        role="button"
-        tabIndex={0}
         title={movido}
       >
         <div className="prazo-card-head">
-          <span className="prazo-card-title">{p.title}</span>
+          <button type="button" className="prazo-card-title" onClick={e => { e.stopPropagation(); setInfoCard(p); }}>{p.title}</button>
           {rotuloPrio(p.prioridade) && <span className={`prazo-prio prazo-prio--${p.prioridade!.toLowerCase()}`}>{rotuloPrio(p.prioridade)}</span>}
         </div>
         {p.caseReference && <div className="prazo-card-case">{p.caseReference}</div>}
@@ -992,6 +991,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, djen
                 return (
                   <section
                     key={col.key}
+                    aria-labelledby={`coluna-${col.key}`}
                     className={`prazo-col ${dragOverCol === col.key ? 'prazo-col--dragover' : ''}`}
                     style={{ '--cor': col.cor } as React.CSSProperties}
                     onDragOver={e => onColDragOver(e, col.key)}
@@ -1000,7 +1000,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, djen
                   >
                     <header className="prazo-col-header">
                       <div className="prazo-col-nome">
-                        <span className="prazo-col-title">{col.label}</span>
+                        <h2 className="prazo-col-title" id={`coluna-${col.key}`}>{col.label}</h2>
                       </div>
                       <span className="prazo-col-count">{col.itens.length}</span>
                     </header>
