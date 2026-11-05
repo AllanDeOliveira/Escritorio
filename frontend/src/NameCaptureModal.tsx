@@ -59,7 +59,7 @@ export default function NameCaptureModal({ onSubmit, onClose }: { onSubmit: (nam
             fontSize: '1.1rem',
             fontWeight: 500,
             background: 'var(--bg-input)',
-            border: '2px solid transparent',
+            border: '1px solid var(--border-campo)',
             borderRadius: '12px',
             color: 'var(--text-primary)',
             transition: 'all 0.2s ease',
