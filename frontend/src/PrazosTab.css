@@ -349,11 +349,19 @@
 .prazo-field select:focus,
 .prazo-field textarea:focus { border-color: var(--pz-acento-borda); }
 .prazo-field textarea { resize: vertical; }
+/* Erro embaixo do campo: texto + borda (a cor nunca é o único sinal) */
+.prazo-field input[aria-invalid="true"] { border-color: var(--urg-vencido); }
+.prazo-field-erro { font-size: 0.8rem; font-weight: 600; color: var(--urg-vencido); }
+.prazo-form-erro { margin: 0; padding: 0.6rem 0.8rem; border-radius: 8px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--urg-vencido); font-size: 0.85rem; font-weight: 600; }
 .prazo-modal-footer { display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; padding: 1rem 1.5rem 1.5rem; }
 .prazo-move-desc { margin: 0; color: var(--text-secondary); font-size: 0.9rem; }
 .prazo-import-step { margin: 0; font-size: 0.9rem; color: var(--text-primary); }
 .prazo-import-tpl, .prazo-import-up { width: 100%; justify-content: center; }
 .prazo-import-hint { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+/* Resultado da importação, dentro do modal */
+.prazo-import-res { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.7rem 0.85rem; border-radius: 8px; background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.3); color: var(--text-primary); font-size: 0.85rem; }
+.prazo-import-res--erro { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.3); }
+.prazo-import-res ul { margin: 0; padding-left: 1.1rem; max-height: 180px; overflow-y: auto; color: var(--text-secondary); }
 
 /* Linhas da equipe (Administração › Equipe e acessos) */
 .prazo-perfis { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }

@@ -26,7 +26,7 @@ function App() {
   const [showNameModal, setShowNameModal] = useState(false);
   // Motivo de ter caído no login (sessão expirada): a tela de login mostra no lugar da frase padrão
   const [avisoLogin, setAvisoLogin] = useState<string | null>(null);
-  const [toasts, setToasts] = useState<{ id: number, message: string, type: 'success' | 'error' | 'info' }[]>([]);
+  const [toasts, setToasts] = useState<{ id: number, message: string, type: 'success' | 'error' | 'info', dur: number | null }[]>([]);
 
   // ── Sistema de Confirmação ──────────────────────────────────────
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -40,11 +40,12 @@ function App() {
   };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    // Erro fica até alguém fechar (sumia antes de dar para ler); os demais duram pelo tamanho do texto
+    const dur = type === 'error' ? null : Math.min(12000, Math.max(4000, message.length * 60));
     const id = Date.now() + Math.random(); // vários toasts no mesmo ms geravam key duplicada
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    // O mesmo aviso já na tela (ex.: conexão caiu e várias chamadas falharam) não empilha de novo
+    setToasts(prev => prev.some(t => t.message === message) ? prev : [...prev, { id, message, type, dur }]);
+    if (dur) setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), dur);
   };
 
   // Modal (<dialog>) fica na camada superior do navegador, acima de qualquer z-index: os avisos
@@ -445,7 +446,8 @@ function App() {
           {toasts.map(t => (
             <div
               key={t.id}
-              className={`lx-toast lx-toast-${t.type}`}
+              className={`lx-toast lx-toast-${t.type} ${t.dur ? '' : 'lx-toast--fixo'}`}
+              style={t.dur ? { '--dur': `${t.dur}ms` } as React.CSSProperties : undefined}
               onClick={() => setToasts(prev => prev.filter(toast => toast.id !== t.id))}
             >
               <div className="lx-toast-icon">
@@ -454,7 +456,7 @@ function App() {
                 {t.type === 'info' && <Zap size={18} />}
               </div>
               <div className="lx-toast-content">{t.message}</div>
-              <button className="lx-toast-close" title="Fechar notificação"><X size={14} /></button>
+              <button className="lx-toast-close" title="Fechar notificação" aria-label="Fechar notificação"><X size={14} /></button>
             </div>
           ))}
       </div>
