@@ -246,20 +246,22 @@ function App() {
 
   return (
     <div className="lx-shell">
+      {/* Teclado: o primeiro Tab mostra este atalho, que pula o menu */}
+      <a href="#conteudo" className="lx-pular">Pular para o conteúdo</a>
       {showNameModal && <NameCaptureModal onSubmit={handleSaveName} onClose={dbUser.name ? () => setShowNameModal(false) : undefined} />}
       {/* ── Painel Esquerdo / Sidebar ───────────────────────────────────── */}
-      <div className="lx-sidebar">
+      <aside className="lx-sidebar">
         <div className="lx-logo">
-          <img src="logo.png" width="40" height="40" alt="Logo" />
+          <img src="logo.png" width="40" height="40" alt="" />
           <span className="lx-logo-text">{systemName}</span>
         </div>
 
-        <div className="lx-nav">
-          <button id="tab-dashboard" title="Página Inicial" className={`lx-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+        <nav className="lx-nav" aria-label="Menu principal">
+          <button id="tab-dashboard" title="Página Inicial" className={`lx-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} aria-current={activeTab === 'dashboard' ? 'page' : undefined} onClick={() => setActiveTab('dashboard')}>
             <BarChart3 size={24} />
             <span className="lx-nav-text">Página Inicial</span>
           </button>
-          <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} onClick={() => setActiveTab('prazos')}>
+          <button id="tab-prazos" title="Prazos" className={`lx-nav-item ${activeTab === 'prazos' ? 'active' : ''}`} aria-current={activeTab === 'prazos' ? 'page' : undefined} onClick={() => setActiveTab('prazos')}>
             <CalendarClock size={24} />
             <span className="lx-nav-text">Prazos</span>
             {resumo && (resumo.vencido + resumo.hoje) > 0 && (
@@ -269,18 +271,18 @@ function App() {
             )}
           </button>
 
-          <button id="tab-perfil" title="Perfil" className={`lx-nav-item ${activeTab === 'perfil' ? 'active' : ''}`} onClick={() => setActiveTab('perfil')}>
+          <button id="tab-perfil" title="Perfil" className={`lx-nav-item ${activeTab === 'perfil' ? 'active' : ''}`} aria-current={activeTab === 'perfil' ? 'page' : undefined} onClick={() => setActiveTab('perfil')}>
             <UserCircle size={24} />
             <span className="lx-nav-text">Perfil</span>
           </button>
 
           {dbUser?.role === 'admin' && (
-            <button id="tab-admin" title="Administração" className={`lx-nav-item app-nav-item-admin ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
+            <button id="tab-admin" title="Administração" className={`lx-nav-item app-nav-item-admin ${activeTab === 'admin' ? 'active' : ''}`} aria-current={activeTab === 'admin' ? 'page' : undefined} onClick={() => setActiveTab('admin')}>
               <ShieldAlert size={24} color="#d0aa64" />
               <span className="lx-nav-text app-nav-text-gold">Administração</span>
             </button>
           )}
-        </div>
+        </nav>
 
         <div className="lx-sidebar-footer">
           <div className="lx-user-badge" title={dbUser.name || 'Usuário'}>
@@ -298,6 +300,7 @@ function App() {
             <button
               onClick={() => setShowNameModal(true)}
               title="Alterar nome"
+              aria-label="Alterar nome"
               className="app-icon-btn-ghost"
             >
               <Edit3 size={14} />
@@ -308,17 +311,17 @@ function App() {
             <span className="lx-nav-text">Sair</span>
           </button>
         </div>
-      </div>
+      </aside>
 
       {/* ── Painel Principal ───────────────────────────────────────────── */}
-      <div className="lx-main">
+      <main className="lx-main" id="conteudo" tabIndex={-1}>
         <div className="lx-header">
-          <h2 className="lx-page-title">
+          <h1 className="lx-page-title">
             {activeTab === 'dashboard' && 'Página Inicial'}
             {activeTab === 'prazos' && 'Prazos'}
             {activeTab === 'perfil' && 'Perfil'}
             {activeTab === 'admin' && 'Administração'}
-          </h2>
+          </h1>
         </div>
 
         <AlertaPje pje={sync?.pje} onIrAoQuadro={() => handleDashboardNavigate('prazos')} />
@@ -390,7 +393,7 @@ function App() {
                   </form>
 
                   <form className="app-perfil-section" onSubmit={e => { e.preventDefault(); trocarSenha(); }}>
-                    <div className="app-perfil-section-title">Trocar senha</div>
+                    <h2 className="app-perfil-section-title">Trocar senha</h2>
                     <div className="app-perfil-section-col">
                       <input type="password" autoComplete="current-password" placeholder="Senha atual" aria-label="Senha atual"
                         className="app-perfil-input-sm" value={senhaAtual} onChange={e => setSenhaAtual(e.target.value)} required />
@@ -408,7 +411,7 @@ function App() {
           </div>
         )}
 
-      </div>
+      </main>
 
       {/* ── Modal de Confirmação (foco inicial em Cancelar: Enter sem querer não apaga nada) ── */}
         {confirmDialog.isOpen && (

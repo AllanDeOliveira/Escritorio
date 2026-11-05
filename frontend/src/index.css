@@ -75,6 +75,11 @@ body {
   overflow: hidden;
 }
 
+/* Atalho "Pular para o conteúdo": escondido até receber foco pelo teclado */
+.lx-pular { position: fixed; top: 0.75rem; left: 0.75rem; z-index: 3000; padding: 0.6rem 1rem; border-radius: 8px; background: var(--gold); color: #111; font-weight: 700; text-decoration: none; transform: translateY(-200%); }
+.lx-pular:focus { transform: none; }
+.lx-main:focus { outline: none; } /* destino do atalho: recebe foco só por programa */
+
 /* Foco visível (teclado) em tudo; sobre os fundos escuros (sidebar, login) o anel é dourado */
 :focus-visible { outline: 2px solid var(--urg-semana); outline-offset: 2px; }
 .lx-sidebar :focus-visible, .lx-login-screen :focus-visible { outline-color: var(--gold); }

@@ -40,7 +40,7 @@ export default function RoboPjePerfil({ showToast }: { showToast: (m: string, t?
   const ativos = tokens.filter(t => !t.revogadoEm);
   return (
     <div className="app-perfil-section">
-      <div className="app-perfil-section-title">Robô do PJe</div>
+      <h2 className="app-perfil-section-title">Robô do PJe</h2>
       <p className="app-perfil-sublabel">
         Os prazos do PJe são lidos por um robô no PC que tem o certificado. Lá, rode
         <code> npm run robo-pje -- configurar </code> na pasta <code>robo-pje</code> e cole o token gerado aqui.
