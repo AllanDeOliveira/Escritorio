@@ -327,6 +327,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
   const [form, setForm] = useState({ ...emptyForm });
   // Como o formulário abriu: Esc ou clique fora com algo alterado pede confirmação antes de descartar
   const formInicial = useRef({ ...emptyForm });
+  // Erros do formulário: embaixo de cada campo (title, fatalDate) e o do servidor (geral) dentro do modal
+  const [errosForm, setErrosForm] = useState<{ title?: string; fatalDate?: string; geral?: string }>({});
   const [saving, setSaving] = useState(false);
 
   // Drag-and-drop
@@ -343,6 +345,8 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
 
   // Importação
   const [importOpen, setImportOpen] = useState(false);
+  // Resultado da importação: fica no próprio modal (num aviso de 4 s a lista de erros não dava para ler)
+  const [resultadoImport, setResultadoImport] = useState<{ ok: number; ignoradas: number; erros: { titulo: string; erro: string }[]; falha?: string } | null>(null);
 
   const isAdmin = dbUser?.role === 'admin';
   const [importing, setImporting] = useState(false);
@@ -459,6 +463,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
     const f = { ...emptyForm, responsibleName: defaultMover, responsibleId: dbUser?.id || '' };
     formInicial.current = f;
     setForm(f);
+    setErrosForm({});
     setModalOpen(true);
   };
 
@@ -475,14 +480,21 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
     };
     formInicial.current = f;
     setForm(f);
+    setErrosForm({});
     setModalOpen(true);
   };
 
   const salvar = async () => {
-    if (!form.title.trim() || !form.fatalDate) {
-      showToast('Preencha ao menos o título e o prazo limite.', 'error');
+    const faltando = {
+      title: form.title.trim() ? undefined : 'Informe o título do prazo.',
+      fatalDate: form.fatalDate ? undefined : 'Informe o prazo limite.',
+    };
+    if (faltando.title || faltando.fatalDate) {
+      setErrosForm(faltando);
+      document.getElementById(faltando.title ? 'prazo-title' : 'prazo-fatal')?.focus();
       return;
     }
+    setErrosForm({});
     setSaving(true);
     try {
       const payload = {
@@ -508,10 +520,10 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
         carregar();
       } else {
         // 400 vem com `details` (ex.: "internalDate não pode ser posterior a fatalDate") — é o que o usuário precisa ler
-        showToast(d.details?.join(' · ') || d.error || 'Erro ao salvar prazo.', 'error');
+        setErrosForm({ geral: d.details?.join(' · ') || d.error || 'Erro ao salvar o prazo.' });
       }
     } catch {
-      showToast('Erro de conexão ao salvar.', 'error');
+      setErrosForm({ geral: 'Sem conexão com o servidor. O prazo não foi salvo; tente de novo.' });
     } finally {
       setSaving(false);
     }
@@ -644,19 +656,14 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
       const r = await apiFetch(`${API}/api/prazos/import`, { method: 'POST', body: fd });
       const d = await r.json();
       if (d.success) {
-        const ign = d.ignoredNoDate ? ` · ${d.ignoredNoDate} sem data/título ignorada(s)` : '';
-        // errors vem como [{ titulo, erro }] — join direto imprimia "[object Object]"
-        const falhas = d.errors?.length
-          ? ` · ${d.errors.length} linha(s) com erro: ${d.errors.slice(0, 2).map((e: { titulo: string; erro: string }) => `${e.titulo} (${e.erro})`).join('; ')}`
-          : '';
-        showToast(`${d.imported} prazo(s) importado(s)!${ign}${falhas}`, falhas ? 'error' : d.imported > 0 ? 'success' : 'info');
-        setImportOpen(false);
+        // errors vem como [{ titulo, erro }]
+        setResultadoImport({ ok: d.imported || 0, ignoradas: d.ignoredNoDate || 0, erros: d.errors || [] });
         carregar();
       } else {
-        showToast(d.error || 'Falha ao importar.', 'error');
+        setResultadoImport({ ok: 0, ignoradas: 0, erros: [], falha: d.error || 'Não foi possível importar a planilha.' });
       }
     } catch {
-      showToast('Erro de conexão na importação.', 'error');
+      setResultadoImport({ ok: 0, ignoradas: 0, erros: [], falha: 'Sem conexão com o servidor. Nada foi importado; tente de novo.' });
     } finally {
       setImporting(false);
       if (importInputRef.current) importInputRef.current.value = '';
@@ -906,7 +913,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
                 </button>
                 {menu === 'quadro' && (
                   <div className="prazo-menu prazo-menu--direita" role="menu">
-                    <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setImportOpen(true); }}>
+                    <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); setResultadoImport(null); setImportOpen(true); }}>
                       <Upload size={14} /> Importar planilha
                     </button>
                     <button type="button" role="menuitem" className="prazo-menu-item" onClick={() => { setMenu(null); abrirLixeira(); }}>
@@ -1023,7 +1030,9 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
             <div className="prazo-field">
               <label htmlFor="prazo-title">Título *</label>
               <input id="prazo-title" type="text" data-autofocus={editandoTriagem ? undefined : true} value={form.title} placeholder="Ex: Contestação, Recurso de Apelação..."
-                onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+                aria-invalid={!!errosForm.title} aria-describedby={errosForm.title ? 'erro-prazo-title' : undefined}
+                onChange={e => { setForm(f => ({ ...f, title: e.target.value })); setErrosForm(x => ({ ...x, title: undefined })); }} />
+              {errosForm.title && <span id="erro-prazo-title" className="prazo-field-erro">{errosForm.title}</span>}
             </div>
             <div className="prazo-field">
               <label htmlFor="prazo-case">Processo / Cliente</label>
@@ -1068,7 +1077,9 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
               <div className="prazo-field">
                 <label htmlFor="prazo-fatal">Prazo limite *</label>
                 <input id="prazo-fatal" type="date" data-autofocus={editandoTriagem || undefined} value={form.fatalDate}
-                  onChange={e => setForm(f => ({ ...f, fatalDate: e.target.value }))} />
+                  aria-invalid={!!errosForm.fatalDate} aria-describedby={errosForm.fatalDate ? 'erro-prazo-fatal' : undefined}
+                  onChange={e => { setForm(f => ({ ...f, fatalDate: e.target.value })); setErrosForm(x => ({ ...x, fatalDate: undefined })); }} />
+                {errosForm.fatalDate && <span id="erro-prazo-fatal" className="prazo-field-erro">{errosForm.fatalDate}</span>}
               </div>
               <div className="prazo-field">
                 <label htmlFor="prazo-internal">Prazo interno (opcional)</label>
@@ -1081,6 +1092,7 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
               <textarea id="prazo-desc" rows={3} value={form.description} placeholder="Detalhes, número do processo completo, etc."
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>
+            {errosForm.geral && <p className="prazo-form-erro" role="alert">{errosForm.geral}</p>}
           </div>
           <div className="prazo-modal-footer">
             {editingId && (() => {
@@ -1211,6 +1223,24 @@ export default function PrazosTab({ dbUser, showToast, onSincronizado, pje, onAb
               title="Planilha de prazos"
               onChange={e => { if (e.target.files?.[0]) onImportFile(e.target.files[0]); }} />
             <p className="prazo-import-hint">Colunas: Título, Processo/Cliente, Responsável, Tipo, Prazo Limite, Prazo Interno, Observações. Só Título e Prazo Limite são obrigatórios.</p>
+            {resultadoImport && (
+              <div className={`prazo-import-res ${resultadoImport.falha || resultadoImport.erros.length ? 'prazo-import-res--erro' : ''}`} role="status">
+                {resultadoImport.falha ? <strong>{resultadoImport.falha}</strong> : (
+                  <>
+                    <strong>{resultadoImport.ok === 1 ? '1 prazo importado.' : `${resultadoImport.ok} prazos importados.`}</strong>
+                    {resultadoImport.ignoradas > 0 && (
+                      <span>{resultadoImport.ignoradas === 1 ? '1 linha sem título ou data foi ignorada.' : `${resultadoImport.ignoradas} linhas sem título ou data foram ignoradas.`}</span>
+                    )}
+                    {resultadoImport.erros.length > 0 && (
+                      <>
+                        <span>{resultadoImport.erros.length === 1 ? '1 linha não entrou:' : `${resultadoImport.erros.length} linhas não entraram:`}</span>
+                        <ul>{resultadoImport.erros.map((e, i) => <li key={i}><strong>{e.titulo}</strong>: {e.erro}</li>)}</ul>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </Modal>
       )}

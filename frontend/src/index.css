@@ -820,8 +820,12 @@ body {
   width: 100%;
   background: currentColor;
   opacity: 0.4;
-  animation: toast-progress 4s linear forwards;
+  animation: toast-progress var(--dur, 4s) linear forwards; /* --dur: duração do aviso, vem do App */
 }
+
+/* Aviso de erro não some sozinho: sem barra de tempo e com o X bem visível */
+.lx-toast--fixo::after { display: none; }
+.lx-toast--fixo .lx-toast-close { opacity: 0.8; }
 
 @keyframes toast-progress {
   from { width: 100%; }
