@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiFetch, API } from './api';
+import { apiFetch, API, confirmar } from './api';
 
 type TokenRobo = { id: string; criadoEm: string; ultimoUsoEm: string | null; revogadoEm: string | null };
 
@@ -58,7 +58,10 @@ export default function RoboPjePerfil({ showToast }: { showToast: (m: string, t?
       {ativos.map(t => (
         <div key={t.id} className="app-robo-linha">
           <span>Gerado em {quando(t.criadoEm)} · último uso: {quando(t.ultimoUsoEm)}</span>
-          <button type="button" className="lx-btn-tool" onClick={() => revogar(t.id)}>Revogar</button>
+          <button type="button" className="lx-btn-tool"
+            onClick={() => confirmar('Revogar este token? O robô que usa ele para de enviar a leitura do PJe até receber um token novo.', () => revogar(t.id))}>
+            Revogar
+          </button>
         </div>
       ))}
       <button type="button" className="lx-btn-tool app-save-config-btn" onClick={gerar}>Gerar token do robô do PJe</button>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Users, Loader2, Plus, Building2 } from 'lucide-react';
 
-import { apiFetch, API, type Usuario } from './api';
+import { apiFetch, API, confirmar, type Usuario } from './api';
 import { iniciais } from './PrazosTab';
 import './AdminPanel.css';
 
@@ -56,27 +56,59 @@ export default function AdminPanel({ dbUser, showToast, nomeEscritorio, config, 
     } catch { showToast('Erro de conexão.', 'error'); }
   };
 
-  const adicionarPerfil = async () => {
+  const nomeDe = (u: Membro) => u.name || u.email;
+
+  // Desativar e tirar o robô têm efeito imediato (desconecta / revoga tokens): pedem confirmação
+  const alternarAtivo = (u: Membro) => u.ativo === false
+    ? alterar(u, 'ativo', 'ativo', true)
+    : confirmar(`Desativar ${nomeDe(u)}? A pessoa é desconectada na hora e não entra mais. Os prazos dela continuam no quadro.`,
+      () => alterar(u, 'ativo', 'ativo', false));
+  const alternarRobo = (u: Membro, pode: boolean) => pode
+    ? alterar(u, 'robo', 'podeRodarRobo', true)
+    : confirmar(`Tirar o robô do PJe de ${nomeDe(u)}? Os tokens do robô dessa pessoa são revogados na hora.`,
+      () => alterar(u, 'robo', 'podeRodarRobo', false));
+
+  // POST /api/users: cadastra, ou, com e-mail que já existe, troca nome e senha
+  // (o backend derruba as sessões da pessoa e revoga os tokens do robô dela)
+  const enviarCadastro = async (dados: { name: string; email: string; senha: string }, aviso: (nome: string) => string) => {
     setSalvandoPerfil(true);
     try {
       const r = await apiFetch(`${API}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(novoPerfil),
+        body: JSON.stringify(dados),
       });
       const d = await r.json();
-      if (d.success) {
-        setEquipe(eq => [...eq.filter(x => x.id !== d.user.id), d.user].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email)));
-        setNovoPerfil({ name: '', email: '', senha: '' });
-        showToast(`${d.user.name || d.user.email} já pode entrar com a senha cadastrada.`, 'success');
-      } else {
-        showToast(d.error || 'Erro ao cadastrar.', 'error');
-      }
+      if (!d.success) { showToast(d.error || 'Erro ao salvar.', 'error'); return false; }
+      setEquipe(eq => [...eq.filter(x => x.id !== d.user.id), d.user].sort((a, b) => nomeDe(a).localeCompare(nomeDe(b))));
+      showToast(aviso(nomeDe(d.user)), 'success');
+      return true;
     } catch {
       showToast('Erro de conexão.', 'error');
+      return false;
     } finally {
       setSalvandoPerfil(false);
     }
+  };
+
+  const adicionarPerfil = () => {
+    const enviar = async () => {
+      if (await enviarCadastro(novoPerfil, n => `${n} já pode entrar com a senha cadastrada.`)) setNovoPerfil({ name: '', email: '', senha: '' });
+    };
+    // Mesmo e-mail de alguém da equipe: o cadastro sobrescreveria nome e senha dela sem avisar
+    const existente = equipe.find(x => x.email.toLowerCase() === novoPerfil.email.trim().toLowerCase());
+    if (existente) confirmar(`${nomeDe(existente)} já usa esse e-mail. Trocar o nome e a senha dessa pessoa? Ela é desconectada e os tokens do robô dela caem.`, enviar);
+    else enviar();
+  };
+
+  // "Nova senha" na linha da pessoa: o mesmo cadastro, com o nome que ela já tem
+  const [senhaDe, setSenhaDe] = useState<string | null>(null);
+  const [senhaNova, setSenhaNova] = useState('');
+  const fecharSenha = () => { setSenhaDe(null); setSenhaNova(''); };
+  const salvarSenha = async (u: Membro) => {
+    // ponytail: sem nome cadastrado vai o e-mail como nome (a rota exige nome); só contas antigas não têm
+    if (await enviarCadastro({ name: u.name || u.email, email: u.email, senha: senhaNova },
+      n => `Senha de ${n} redefinida. A pessoa foi desconectada e entra com a senha nova.`)) fecharSenha();
   };
 
   const salvarNome = async () => {
@@ -115,33 +147,54 @@ export default function AdminPanel({ dbUser, showToast, nomeEscritorio, config, 
           <ul className="admin-ajuda">
             <li><strong>Robô PJe:</strong> só para quem roda o robô no PC com o certificado. Desmarcar revoga os tokens da pessoa.</li>
             <li><strong>Desativar:</strong> para quem sai do escritório. A pessoa não entra mais e é desconectada na hora; os prazos dela ficam.</li>
-            <li><strong>Redefinir senha:</strong> cadastre de novo o mesmo e-mail com a senha nova. Os tokens do robô da pessoa caem.</li>
+            <li><strong>Nova senha:</strong> redefine a senha de quem esqueceu. A pessoa é desconectada e os tokens do robô dela caem. A própria senha você troca no Perfil.</li>
           </ul>
 
           <div className="prazo-perfis admin-perfis">
             {equipe.map((u, idx) => (
-              <div key={u.id} className={`prazo-perfil ${u.ativo === false ? 'prazo-perfil--inativo' : ''}`}>
-                <span className={`prazo-av prazo-av--${idx % 4}`} aria-hidden="true">{iniciais(u.name || u.email)}</span>
-                <span className="prazo-envio-nome">
-                  {u.name || u.email}{u.ativo === false && ' (desativado)'}
-                  {u.name && <small>{u.email}</small>}
-                </span>
-                <label className="prazo-perfil-robo">
-                  <input type="checkbox" checked={!!u.podeRodarRobo} onChange={e => alterar(u, 'robo', 'podeRodarRobo', e.target.checked)} /> Robô PJe
-                </label>
-                {u.id === dbUser.id ? (
-                  <span className="admin-voce">Você</span>
-                ) : (
-                  <button type="button" className="prazo-btn prazo-btn--ghost prazo-btn--perfil admin-acao" onClick={() => alterar(u, 'ativo', 'ativo', u.ativo === false)}>
-                    {u.ativo === false ? 'Reativar' : 'Desativar'}
-                  </button>
+              <div key={u.id}>
+                <div className={`prazo-perfil ${u.ativo === false ? 'prazo-perfil--inativo' : ''}`}>
+                  <span className={`prazo-av prazo-av--${idx % 4}`} aria-hidden="true">{iniciais(nomeDe(u))}</span>
+                  <span className="prazo-envio-nome">
+                    {nomeDe(u)}{u.ativo === false && ' (desativado)'}
+                    {u.name && <small>{u.email}</small>}
+                  </span>
+                  <label className="prazo-perfil-robo">
+                    <input type="checkbox" checked={!!u.podeRodarRobo} onChange={e => alternarRobo(u, e.target.checked)} /> Robô PJe
+                  </label>
+                  {u.id === dbUser.id ? (
+                    <>
+                      <span className="admin-voce" aria-hidden="true" />
+                      <span className="admin-voce">Você</span>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className="prazo-btn prazo-btn--ghost admin-acao" aria-expanded={senhaDe === u.id}
+                        onClick={() => { setSenhaNova(''); setSenhaDe(senhaDe === u.id ? null : u.id); }}>
+                        Nova senha
+                      </button>
+                      <button type="button" className="prazo-btn prazo-btn--ghost admin-acao" onClick={() => alternarAtivo(u)}>
+                        {u.ativo === false ? 'Reativar' : 'Desativar'}
+                      </button>
+                    </>
+                  )}
+                </div>
+                {senhaDe === u.id && (
+                  <form className="admin-senha" onSubmit={e => { e.preventDefault(); if (senhaNova.length >= 8) salvarSenha(u); }}>
+                    <input type="password" autoComplete="new-password" placeholder="Senha nova (mín. 8)" aria-label={`Senha nova de ${nomeDe(u)}`}
+                      value={senhaNova} onChange={e => setSenhaNova(e.target.value)} autoFocus />
+                    <button type="submit" className="lx-btn-primary" disabled={salvandoPerfil || senhaNova.length < 8}>
+                      {salvandoPerfil && <Loader2 className="lx-spin" size={14} />} Salvar senha
+                    </button>
+                    <button type="button" className="lx-btn-tool" onClick={fecharSenha}>Cancelar</button>
+                  </form>
                 )}
               </div>
             ))}
           </div>
 
           <form className="prazo-perfil-novo" onSubmit={e => { e.preventDefault(); if (podeAdicionar) adicionarPerfil(); }}>
-            <span className="prazo-perfis-titulo">Adicionar pessoa (ou redefinir senha)</span>
+            <span className="prazo-perfis-titulo">Adicionar pessoa</span>
             <input type="text" placeholder="Nome" aria-label="Nome" value={novoPerfil.name}
               onChange={e => setNovoPerfil(n => ({ ...n, name: e.target.value }))} />
             <input type="email" placeholder="E-mail de login" aria-label="E-mail de login" value={novoPerfil.email}

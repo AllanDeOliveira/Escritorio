@@ -28,8 +28,13 @@
 .admin-perfis { max-height: none; overflow: visible; }
 .admin-perfis .prazo-perfil { padding: 0.55rem 0.5rem; cursor: default; }
 .admin-perfis .prazo-perfil-robo { font-size: 0.8rem; }
-/* Mesma largura para Desativar, Reativar e "Você": a caixa do Robô PJe fica alinhada em todas as linhas */
-.admin-acao, .admin-voce { width: 84px; justify-content: center; flex: none; }
+/* Largura fixa nos botões e no "Você": a caixa do Robô PJe fica alinhada em todas as linhas */
+.admin-acao, .admin-voce { width: 88px; justify-content: center; flex: none; }
+.admin-acao { height: 28px; padding: 0 8px; font-size: 12px; }
 .admin-voce { display: inline-flex; font-size: 12px; color: var(--text-secondary); }
+
+/* "Nova senha": campo logo abaixo da linha da pessoa */
+.admin-senha { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.5rem 0.75rem 2.6rem; }
+.admin-senha input { flex: 1; max-width: 300px; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.85rem; }
 
 .admin-nome { display: flex; flex-direction: column; }
